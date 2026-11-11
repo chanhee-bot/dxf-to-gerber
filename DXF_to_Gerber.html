@@ -89,6 +89,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
       <label for="oApTol">조리개 공유 허용 오차 (mm)</label><input type="number" id="oApTol" value="0.0001" min="0.000001" step="0.0001">
       <label for="oEllN">타원 다각형 분할 수</label><input type="number" id="oEllN" value="48" min="12" max="360" step="4">
       <label for="oNoMacro">매크로(AM) 대신 영역으로 내기</label><input type="checkbox" id="oNoMacro">
+      <label for="oFillPoly" title="꺾임 R 배선의 모서리 채움 영역은 호(G02/G03)로 적어 파일을 줄입니다. CAM이 영역 안의 호를 잘못 읽으면 켜세요.">채움 영역의 호를 꺾은선으로 내기</label><input type="checkbox" id="oFillPoly">
       <label for="oAllVoid">안쪽 폴리선을 모두 빈 곳으로</label><input type="checkbox" id="oAllVoid">
     </div>
   </div>
@@ -126,7 +127,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1111-2255';
+const BUILD = '1111-2330';
 
 /* ================================================================
  * 1. 기하 기본
@@ -138,6 +139,38 @@ function arcOf(x1, y1, x2, y2, b) {
   const dx = x2 - x1, dy = y2 - y1, k = (1 - b * b) / (4 * b);
   const cx = (x1 + x2) / 2 - dy * k, cy = (y1 + y2) / 2 + dx * k;
   return { cx, cy, r: hyp(x1 - cx, y1 - cy), a1: Math.atan2(y1 - cy, x1 - cx), sweep: 4 * Math.atan(b) };
+}
+// flattenPath와 같지만, 편 점이 원래 어느 호 위에 있는지도 함께 돌려준다(채움 영역을 호로 되돌려 적는 데 쓴다)
+function flattenTagged(pts, tol) {
+  const poly = [], seg = [], info = [], n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const p = pts[i], q = pts[(i + 1) % n], base = poly.length;
+    poly.push([p.x, p.y]);
+    if (p.b) {
+      const a = arcOf(p.x, p.y, q.x, q.y, p.b);
+      const step = 2 * Math.acos(Math.max(0, 1 - tol / a.r)) || 0.01;
+      const k = Math.min(4000, Math.max(2, Math.ceil(Math.abs(a.sweep) / step)));
+      for (let j = 1; j < k; j++) { const t = a.a1 + a.sweep * j / k; poly.push([a.cx + a.r * Math.cos(t), a.cy + a.r * Math.sin(t)]); }
+      for (let j = 0; j < k; j++) seg[base + j] = i;
+      info[i] = { k, sweep: a.sweep };
+    } else seg[base] = -1;
+  }
+  return { poly, seg, info };
+}
+// 채움 다각형(점 배열)을 [x, y, bulge, …]로. 원본 호를 따라가는 연속 구간은 호 하나로 묶는다.
+const ptKey = q => Math.round(q[0] * 1e7) + ',' + Math.round(q[1] * 1e7);
+function packFill(f, T, idx) {
+  const m = f.length, e = new Array(m).fill(-1);
+  if (T) { const N = T.poly.length; for (let j = 0; j < m; j++) { const ip = idx.get(ptKey(f[j])), iq = idx.get(ptKey(f[(j + 1) % m])); if (ip !== undefined && iq === (ip + 1) % N && T.seg[ip] >= 0) e[j] = T.seg[ip]; } }
+  let st = 0; for (let j = 0; j < m; j++) if (e[j] < 0 || e[(j + m - 1) % m] !== e[j]) { st = j; break; }
+  const d = [];
+  for (let c = 0; c < m;) {
+    const j = (st + c) % m, a = e[j];
+    if (a < 0) { d.push(f[j][0], f[j][1], 0); c++; continue; }
+    let run = 1; while (c + run < m && e[(st + c + run) % m] === a) run++;
+    d.push(f[j][0], f[j][1], Math.tan(T.info[a].sweep * run / T.info[a].k / 4)); c += run;
+  }
+  return Float64Array.from(d);
 }
 function flattenPath(pts, tol) {
   const out = [], n = pts.length;
@@ -1104,7 +1137,16 @@ function buildGerber(L, cfg) {
   for (const k of keys) {
     o.push(k % 2 ? '%LPC*%' : '%LPD*%'); const v = levels.get(k);
     if (v.areas.length) { o.push('G04 AREA*'); for (const p of v.areas) { region(p); flush(); } }
-    if (v.fills.length) { o.push('G04 FILL*'); for (const d of v.fills) { o.push('G36*', xy([d[0], d[1]]) + 'D02*'); for (let i = 2; i < d.length; i += 2) o.push(xy([d[i], d[i + 1]]) + 'D01*'); o.push(xy([d[0], d[1]]) + 'D01*', 'G37*'); flush(); } }
+    if (v.fills.length) { o.push('G04 FILL*'); for (const d of v.fills) { // [x, y, bulge, …]
+      o.push('G36*', xy([d[0], d[1]]) + 'D02*'); let mode = 1;
+      for (let i = 0; i < d.length; i += 3) {
+        const k = (i + 3) % d.length, b = d[i + 2];
+        if (!b) { if (mode !== 1) { o.push('G01*'); mode = 1; } o.push(xy([d[k], d[k + 1]]) + 'D01*'); }
+        else { const a = arcOf(d[i], d[i + 1], d[k], d[k + 1], b), md = b > 0 ? 3 : 2; if (mode !== md) { o.push('G0' + md + '*'); mode = md; } o.push(xy([d[k], d[k + 1]]) + 'I' + fmtC(a.cx - d[i]) + 'J' + fmtC(a.cy - d[i + 1]) + 'D01*'); }
+      }
+      if (mode !== 1) o.push('G01*');
+      o.push('G37*'); flush();
+    } }
     for (const [code, arr] of v.strokes) { o.push('D' + code + '*'); for (const pl of arr) { o.push(xy(pl[0]) + 'D02*'); for (let i = 1; i < pl.length; i++) o.push(xy(pl[i]) + 'D01*'); flush(); } }
     for (const [code, arr] of v.flashes) { o.push('D' + code + '*'); for (const p of arr) { o.push(xy(p) + 'D03*'); flush(); } }
   }
@@ -1273,9 +1315,10 @@ async function convertLayer(L, cfg, tick) {
     if (++cnt % 20 === 0) await tick(L.label + ': 배선 복원 ' + cnt + '/' + traces.length);
     const nb = [...new Set(s.contacts.map(c => c.o))].filter(o => !o.isVoid && o.parent !== s && s.parent !== o);
     const inNb = (x, y) => { for (const o of nb) if (inTol(o, x, y, 1e-6)) return true; return false; };
-    const r = reconstructTrace(s.pts.some(p => p.b) ? flattenPath(s.pts, TRACE_FLAT) : s.pts.map(p => [p.x, p.y]), (x, y) => inTol(s, x, y, 1e-6) || inNb(x, y), inNb);
+    const T = s.hasArc ? flattenTagged(s.pts, TRACE_FLAT) : null, poly0 = T ? T.poly : s.pts.map(p => [p.x, p.y]);
+    const r = reconstructTrace(poly0, (x, y) => inTol(s, x, y, 1e-6) || inNb(x, y), inNb);
     if (!r.ok) { s.role = 'region'; s.why = r.why; s.fallback = true; warn('fallback', s, '영역으로 대체: ' + r.why); }
-    else { for (const k of r.strokes) k.w = snap(k.w); s.strokes = r.strokes; s.fills = r.fills.map(f => { const d = new Float64Array(f.length * 2); f.forEach((q, i) => { d[2 * i] = q[0]; d[2 * i + 1] = q[1]; }); return d; }); s.narrow = r.warns; }
+    else { for (const k of r.strokes) k.w = snap(k.w); s.strokes = r.strokes; const idx = T ? new Map(poly0.map((q, i) => [ptKey(q), i])) : null; s.fills = r.fills.map(f => packFill(f, cfg.fillPoly ? null : T, idx)); s.narrow = r.warns; }
   }
   // Gerber를 쓰고 다시 읽어 모든 객체를 원본과 비교한다. 복원한 배선이 기준을 넘으면 그 객체만 영역으로 바꿔 다시 쓴다.
   const ATOM_C = new Map(), atomL = o => { let a = ATOM_C.get(o); if (!a) { if (ATOM_C.size > 40000) ATOM_C.clear(); a = mkPoly(o.flat, o.level % 2); ATOM_C.set(o, a); } return a; };
@@ -1330,20 +1373,20 @@ async function convertAll(base, cfg, prog) {
  * ================================================================ */
 const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
 function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
-function makeZip(files) { // files: [{name, text}]
+function makeZip(files) { // files: [{name, text, packed?}]  packed: 미리 압축한 것(deflate raw). 없으면 압축 없이(stored) 담는다
   const enc = new TextEncoder(), parts = [], central = []; let off = 0;
   const d = new Date(), dt = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(), tm = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
   for (const f of files) {
-    const name = enc.encode(f.name), data = enc.encode(f.text), crc = crc32(data);
+    const name = enc.encode(f.name), raw = f.packed ? null : enc.encode(f.text), body = f.packed ? f.packed.data : raw, crc = f.packed ? f.packed.crc : crc32(raw), usize = f.packed ? f.packed.size : raw.length, method = f.packed ? 8 : 0;
     const h = new DataView(new ArrayBuffer(30));
-    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true); h.setUint16(10, tm, true); h.setUint16(12, dt, true);
-    h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, name.length, true); h.setUint16(28, 0, true);
-    parts.push(new Uint8Array(h.buffer), name, data);
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, method, true); h.setUint16(10, tm, true); h.setUint16(12, dt, true);
+    h.setUint32(14, crc, true); h.setUint32(18, body.length, true); h.setUint32(22, usize, true); h.setUint16(26, name.length, true); h.setUint16(28, 0, true);
+    parts.push(new Uint8Array(h.buffer), name, body);
     const c = new DataView(new ArrayBuffer(46));
-    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true); c.setUint16(12, tm, true); c.setUint16(14, dt, true);
-    c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, method, true); c.setUint16(12, tm, true); c.setUint16(14, dt, true);
+    c.setUint32(16, crc, true); c.setUint32(20, body.length, true); c.setUint32(24, usize, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
     central.push(new Uint8Array(c.buffer), name);
-    off += 30 + name.length + data.length;
+    off += 30 + name.length + body.length;
   }
   let cs = 0; for (const p of central) cs += p.length;
   const e = new DataView(new ArrayBuffer(22));
@@ -1351,6 +1394,22 @@ function makeZip(files) { // files: [{name, text}]
   const all = parts.concat(central, [new Uint8Array(e.buffer)]); let total = 0; for (const p of all) total += p.length;
   const out = new Uint8Array(total); let o = 0; for (const p of all) { out.set(p, o); o += p.length; }
   return out;
+}
+// 브라우저에 들어 있는 압축 기능(CompressionStream, 외부 라이브러리 아님)으로 압축한 zip. 기능이 없는 브라우저에서는 압축 없이 담는다.
+async function makeZipPacked(files) {
+  if (typeof CompressionStream === 'undefined') return makeZip(files);
+  const enc = new TextEncoder(), out = [];
+  try {
+    for (const f of files) {
+      const raw = enc.encode(f.text), cs = new CompressionStream('deflate-raw'), wr = cs.writable.getWriter();
+      wr.write(raw); wr.close();
+      const chunks = [], rd = cs.readable.getReader(); let n = 0;
+      for (;;) { const r = await rd.read(); if (r.done) break; chunks.push(r.value); n += r.value.length; }
+      const data = new Uint8Array(n); let o = 0; for (const c of chunks) { data.set(c, o); o += c.length; }
+      out.push({ name: f.name, packed: { data, crc: crc32(raw), size: raw.length } });
+    }
+  } catch (e) { return makeZip(files); }
+  return makeZip(out);
 }
 
 /* ================================================================
@@ -1538,7 +1597,7 @@ if (typeof document !== 'undefined') (function () {
   /* ---------- 변환 ---------- */
   function cfgNow() {
     const num = (id, d) => { const v = parseFloat($(id).value); return isFinite(v) && v > 0 ? v : d; };
-    return { layers: Object.assign({}, S.layerTarget), files: Object.assign({}, S.files), mirror: Object.assign({}, S.mirror), origin: $('oOrigin').value, ratio: num('oRatio', 4), grid: num('oGrid', 0.002), thr: num('oThr', 0.005), apTol: num('oApTol', 0.0001), noMacro: $('oNoMacro').checked, ellN: Math.max(12, Math.round(num('oEllN', 48))), allVoid: $('oAllVoid').checked, overrides: S.overrides, voids: S.voids };
+    return { layers: Object.assign({}, S.layerTarget), files: Object.assign({}, S.files), mirror: Object.assign({}, S.mirror), origin: $('oOrigin').value, ratio: num('oRatio', 4), grid: num('oGrid', 0.002), thr: num('oThr', 0.005), apTol: num('oApTol', 0.0001), noMacro: $('oNoMacro').checked, ellN: Math.max(12, Math.round(num('oEllN', 48))), allVoid: $('oAllVoid').checked, fillPoly: $('oFillPoly').checked, overrides: S.overrides, voids: S.voids };
   }
   async function convert(refit) {
     if (!S.base) return;
@@ -1795,13 +1854,13 @@ if (typeof document !== 'undefined') (function () {
   document.addEventListener('drop', ev => { const f = ev.dataTransfer && ev.dataTransfer.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => loadBuffer(rd.result, f.name); rd.readAsArrayBuffer(f); });
   $('btnExample').onclick = () => loadText(makeExampleDxf(), 'example.dxf');
   $('oUnit').onchange = () => rebuildBase(false);
-  for (const id of ['oOrigin', 'oRatio', 'oGrid', 'oThr', 'oApTol', 'oEllN', 'oNoMacro', 'oAllVoid']) $(id).addEventListener('change', () => convert(id === 'oOrigin'));
+  for (const id of ['oOrigin', 'oRatio', 'oGrid', 'oThr', 'oApTol', 'oEllN', 'oNoMacro', 'oFillPoly', 'oAllVoid']) $(id).addEventListener('change', () => convert(id === 'oOrigin'));
   for (const id of ['vOrig', 'vRes', 'vCenter']) $(id).onchange = draw;
   $('vMaskLine').onchange = () => { renderLegend(); draw(); };
   $('vColor').onchange = () => { renderLegend(); draw(); };
   $('btnFit').onclick = fit;
   cv.addEventListener('dblclick', fit);
-  $('btnZip').onclick = () => { if (!S.result) return; const stem = S.fileName.replace(/\.[^.]*$/, '') || 'output'; download(stem + '_gerber.zip', [makeZip(S.result.layers.map(L => ({ name: S.files[L.target], text: L.text })))], 'application/zip'); };
+  $('btnZip').onclick = async () => { if (!S.result) return; const stem = S.fileName.replace(/\.[^.]*$/, '') || 'output', b = $('btnZip'), t = b.textContent; b.disabled = true; b.textContent = '압축 중…'; try { download(stem + '_gerber.zip', [await makeZipPacked(S.result.layers.map(L => ({ name: S.files[L.target], text: L.text })))], 'application/zip'); } finally { b.disabled = false; b.textContent = t; } };
   window.addEventListener('resize', resize);
   renderLegend(); resize();
 })();
