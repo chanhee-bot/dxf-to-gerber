@@ -108,6 +108,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
     <label><input type="checkbox" id="vOrig" checked> 원본 외곽선</label>
     <label><input type="checkbox" id="vRes" checked> 변환 결과</label>
     <label><input type="checkbox" id="vCenter" checked> 중심선</label>
+    <label title="솔더마스크를 속을 채우지 않고 테두리 선으로만 보입니다(화면 표시만, 출력 파일은 그대로 면)"><input type="checkbox" id="vMaskLine" checked> 마스크 선으로 보기</label>
     <label>색 <select id="vColor"><option value="kind">종류별</option><option value="layer">레이어별</option></select></label>
     <button id="btnFit">전체 보기</button>
   </div>
@@ -125,7 +126,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1111-2145';
+const BUILD = '1111-2210';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1266,6 +1267,7 @@ if (typeof document !== 'undefined') (function () {
   // 종류별 색에서도 층을 구분한다: 동박 1 = 밝은 색, 동박 2 = 같은 색의 어두운 톤, 솔더마스크 = 옅은 톤
   const shade = (hex, k, w) => '#' + [1, 3, 5].map(i => { const v = parseInt(hex.substr(i, 2), 16); return Math.round(v * k + 255 * w).toString(16).padStart(2, '0'); }).join('');
   const kindCol = (tg, kind) => tg === 'cu2' ? shade(KIND_COL[kind], 0.5, 0) : tg === 'mask' ? shade(KIND_COL[kind], 0.4, 0.6) : KIND_COL[kind];
+  const MASK_LINE_COL = '#c77dff'; // '마스크 선으로 보기'의 테두리 색
   const LAYER_COL = { cu1: '#ff5a5a', cu2: '#4f8dff', mask: '#3ccf6e' };
   const WT = { fallback: ['영역으로 출력(대체)', 'w'], narrow: ['좁은 패드 → 직각 마감', 'w'], overlap: ['같은 층 겹침', 'e'], nested: ['다른 객체 안의 폴리선', 'w'], diff: ['형상 차이 기준 초과', 'e'], dup: ['중복 객체', 'w'], width: ['폭 있는 폴리선', 'w'], arcflat: ['블록 배율로 호를 꺾은선으로 바꿈', 'w'], ellipse: ['타원 근사 오차', 'w'] };
 
@@ -1451,10 +1453,10 @@ if (typeof document !== 'undefined') (function () {
   }
 
   /* ---------- 미리보기 ---------- */
-  const cv = $('cv'), ctx = cv.getContext('2d'), off = document.createElement('canvas');
+  const cv = $('cv'), ctx = cv.getContext('2d'), off = document.createElement('canvas'), off2 = document.createElement('canvas');
   let rafPending = false;
   function draw() { if (rafPending) return; rafPending = true; requestAnimationFrame(() => { rafPending = false; render(); }); }
-  function resize() { const r = $('cvWrap').getBoundingClientRect(); V.dpr = window.devicePixelRatio || 1; cv.width = Math.max(10, Math.round(r.width * V.dpr)); cv.height = Math.max(10, Math.round(r.height * V.dpr)); off.width = cv.width; off.height = cv.height; draw(); }
+  function resize() { const r = $('cvWrap').getBoundingClientRect(); V.dpr = window.devicePixelRatio || 1; cv.width = Math.max(10, Math.round(r.width * V.dpr)); cv.height = Math.max(10, Math.round(r.height * V.dpr)); off.width = off2.width = cv.width; off.height = off2.height = cv.height; draw(); }
   function fit() { if (S.result && S.result.bbox) zoomTo(S.result.bbox, true); else draw(); }
   function zoomTo(bb, whole) {
     const w = Math.max(bb[2] - bb[0], whole ? 1e-3 : 1.5), h = Math.max(bb[3] - bb[1], whole ? 1e-3 : 1.5);
@@ -1482,6 +1484,15 @@ if (typeof document !== 'undefined') (function () {
         o.globalCompositeOperation = p.pol ? 'destination-out' : 'source-over';
         o.fillStyle = o.strokeStyle = byLayer ? LAYER_COL[tg] : kindCol(tg, p.kind === 'region' ? p.sub : p.kind);
         for (const a of p.atoms) drawAtom(o, a);
+      }
+      if (tg === 'mask' && $('vMaskLine').checked) { // 테두리만 남긴다: 면에서 '안쪽으로 줄인 면'을 뺀다
+        const e = off2.getContext('2d'), k = Math.max(1, Math.round(2 * V.dpr));
+        e.setTransform(1, 0, 0, 1, 0, 0); e.globalCompositeOperation = 'source-over'; e.clearRect(0, 0, off2.width, off2.height); e.drawImage(off, 0, 0);
+        e.globalCompositeOperation = 'destination-in';
+        for (const d of [[k, 0], [-k, 0], [0, k], [0, -k], [k, k], [k, -k], [-k, k], [-k, -k]]) e.drawImage(off, d[0], d[1]);
+        o.setTransform(1, 0, 0, 1, 0, 0); o.globalCompositeOperation = 'destination-out'; o.drawImage(off2, 0, 0);
+        if (!byLayer) { o.globalCompositeOperation = 'source-in'; o.fillStyle = MASK_LINE_COL; o.fillRect(0, 0, off.width, off.height); }
+        ctx.globalAlpha = 1; ctx.drawImage(off, 0, 0); continue;
       }
       ctx.globalAlpha = 0.85; ctx.drawImage(off, 0, 0); ctx.globalAlpha = 1;
     }
@@ -1519,7 +1530,7 @@ if (typeof document !== 'undefined') (function () {
     const byLayer = $('vColor').value === 'layer';
     const it = byLayer ? [[LAYER_COL.cu1, '동박 1'], [LAYER_COL.cu2, '동박 2'], [LAYER_COL.mask, '솔더마스크']] : [[KIND_COL.stroke, '선(배선, D01)'], [KIND_COL.flash, '플래시(패드, D03)'], [KIND_COL.area, '영역(외곽선 그대로)'], [KIND_COL.fill, '모서리·끝 채움(영역)']];
     const sw = c => byLayer ? '<i style="background:' + c + '"></i>' : ['cu1', 'cu2', 'mask'].map(t => '<i style="margin-right:1px;background:' + (t === 'cu1' ? c : shade(c, t === 'cu2' ? 0.5 : 0.4, t === 'cu2' ? 0 : 0.6)) + '"></i>').join('');
-    $('legendItems').innerHTML = (byLayer ? '' : '<span style="margin-right:14px">색 톤: 밝음 = 동박 1 / 어두움 = 동박 2 / 옅음 = 솔더마스크</span>') + it.map(v => '<span style="margin-right:14px;white-space:nowrap">' + sw(v[0]) + ' ' + v[1] + '</span>').join('') + '<span style="margin-right:14px"><i style="background:none;border:1px solid #fff"></i>원본 외곽선</span><span><i style="background:#06301a;height:3px;border:1px solid #6b7785"></i>중심선</span>';
+    $('legendItems').innerHTML = (byLayer ? '' : '<span style="margin-right:14px">색 톤: 밝음 = 동박 1 / 어두움 = 동박 2 / 옅음 = 솔더마스크</span>') + it.map(v => '<span style="margin-right:14px;white-space:nowrap">' + sw(v[0]) + ' ' + v[1] + '</span>').join('') + (!byLayer && $('vMaskLine').checked ? '<span style="margin-right:14px;white-space:nowrap"><i style="background:none;border:2px solid ' + MASK_LINE_COL + '"></i>솔더마스크 테두리</span>' : '') + '<span style="margin-right:14px"><i style="background:none;border:1px solid #fff"></i>원본 외곽선</span><span><i style="background:#06301a;height:3px;border:1px solid #6b7785"></i>중심선</span>';
   }
   const toWorld = ev => { const r = cv.getBoundingClientRect(); return [((ev.clientX - r.left) * V.dpr - cv.width / 2) / V.scale + V.cx, (cv.height / 2 - (ev.clientY - r.top) * V.dpr) / V.scale + V.cy]; };
   cv.addEventListener('wheel', ev => { ev.preventDefault(); const p = toWorld(ev), f = Math.pow(1.0015, -ev.deltaY); V.scale *= f; V.cx = p[0] - (p[0] - V.cx) / f; V.cy = p[1] - (p[1] - V.cy) / f; draw(); }, { passive: false });
@@ -1575,6 +1586,7 @@ if (typeof document !== 'undefined') (function () {
   $('oUnit').onchange = () => rebuildBase(false);
   for (const id of ['oOrigin', 'oRatio', 'oGrid', 'oThr', 'oApTol', 'oEllN', 'oNoMacro', 'oAllVoid']) $(id).addEventListener('change', () => convert(id === 'oOrigin'));
   for (const id of ['vOrig', 'vRes', 'vCenter']) $(id).onchange = draw;
+  $('vMaskLine').onchange = () => { renderLegend(); draw(); };
   $('vColor').onchange = () => { renderLegend(); draw(); };
   $('btnFit').onclick = fit;
   cv.addEventListener('dblclick', fit);
