@@ -12,7 +12,7 @@ const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? ' 
   const errors = [];
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', e => errors.push(String(e)));
-  await page.goto('file:///' + path.join(root, 'DXF_to_Gerber.html').replace(/\\/g, '/'));
+  await page.goto('file:///' + path.join(root, process.env.HTML || 'DXF_to_Gerber.html').replace(/\\/g, '/'));
   check('빌드 표시', /빌드 \d{4}-\d{4}/.test(await page.textContent('#build')), await page.textContent('#build'));
   await page.screenshot({ path: path.join(shots, '0_empty.png') });
 

@@ -1,7 +1,7 @@
 // 핵심 로직 검증: HTML에서 스크립트를 꺼내 Node에서 예제 도면을 변환해 본다.
 // 사용: node test/run_core.js [-v]
 const fs = require('fs'), path = require('path'), vm = require('vm');
-const html = fs.readFileSync(path.join(__dirname, '..', 'DXF_to_Gerber.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '..', process.env.HTML || 'DXF_to_Gerber.html'), 'utf8');
 const m = /<script>([\s\S]*)<\/script>/.exec(html);
 vm.runInThisContext(m[1], { filename: 'DXF_to_Gerber.js' });
 const verbose = process.argv.includes('-v');

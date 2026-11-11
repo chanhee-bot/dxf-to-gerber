@@ -1,7 +1,7 @@
 // 큰 도면 속도 측정: 예제 도면 전체를 블록으로 묶어 n×n 배열 INSERT로 펼친다.
 // 사용: node test/run_big.js [n]   (기본 10 → 도형 8700개). test/out/big_n.dxf도 만든다(브라우저에서 열어 볼 수 있음).
 const fs = require('fs'), path = require('path'), vm = require('vm');
-const html = fs.readFileSync(path.join(__dirname, '..', 'DXF_to_Gerber.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '..', process.env.HTML || 'DXF_to_Gerber.html'), 'utf8');
 vm.runInThisContext(/<script>([\s\S]*)<\/script>/.exec(html)[1], { filename: 'DXF_to_Gerber.js' });
 const n = +process.argv[2] || 10;
 const t = makeExampleDxf(), nl = t.includes('\r\n') ? '\r\n' : '\n';
