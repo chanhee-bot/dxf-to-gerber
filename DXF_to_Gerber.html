@@ -125,7 +125,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1111-1957';
+const BUILD = '1111-2145';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1263,6 +1263,9 @@ if (typeof document !== 'undefined') (function () {
   const V = { scale: 20, cx: 0, cy: 0, show: { cu1: true, cu2: true, mask: true }, sel: null, flash: null, dpr: 1 };
   window.__app = { S, V };
   const KIND_COL = { stroke: '#34d17a', flash: '#ffb224', area: '#ff5aa8', fill: '#3fc1ff' };
+  // 종류별 색에서도 층을 구분한다: 동박 1 = 밝은 색, 동박 2 = 같은 색의 어두운 톤, 솔더마스크 = 옅은 톤
+  const shade = (hex, k, w) => '#' + [1, 3, 5].map(i => { const v = parseInt(hex.substr(i, 2), 16); return Math.round(v * k + 255 * w).toString(16).padStart(2, '0'); }).join('');
+  const kindCol = (tg, kind) => tg === 'cu2' ? shade(KIND_COL[kind], 0.5, 0) : tg === 'mask' ? shade(KIND_COL[kind], 0.4, 0.6) : KIND_COL[kind];
   const LAYER_COL = { cu1: '#ff5a5a', cu2: '#4f8dff', mask: '#3ccf6e' };
   const WT = { fallback: ['영역으로 출력(대체)', 'w'], narrow: ['좁은 패드 → 직각 마감', 'w'], overlap: ['같은 층 겹침', 'e'], nested: ['다른 객체 안의 폴리선', 'w'], diff: ['형상 차이 기준 초과', 'e'], dup: ['중복 객체', 'w'], width: ['폭 있는 폴리선', 'w'], arcflat: ['블록 배율로 호를 꺾은선으로 바꿈', 'w'], ellipse: ['타원 근사 오차', 'w'] };
 
@@ -1477,10 +1480,10 @@ if (typeof document !== 'undefined') (function () {
       for (const p of L.prims) {
         if (!bbHit(p.bbox, vb)) continue;
         o.globalCompositeOperation = p.pol ? 'destination-out' : 'source-over';
-        o.fillStyle = o.strokeStyle = byLayer ? LAYER_COL[tg] : KIND_COL[p.kind === 'region' ? p.sub : p.kind];
+        o.fillStyle = o.strokeStyle = byLayer ? LAYER_COL[tg] : kindCol(tg, p.kind === 'region' ? p.sub : p.kind);
         for (const a of p.atoms) drawAtom(o, a);
       }
-      ctx.globalAlpha = 0.8; ctx.drawImage(off, 0, 0); ctx.globalAlpha = 1;
+      ctx.globalAlpha = 0.85; ctx.drawImage(off, 0, 0); ctx.globalAlpha = 1;
     }
     world(ctx);
     const px = V.dpr / V.scale;
@@ -1515,7 +1518,8 @@ if (typeof document !== 'undefined') (function () {
   function renderLegend() {
     const byLayer = $('vColor').value === 'layer';
     const it = byLayer ? [[LAYER_COL.cu1, '동박 1'], [LAYER_COL.cu2, '동박 2'], [LAYER_COL.mask, '솔더마스크']] : [[KIND_COL.stroke, '선(배선, D01)'], [KIND_COL.flash, '플래시(패드, D03)'], [KIND_COL.area, '영역(외곽선 그대로)'], [KIND_COL.fill, '모서리·끝 채움(영역)']];
-    $('legendItems').innerHTML = it.map(v => '<span style="margin-right:14px"><i style="background:' + v[0] + '"></i>' + v[1] + '</span>').join('') + '<span style="margin-right:14px"><i style="background:none;border:1px solid #fff"></i>원본 외곽선</span><span><i style="background:#06301a;height:3px;border:1px solid #6b7785"></i>중심선</span>';
+    const sw = c => byLayer ? '<i style="background:' + c + '"></i>' : ['cu1', 'cu2', 'mask'].map(t => '<i style="margin-right:1px;background:' + (t === 'cu1' ? c : shade(c, t === 'cu2' ? 0.5 : 0.4, t === 'cu2' ? 0 : 0.6)) + '"></i>').join('');
+    $('legendItems').innerHTML = (byLayer ? '' : '<span style="margin-right:14px">색 톤: 밝음 = 동박 1 / 어두움 = 동박 2 / 옅음 = 솔더마스크</span>') + it.map(v => '<span style="margin-right:14px;white-space:nowrap">' + sw(v[0]) + ' ' + v[1] + '</span>').join('') + '<span style="margin-right:14px"><i style="background:none;border:1px solid #fff"></i>원본 외곽선</span><span><i style="background:#06301a;height:3px;border:1px solid #6b7785"></i>중심선</span>';
   }
   const toWorld = ev => { const r = cv.getBoundingClientRect(); return [((ev.clientX - r.left) * V.dpr - cv.width / 2) / V.scale + V.cx, (cv.height / 2 - (ev.clientY - r.top) * V.dpr) / V.scale + V.cy]; };
   cv.addEventListener('wheel', ev => { ev.preventDefault(); const p = toWorld(ev), f = Math.pow(1.0015, -ev.deltaY); V.scale *= f; V.cx = p[0] - (p[0] - V.cx) / f; V.cy = p[1] - (p[1] - V.cy) / f; draw(); }, { passive: false });
