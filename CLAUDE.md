@@ -70,7 +70,6 @@ Gerber 배선은 "둥근 조리개 + 선", 선폭 = 조리개 지름(업체 CAM�
 - 이 PC에는 `gh` CLI가 없다. GitHub에는 `git push`로 올린다(원격 저장소 주소는 사용자에게 받을 것).
 
 - Node 설치됨(v26). 새 셸에서 `node`가 안 잡히면 PATH를 다시 읽는다. 검증 스크립트는 `test/`에 둔다(`node_modules`는 커밋하지 않음).
-- git 사용자 이름·이메일이 설정되어 있지 않다. 첫 커밋 전에 사용자에게 받아 이 저장소에만 설정한다.
 
 ## 첫 협의 확정 사항 (2026-11-11, 사용자 "추천안대로")
 - 패드 판정: 긴 변÷짧은 변 **4 이하** 사각형은 패드 후보(입력칸). 4 초과라도 더 좁은 객체가 변에 맞닿으면 패드, 4 이하라도 짧은 변 전체에 다른 객체가 이어지면 배선 토막. 원·오블롱·둥근 모서리 사각형·타원은 항상 패드.
@@ -98,4 +97,8 @@ Gerber 배선은 "둥근 조리개 + 선", 선폭 = 조리개 지름(업체 CAM�
 - HATCH 경계 중 타원·스플라인 모서리, 폴리선으로 그린 타원은 인식하지 않는다(영역 또는 무시 목록).
 
 ## 남은 것
-- GitHub 원격 저장소 주소, 커밋용 이름·이메일(사용자에게 받을 것)
+- 실제 도면·실제 CAM에서 확인한 결과 반영
+
+## 저장소
+- GitHub: `https://github.com/chanhee-bot/dxf-to-gerber` (main). 커밋 이름·이메일은 `chanhee-bot <chanhee-bot@users.noreply.github.com>`(저장소별 설정).
+- 윈도우 PC(`E:\Claude\dxf-to-gerber`)와 맥북 양쪽에서 작업한다. 시작할 때 `git pull`, 맥북에서 검증하려면 `npm install` 후 `npx playwright install chromium`.
