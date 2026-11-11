@@ -90,6 +90,45 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
   // 일부러 틀린 결과를 넣었을 때 비교가 잡아내는지
   const bad = compareRegion([-0.5, 0, 3.5, 1],[mkPoly([[0, 0.4], [3, 0.4], [3, 0.6], [0, 0.6]])], [mkCap(0, 0.5, 3, 0.5, 0.1)], 0.002);
   check('비교가 둥근 끝 돌출을 잡음', bad.maxDev > 0.02, 'maxDev ' + bad.maxDev.toFixed(4));
+
+  // ---- 꺾임 R이 있는 배선 · 잘린(열린) 외곽선 잇기 · 큰 외곽선 토막 · 호 4개짜리 원 ----
+  {
+    const o = []; const w = (c, v) => o.push(String(c), String(v));
+    const B = Math.tan(Math.PI / 8); // 90° 호의 bulge
+    const pl = (layer, pts, closed) => { w(0, 'POLYLINE'); w(8, layer); w(66, 1); w(70, closed ? 1 : 0); for (const p of pts) { w(0, 'VERTEX'); w(8, layer); w(10, p[0]); w(20, p[1]); if (p[2]) w(42, p[2]); } w(0, 'SEQEND'); };
+    w(0, 'SECTION'); w(2, 'ENTITIES');
+    // (1) 폭 0.2 ㄱ자 배선, 안팎 모서리 R0.05, 양 끝 패드
+    const L1 = [[1, 0.9], [4.05, 0.9], [4.1, 0.95, B], [4.1, 4], [3.9, 4], [3.9, 1.15], [3.85, 1.1, -B], [1, 1.1]];
+    L1[1][2] = B; L1[2][2] = 0; L1[5][2] = -B; L1[6][2] = 0;
+    pl('CU', L1, true);
+    pl('CU', [[0.4, 0.7], [1, 0.7], [1, 1.3], [0.4, 1.3]], true); pl('CU', [[3.7, 4], [4.3, 4], [4.3, 4.6], [3.7, 4.6]], true);
+    // (2) 같은 모양을 x+6 옮겨 두 토막의 열린 선으로(방향도 서로 반대)
+    const M = L1.map(p => [p[0] + 6, p[1], p[2] || 0]);
+    pl('CU', [M[7], M[0], M[1], M[2], M[3]], false);
+    const back = [M[3], M[4], M[5], M[6], M[7]], rev = back.map((p, i) => [back[back.length - 1 - i][0], back[back.length - 1 - i][1], i < back.length - 1 ? -(back[back.length - 2 - i][2] || 0) : 0]);
+    pl('CU', rev, false);
+    pl('CU', [[6.4, 0.7], [7, 0.7], [7, 1.3], [6.4, 1.3]], true); pl('CU', [[9.7, 4], [10.3, 4], [10.3, 4.6], [9.7, 4.6]], true);
+    // (3) 긴 빗 모양 레일: 세로 줄기(폭 0.3) + 가지 60개(폭 0.16, 모서리 R0.05)
+    const comb = [[20, 0], [20.3, 0]];
+    for (let k = 0; k < 60; k++) { const y = 1 + k * 2; comb.push([20.3, y - 0.05, B], [20.35, y], [21.5, y], [21.5, y + 0.16], [20.35, y + 0.16, B], [20.3, y + 0.21]); }
+    comb.push([20.3, 122], [20, 122]);
+    pl('CU', comb, true);
+    // (4) 호 4개로 그린 원(bulge를 소수 5자리로 반올림)
+    pl('CU', [[15.5, 2, 0.41421], [15, 2.5, 0.41421], [14.5, 2, 0.41421], [15, 1.5, 0.41421]], true);
+    w(0, 'ENDSEC'); w(0, 'EOF');
+    const base2 = buildBase(parseDxf(o.join('\n')), 'auto');
+    check('열린 선 2개를 이어 닫힌 외곽선 1개', base2.joined.loops === 1 && base2.joined.parts === 2, JSON.stringify(base2.joined));
+    const R5 = await convertAll(base2, cfgOf({ layers: { CU: 'cu1' } })), L5 = R5.layers[0];
+    console.log('\n== 꺾임 R · 잇기 · 토막', JSON.stringify(L5.stats), '최대 차이', L5.verify.worst.toFixed(5), '초과', L5.verify.nBad, '나눈 도형', L5.split);
+    const a1 = at(L5, 2.5, 1), a2 = at(L5, 8.5, 1), ci = at(L5, 15, 2), parts = L5.shapes.filter(s => s.partOf != null);
+    check('꺾임 R 배선 → 선', a1 && a1.role === 'trace' && a1.strokes.length === 2, a1 ? a1.role + ' 선' + (a1.strokes ? a1.strokes.length : 0) + ' ' + (a1.why || '') : '없음');
+    check('이은 외곽선 → 선', a2 && a2.role === 'trace' && a2.strokes.length === 2, a2 ? a2.role + ' ' + (a2.why || '') : '없음');
+    check('큰 외곽선을 토막으로 나눔', L5.split === 1 && parts.length >= 2, parts.length + '토막');
+    check('토막이 모두 선으로', parts.every(s => s.role === 'trace' && s.strokes), parts.filter(s => s.role !== 'trace').map(s => s.why).join(' | '));
+    check('호 4개 원 → 원 패드', ci && ci.role === 'pad' && ci.pad.type === 'C' && Math.abs(ci.pad.d - 1) < 1e-4, ci ? ci.role + ' ' + (ci.pad ? ci.pad.type + ' ' + ci.pad.d : '') : '없음');
+    check('형상 비교 기준 이내', L5.verify.nBad === 0, '최대 ' + L5.verify.worst.toFixed(5));
+    check('영역 대체 없음', L5.stats.areas === 0, L5.warnings.filter(q => q.type === 'fallback').map(q => q.msg).join(' | '));
+  }
   console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과');
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });

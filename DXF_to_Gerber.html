@@ -126,12 +126,12 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1111-2210';
+const BUILD = '1111-2255';
 
 /* ================================================================
  * 1. 기하 기본
  * ================================================================ */
-const FLAT_TOL = 2e-5;      // 호를 꺾은선으로 펼 때 허용 오차(mm)
+const FLAT_TOL = 1e-4;      // 호를 꺾은선으로 펼 때 허용 오차(mm)
 const hyp = Math.hypot;
 
 function arcOf(x1, y1, x2, y2, b) {
@@ -197,17 +197,23 @@ function normalizePath(pts) {
   }
   return P;
 }
+// 도형은 꼭짓점(pts)만 간직하고, 펼친 좌표(flat: 정밀, coarse: 화면·대략 계산용)는 쓸 때 만들어 잠깐만 기억한다(수십만 객체 도면의 메모리 때문)
+const FLAT_C = new Map(), COARSE_C = new Map();
+class Shape {
+  get flat() { let f = FLAT_C.get(this); if (!f) { if (FLAT_C.size > 40000) FLAT_C.clear(); f = flattenPath(this.pts, FLAT_TOL); FLAT_C.set(this, f); } return f; }
+  get coarse() { if (!this.hasArc) return this.flat; let f = COARSE_C.get(this); if (!f) { if (COARSE_C.size > 40000) COARSE_C.clear(); f = flattenPath(this.pts, 1e-3); COARSE_C.set(this, f); } return f; }
+}
 function finishShape(s) {
-  s.flat = flattenPath(s.pts, FLAT_TOL);
-  s.coarse = flattenPath(s.pts, 1e-3);
-  s.bbox = bboxOf(s.flat);
-  s.area = polyArea(s.flat);
+  s.hasArc = s.pts.some(p => p.b);
+  const f = s.flat;
+  s.bbox = bboxOf(f);
+  s.area = polyArea(f);
   return s;
 }
 function makeShape(pts, meta) {
   const P = normalizePath(pts);
   if (!P || (P.length < 3 && !P.some(p => p.b))) return null;
-  const s = Object.assign({ pts: P }, meta);
+  const s = Object.assign(new Shape(), { pts: P }, meta);
   finishShape(s);
   if (!(s.area > 1e-10)) return null;
   return s;
@@ -416,6 +422,7 @@ function buildBase(dxf, unitMode) {
     const s = makeShape(T, meta);
     if (s) add(s, layer); else ign(meta.src + ' (넓이 0)', layer, M, pts[0] ? pts[0].x : NaN, pts[0] ? pts[0].y : NaN);
   }
+  const opens = [];
   function walk(ents, M, layerOv, depth) {
     for (const e of ents) {
       const g = e._g || (e._g = entGeom(e));
@@ -425,7 +432,12 @@ function buildBase(dxf, unitMode) {
       if (g.t === 'poly') {
         let pts = g.pts, closed = g.closed;
         if (!closed && pts.length > 2 && hyp(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 1e-9) { closed = true; pts = pts.slice(0, -1); }
-        if (!closed) { ign(e.type + ' (열린 선)', layer, Me, pts[0] ? pts[0].x : NaN, pts[0] ? pts[0].y : NaN); continue; }
+        if (!closed) {
+          const det = mDet(Me);
+          if (pts.length < 2 || (!mIsSim(Me) && pts.some(p => p.b))) { ign(e.type + ' (열린 선)', layer, Me, pts[0] ? pts[0].x : NaN, pts[0] ? pts[0].y : NaN); continue; }
+          opens.push({ layer, type: e.type, pts: pts.map(p => { const q = mAp(Me, p.x, p.y); return { x: q[0], y: q[1], b: det < 0 ? -(p.b || 0) : (p.b || 0) }; }) });
+          continue;
+        }
         addPoly(pts, Me, layer, { src: e.type, handle: g.handle, hasW: g.hasW });
       } else if (g.t === 'circle') {
         if (!(g.r > 0)) continue;
@@ -451,7 +463,93 @@ function buildBase(dxf, unitMode) {
     }
   }
   walk(dxf.ents, mS(scale, scale), null, 0);
+  // 끝점이 맞닿은 열린 폴리선을 이어 닫힌 외곽선으로 만든다(블록 경계에서 잘린 외곽선 등)
+  const J = joinOpen(opens); base.joined = { loops: J.closed.length, parts: J.used };
+  for (const c of J.closed) { const sh = makeShape(c.pts, { src: 'POLYLINE ' + c.n + '개 이음' }); if (sh) add(sh, c.layer); else base.ignored.push({ type: 'POLYLINE (넓이 0)', layer: c.layer, x: c.pts[0].x, y: c.pts[0].y, why: '' }); }
+  for (const o of J.left) base.ignored.push({ type: o.type + ' (열린 선)', layer: o.layer, x: o.pts[0].x, y: o.pts[0].y, why: '' });
   return base;
+}
+
+function revOpen(P) { const n = P.length, R = []; for (let j = 0; j < n; j++) R.push({ x: P[n - 1 - j].x, y: P[n - 1 - j].y, b: j < n - 1 ? -(P[n - 2 - j].b || 0) : 0 }); return R; }
+function joinOpen(opens) {
+  const JT = 2e-5, CS = 1e-3, cellMap = new Map(), nodes = [];
+  const nodeAt = (x, y, lay) => {
+    const i = Math.floor(x / CS), j = Math.floor(y / CS);
+    for (let a = i - 1; a <= i + 1; a++) for (let b = j - 1; b <= j + 1; b++) { const arr = cellMap.get(lay + '|' + a + ',' + b); if (arr) for (const nd of arr) if (Math.abs(nd.x - x) <= JT && Math.abs(nd.y - y) <= JT) return nd; }
+    const nd = { x, y, ends: [] }; nodes.push(nd); const k = lay + '|' + i + ',' + j; let arr = cellMap.get(k); if (!arr) cellMap.set(k, arr = []); arr.push(nd); return nd;
+  };
+  for (const o of opens) { const a = o.pts[0], z = o.pts[o.pts.length - 1]; o.n0 = nodeAt(a.x, a.y, o.layer); o.n1 = nodeAt(z.x, z.y, o.layer); o.n0.ends.push(o); o.n1.ends.push(o); o.used = false; }
+  const closed = [], left = []; let used = 0;
+  for (const o of opens) {
+    if (o.used) continue;
+    const chain = [{ o, rev: false }]; o.used = true; let nd = o.n1, ok = false, cur = o;
+    for (;;) {
+      if (nd.ends.length !== 2) break;
+      const nx = nd.ends[0] === cur ? nd.ends[1] : nd.ends[0];
+      if (nx === o) { ok = nd === o.n0 && (chain.length > 1 || o.n0 === o.n1); break; }
+      if (nx.used || nx === cur) break;
+      const rev = nx.n0 !== nd; nx.used = true; chain.push({ o: nx, rev }); cur = nx; nd = rev ? nx.n0 : nx.n1;
+    }
+    if (!ok) { for (const c of chain) left.push(c.o); continue; }
+    const pts = [];
+    for (const c of chain) { const P = c.rev ? revOpen(c.o.pts) : c.o.pts; if (pts.length) pts.pop(); for (const q of P) pts.push({ x: q.x, y: q.y, b: q.b || 0 }); }
+    pts.pop(); used += chain.length;
+    closed.push({ layer: o.layer, pts, n: chain.length });
+  }
+  return { closed, left, used };
+}
+// 꼭짓점이 많은 큰 외곽선을 가로/세로 직선으로 잘라 맞닿은 토막으로 나눈다(직선 변만 지나는 자리에서 자른다)
+function splitShape(s, maxN, depth) {
+  if (s.ell || s.coarse.length <= maxN || (depth || 0) > 24) return [s];
+  const P = s.pts, n = P.length, bb = s.bbox;
+  const axes = (bb[3] - bb[1]) >= (bb[2] - bb[0]) ? [1, 0] : [0, 1];
+  for (const ax of axes) {
+    const U = p => ax ? p.y : p.x, V = p => ax ? p.x : p.y, lo = bb[ax ? 1 : 0], hi = bb[ax ? 3 : 2], mid = (lo + hi) / 2, span = hi - lo;
+    const arcs = [];
+    for (let i = 0; i < n; i++) if (P[i].b) { const q = P[(i + 1) % n], a = arcOf(P[i].x, P[i].y, q.x, q.y, P[i].b), c = ax ? a.cy : a.cx; let mn = Infinity, mx = -Infinity; for (let k = 0; k <= 16; k++) { const t = a.a1 + a.sweep * k / 16, v = c + a.r * (ax ? Math.sin(t) : Math.cos(t)); if (v < mn) mn = v; if (v > mx) mx = v; } const mg = a.r * (1 - Math.cos(Math.abs(a.sweep) / 32)) + 1e-6; arcs.push([mn - mg, mx + mg, mg]); }
+    // 자를 자리 후보: 꼭짓점이 없는 가장 넓은 틈의 가운데(반복 무늬에서는 칸마다 같은 자리가 뽑혀 토막 모양이 같아진다)
+    const us = P.map(U).sort((a, b) => a - b), gaps = [];
+    for (let i = 0; i + 1 < us.length; i++) { const w = us[i + 1] - us[i], c = (us[i] + us[i + 1]) / 2; if (w < 2e-3 || c < lo + span * 0.15 || c > hi - span * 0.15) continue; let bad = false; for (const a of arcs) if (Math.min(us[i + 1], a[1]) - Math.max(us[i], a[0]) > 2 * (a[2] + 1e-6)) { bad = true; break; } if (!bad) gaps.push({ c, w: Math.round(Math.min(w, 2) * 1e4) / 1e4, d: Math.abs(c - mid) }); }
+    gaps.sort((a, b) => b.w - a.w || a.d - b.d);
+    let best = null;
+    for (const gp of gaps.slice(0, 40)) {
+      const c = gp.c, X = []; let perp = true;
+      for (let i = 0; i < n; i++) {
+        const p = P[i], q = P[(i + 1) % n];
+        if (p.b) continue;
+        if ((U(p) - c) * (U(q) - c) < 0) { const t = (c - U(p)) / (U(q) - U(p)); X.push({ i, v: V(p) + (V(q) - V(p)) * t }); if (Math.abs(V(q) - V(p)) > 1e-7) perp = false; }
+      }
+      if (X.length < 2 || X.length % 2) continue;
+      X.sort((a, b) => a.v - b.v);
+      let sum = 0; for (let j = 0; j < X.length; j += 2) sum += X[j + 1].v - X[j].v;
+      const score = sum * (perp ? 1 : 5) * (1 + 0.5 / (gp.w / 2 + 0.05)) * (1 + gp.d / span);
+      if (!best || score < best.score - 1e-9) best = { score, c, X };
+    }
+    if (!best) continue;
+    // 고리를 연결 목록으로 만들고 현(자른 선)으로 다시 잇는다
+    const nodes = P.map(p => ({ x: p.x, y: p.y, b: p.b || 0, next: null })), ins = new Map();
+    for (const x of best.X) { const nd = { x: ax ? x.v : best.c, y: ax ? best.c : x.v, b: 0, next: null }; x.nd = nd; let a = ins.get(x.i); if (!a) ins.set(x.i, a = []); a.push(nd); }
+    for (let i = 0; i < n; i++) nodes[i].next = nodes[(i + 1) % n];
+    for (const x of best.X) { const p = nodes[x.i]; x.nd.next = p.next; p.next = x.nd; } // 한 변에 교점은 하나뿐(직선과 직선)
+    const all = nodes.concat(best.X.map(x => x.nd));
+    for (let j = 0; j < best.X.length; j += 2) {
+      const a = best.X[j].nd, b = best.X[j + 1].nd, a2 = { x: a.x, y: a.y, b: 0, next: a.next }, b2 = { x: b.x, y: b.y, b: 0, next: b.next };
+      a.next = b2; b.next = a2; all.push(a2, b2);
+    }
+    const parts = []; let fail = false;
+    for (const st of all) {
+      if (st.seen) continue;
+      const pts = []; let nd = st, guard = 0;
+      do { nd.seen = true; pts.push({ x: nd.x, y: nd.y, b: nd.b }); nd = nd.next; } while (nd !== st && ++guard < all.length + 5);
+      const sh = makeShape(pts, { layer: s.layer, src: s.src, handle: s.handle, hasW: s.hasW, arcFlat: s.arcFlat, part: s.part || s.id });
+      if (!sh) { fail = true; break; }
+      parts.push(sh);
+    }
+    if (fail || parts.length < 2) continue;
+    let out = []; for (const q of parts) out = out.concat(splitShape(q, maxN, (depth || 0) + 1));
+    return out;
+  }
+  return [s];
 }
 
 /* ================================================================
@@ -471,9 +569,9 @@ function recognizePad(s) {
   const P = s.pts, n = P.length; let arcs = 0; for (const p of P) if (p.b) arcs++;
   const A = i => { const p = P[i % n], q = P[(i + 1) % n]; return arcOf(p.x, p.y, q.x, q.y, p.b); };
   if (arcs === n && n >= 2) {
-    let c = null, sw = 0;
-    for (let i = 0; i < n; i++) { if (P[i].b < 0) return null; const a = A(i); sw += a.sweep; if (!c) c = a; else if (Math.abs(a.cx - c.cx) > RT || Math.abs(a.cy - c.cy) > RT || Math.abs(a.r - c.r) > RT) return null; }
-    return Math.abs(sw - 2 * Math.PI) < 1e-6 ? { type: 'C', cx: c.cx, cy: c.cy, d: 2 * c.r } : null;
+    let c = null, sw = 0, sx = 0, sy = 0, sr = 0; // bulge가 소수 5자리로 반올림된 도면도 받아들이도록 중심·반지름은 평균, 각도 합은 느슨하게 본다
+    for (let i = 0; i < n; i++) { if (P[i].b < 0) return null; const a = A(i); sw += a.sweep; sx += a.cx; sy += a.cy; sr += a.r; if (!c) c = a; else if (Math.abs(a.cx - c.cx) > RT || Math.abs(a.cy - c.cy) > RT || Math.abs(a.r - c.r) > RT) return null; }
+    return Math.abs(sw - 2 * Math.PI) < 1e-3 ? { type: 'C', cx: sx / n, cy: sy / n, d: 2 * sr / n } : null;
   }
   if (n === 4 && arcs === 0) {
     const e0x = P[1].x - P[0].x, e0y = P[1].y - P[0].y, e1x = P[2].x - P[1].x, e1y = P[2].y - P[1].y;
@@ -510,6 +608,8 @@ function shapeLines(s) {
   return L;
 }
 const CT = 2e-5;
+const SPLIT_N = 160;        // 외곽선(성기게 편 것) 꼭짓점이 이보다 많으면 토막으로 나눈다
+const TRACE_FLAT = 5e-4;    // 호가 있는 배선 외곽선을 복원할 때 호를 꺾은선으로 펴는 오차(mm)
 function findContacts(A, B) {
   for (const ea of A.lines) for (const eb of B.lines) {
     if (Math.abs(ea.dx * eb.dy - ea.dy * eb.dx) > 1e-6) continue;
@@ -522,7 +622,8 @@ function findContacts(A, B) {
 // 두 도형의 관계: 겹침 / 포함 / 없음
 function shapeRelation(A, B) {
   const D = 1e-4;
-  const cnt = (inner, outer) => { let strict = 0, out = 0, sp = null; for (const p of inner.coarse) { const inside = pip(outer.flat, p[0], p[1]), d = dBoundary(outer.flat, p[0], p[1]); if (inside && d > D) { strict++; if (!sp) sp = p; } else if (!inside && d > D) out++; } return { strict, out, sp }; };
+  if (Math.min(A.bbox[2], B.bbox[2]) - Math.max(A.bbox[0], B.bbox[0]) < D || Math.min(A.bbox[3], B.bbox[3]) - Math.max(A.bbox[1], B.bbox[1]) < D) return null; // 둘레 상자가 맞닿기만 하면 겹침·포함이 아니다
+  const cnt = (inner, outer) => { let strict = 0, out = 0, sp = null; const ob = outer.bbox; for (const p of inner.coarse) { if (p[0] < ob[0] - D || p[0] > ob[2] + D || p[1] < ob[1] - D || p[1] > ob[3] + D) { out++; continue; } const inside = pip(outer.flat, p[0], p[1]), d = dBoundary(outer.flat, p[0], p[1]); if (inside && d > D) { strict++; if (!sp) sp = p; } else if (!inside && d > D) out++; } return { strict, out, sp }; };
   const fa = A.coarse, fb = B.coarse;
   if (fa.length * fb.length <= 250000) for (let i = 0; i < fa.length; i++) {
     const p = fa[i], p2 = fa[(i + 1) % fa.length], rx = p2[0] - p[0], ry = p2[1] - p[1], rl = hyp(rx, ry);
@@ -555,7 +656,6 @@ function autoRole(s, target, ratio) {
     if (hi / lo <= ratio + 1e-9) return (tv && !pv) ? { role: 'trace', why: '짧은 변 전체에 다른 객체가 이어짐' } : { role: 'pad' };
     return (pv && !tv) ? { role: 'pad', why: '더 좁은 객체가 변에 맞닿음' } : { role: 'trace' };
   }
-  if (s.pts.some(p => p.b)) return { role: 'region', why: '호가 있는 외곽선(패드 모양 아님)' };
   return { role: 'trace' };
 }
 
@@ -673,7 +773,7 @@ function reconstructTrace(poly, inAllowed, inNeighbor) {
   }
   // (5) 끝 처리: 늘린 위치 → 현 위치 → w/2 줄이고 직각 채움 순으로, 둥근 끝이 밖으로 나가지 않는 첫 위치를 고른다
   const strokes = [], fills = [], warns = [];
-  const fit = (x, y, r) => { const rr = r - 1e-6; for (let k = 0; k < 72; k++) { const a = Math.PI * k / 36; if (!inAllowed(x + rr * Math.cos(a), y + rr * Math.sin(a))) return false; } return true; };
+  const fit = (x, y, r) => { const rr = r - 1e-6; if (pip(poly, x, y) && dBoundary(poly, x, y) >= rr) return true; /* 이 객체 안에 통째로 들어가면 바로 통과 */ for (let k = 0; k < 72; k++) { const a = Math.PI * k / 36; if (!inAllowed(x + rr * Math.cos(a), y + rr * Math.sin(a))) return false; } return true; };
   for (const s of S) {
     const r = s.w / 2, res = {};
     for (const nm of ['A', 'B']) {
@@ -746,24 +846,42 @@ function atomSpan(a, y, out) {
     for (let i = 0; i < 4; i++) { const p = a.q[i], q = a.q[(i + 1) % 4]; if ((p[1] > y) !== (q[1] > y)) { const x = p[0] + (y - p[1]) * (q[0] - p[0]) / (q[1] - p[1]); if (x < lo) lo = x; if (x > hi) hi = x; } }
     if (hi > lo) out.push([lo, hi]); return;
   }
-  const f = a.pts, xs = [];
-  for (let i = 0, n = f.length, j = n - 1; i < n; j = i++) { const p = f[j], q = f[i]; if ((p[1] > y) !== (q[1] > y)) xs.push(p[0] + (y - p[1]) * (q[0] - p[0]) / (q[1] - p[1])); }
+  const f = a.pts, xs = [], n = f.length;
+  if (n > 24) { // 꼭짓점이 많으면 변을 높이별 칸에 나눠 담아 두고 해당 칸만 본다
+    let ix = a._ix;
+    if (!ix) {
+      const K = Math.min(512, n), y0 = a.bb[1], inv = K / Math.max(1e-12, a.bb[3] - a.bb[1]), bins = []; for (let k = 0; k < K; k++) bins.push([]);
+      for (let i = 0, j = n - 1; i < n; j = i++) { const lo = Math.min(f[j][1], f[i][1]), hi = Math.max(f[j][1], f[i][1]); if (hi === lo) continue; const k0 = Math.max(0, Math.min(K - 1, Math.floor((lo - y0) * inv))), k1 = Math.max(0, Math.min(K - 1, Math.floor((hi - y0) * inv))); for (let k = k0; k <= k1; k++) bins[k].push(i); }
+      ix = a._ix = { K, y0, inv, bins };
+    }
+    const k = Math.floor((y - ix.y0) * ix.inv); if (k < 0 || k >= ix.K) return;
+    for (const i of ix.bins[k]) { const p = f[i ? i - 1 : n - 1], q = f[i]; if ((p[1] > y) !== (q[1] > y)) xs.push(p[0] + (y - p[1]) * (q[0] - p[0]) / (q[1] - p[1])); }
+  } else
+  for (let i = 0, j = n - 1; i < n; j = i++) { const p = f[j], q = f[i]; if ((p[1] > y) !== (q[1] > y)) xs.push(p[0] + (y - p[1]) * (q[0] - p[0]) / (q[1] - p[1])); }
   xs.sort((p, q) => p - q);
   for (let i = 0; i + 1 < xs.length; i += 2) if (xs[i + 1] > xs[i]) out.push([xs[i], xs[i + 1]]);
 }
-function foldRow(items, y) {
+function foldRow(items, y, x0, x1) {
   let acc = [], cur = [], cp = 0;
   const apply = () => { if (!cur.length) return; acc = cp ? ivSub(acc, ivUnion(cur)) : ivUnion(acc.concat(cur)); cur = []; };
-  for (const a of items) { if (y < a.bb[1] || y > a.bb[3]) continue; if (a.pol !== cp) { apply(); cp = a.pol; } atomSpan(a, y, cur); }
+  for (const a of items) { if (y < a.bb[1] || y > a.bb[3] || a.bb[2] < x0 || a.bb[0] > x1) continue; if (a.pol !== cp) { apply(); cp = a.pol; } atomSpan(a, y, cur); }
   apply(); return acc;
 }
-function scanLines(y0, y1, lists, g) {
+function scanLines(y0, y1, lists, g, x0, x1) {
   const ev = [y0, y1], dense = [];
   for (const L of lists) for (const a of L) {
-    if (a.bb[3] < y0 || a.bb[1] > y1) continue;
+    if (a.bb[3] < y0 || a.bb[1] > y1 || a.bb[2] < x0 || a.bb[0] > x1) continue;
     if (a.t === 'd') dense.push([a.cy - a.r, a.cy + a.r]);
     else if (a.t === 'c') { dense.push([a.y1 - a.r, a.y1 + a.r], [a.y2 - a.r, a.y2 + a.r]); for (const p of a.q) ev.push(p[1]); }
-    else if (a.pts.length > 64) dense.push([a.bb[1], a.bb[3]]);
+    else if (a.pts.length > 64) { // 꼭짓점이 많은 다각형: 짧은 변(곡선을 편 부분)이 있는 높이만 촘촘히 본다
+      const f = a.pts; let run = null;
+      for (let i = 0, n = f.length, j = n - 1; i < n; j = i++) {
+        const p = f[j], q = f[i], lo = Math.min(p[1], q[1]), hi = Math.max(p[1], q[1]);
+        if (Math.max(p[0], q[0]) < x0 || Math.min(p[0], q[0]) > x1) { run = null; continue; }
+        if (Math.abs(q[0] - p[0]) + (hi - lo) < 0.05) { if (run && lo <= run[1] + 1e-9 && hi >= run[0] - 1e-9) { if (lo < run[0]) run[0] = lo; if (hi > run[1]) run[1] = hi; } else { run = [lo, hi]; dense.push(run); } }
+        else { ev.push(p[1], q[1]); run = null; }
+      }
+    }
     else for (const p of a.pts) ev.push(p[1]);
   }
   for (const d of dense) ev.push(d[0], d[1]);
@@ -791,26 +909,84 @@ function distRes(R, x, y) {
   }
   return Math.max(0, m);
 }
-function distOrig(O, x, y) { let m = Infinity; for (const a of O) { const d = dBoundary(a.pts, x, y); if (d < m) m = d; } return m; }
+function distOrig(O, x, y) { let m = Infinity; for (const a of O) { if (x < a.bb[0] - m || x > a.bb[2] + m || y < a.bb[1] - m || y > a.bb[3] + m) continue; const d = dBoundary(a.pts, x, y); if (d < m) m = d; } return m; }
 // bb 안에서 원본(orig: 다각형 atom, 깊이 순)과 결과(res: atom, 출력 순)를 비교한다
+// 둘레 상자가 큰 도형은 상자를 타일로 나눠 도형이 지나는 타일만 비교한다(가늘고 긴 배선의 빈 곳을 훑지 않도록)
+function tilesOf(s, bb, m) {
+  let T = 2; const w = bb[2] - bb[0], h = bb[3] - bb[1];
+  if (w <= 1.5 * T && h <= 1.5 * T) return [bb];
+  while (Math.ceil(w / T) * Math.ceil(h / T) > 40000) T *= 2;
+  const nx = Math.ceil(w / T), ny = Math.ceil(h / T), mark = new Uint8Array(nx * ny), f = s.coarse, cl = (v, n) => v < 0 ? 0 : v >= n ? n - 1 : v;
+  for (let i = 0, n = f.length, j = n - 1; i < n; j = i++) {
+    const p = f[j], q = f[i];
+    const i0 = cl(Math.floor((Math.min(p[0], q[0]) - m - bb[0]) / T), nx), i1 = cl(Math.floor((Math.max(p[0], q[0]) + m - bb[0]) / T), nx), j0 = cl(Math.floor((Math.min(p[1], q[1]) - m - bb[1]) / T), ny), j1 = cl(Math.floor((Math.max(p[1], q[1]) + m - bb[1]) / T), ny);
+    if ((i1 - i0 + 1) * (j1 - j0 + 1) <= 4) { for (let a = i0; a <= i1; a++) for (let b = j0; b <= j1; b++) mark[b * nx + a] = 1; continue; }
+    for (let a = i0; a <= i1; a++) for (let b = j0; b <= j1; b++) { // 긴 변: 실제로 지나는 타일만
+      const x0 = bb[0] + a * T - m, x1 = x0 + T + 2 * m, y0 = bb[1] + b * T - m, y1 = y0 + T + 2 * m;
+      let t0 = 0, t1 = 1, ok = true; const dx = q[0] - p[0], dy = q[1] - p[1];
+      for (const [d, lo, hi, o] of [[dx, x0, x1, p[0]], [dy, y0, y1, p[1]]]) { if (Math.abs(d) < 1e-12) { if (o < lo || o > hi) ok = false; } else { let ta = (lo - o) / d, tb = (hi - o) / d; if (ta > tb) { const t = ta; ta = tb; tb = t; } if (ta > t0) t0 = ta; if (tb < t1) t1 = tb; } }
+      if (ok && t0 <= t1) mark[b * nx + a] = 1;
+    }
+  }
+  const out = [];
+  for (let b = 0; b < ny; b++) for (let a = 0; a < nx; a++) {
+    if (!mark[b * nx + a] && !pip(f, bb[0] + (a + 0.5) * T, bb[1] + (b + 0.5) * T)) continue;
+    out.push([bb[0] + a * T, bb[1] + b * T, Math.min(bb[2], bb[0] + (a + 1) * T), Math.min(bb[3], bb[1] + (b + 1) * T)]);
+  }
+  return out;
+}
+// getO(tb), getR(tb): 그 타일에 걸치는 원본/결과 atom 목록
+function compareTiled(s, bb, m, getO, getR, g) {
+  const tiles = tilesOf(s, bb, m);
+  if (tiles.length === 1 && tiles[0] === bb) return compareRegion(bb, getO(bb), getR(bb), g);
+  const r = { area: 0, maxDev: 0, at: null, nLines: 0, gUsed: g };
+  for (const tb of tiles) { const c = compareRegion(tb, getO(tb), getR(tb), g); r.area += c.area; r.nLines += c.nLines; if (c.gUsed > r.gUsed) r.gUsed = c.gUsed; if (c.maxDev > r.maxDev) { r.maxDev = c.maxDev; r.at = c.at; } }
+  return r;
+}
+// 같은 모양이 반복되는 도면(LED 배열 등)은 위치만 다른 같은 비교가 수만 번 나오므로, 상대 좌표로 만든 지문으로 결과를 재사용한다
+const CMP_CACHE = new Map();
+function cmpKey(bb, orig, res, g) {
+  let h1 = 0x811c9dc5 | 0, h2 = 0x1b873593 | 0;
+  const ox = bb[0], oy = bb[1];
+  const add = v => { const k = Math.round(v * 1e6) | 0; h1 = Math.imul(h1 ^ k, 0x01000193); h2 = Math.imul(h2 + k, 0x85ebca6b) ^ (h2 >>> 13); };
+  add(bb[2] - ox); add(bb[3] - oy); add(g * 1e3);
+  for (const L of [orig, res]) {
+    add(L.length + 7);
+    for (const a of L) {
+      add(a.pol ? 3 : 2);
+      if (a.t === 'd') { add(11); add(a.cx - ox); add(a.cy - oy); add(a.r); }
+      else if (a.t === 'c') { add(12); add(a.x1 - ox); add(a.y1 - oy); add(a.x2 - ox); add(a.y2 - oy); add(a.r); }
+      else { add(13 + a.pts.length); for (const p of a.pts) { add(p[0] - ox); add(p[1] - oy); } }
+    }
+  }
+  return h1 + ':' + h2;
+}
 function compareRegion(bb, orig, res, g) {
+  const key = cmpKey(bb, orig, res, g), hit = CMP_CACHE.get(key);
+  if (hit) return { area: hit.area, maxDev: hit.maxDev, at: hit.at ? [hit.at[0] + bb[0], hit.at[1] + bb[1]] : null, nLines: hit.nLines, gUsed: hit.gUsed };
+  const c = compareRegionRaw(bb, orig, res, g);
+  if (CMP_CACHE.size > 200000) CMP_CACHE.clear();
+  CMP_CACHE.set(key, { area: c.area, maxDev: c.maxDev, at: c.at ? [c.at[0] - bb[0], c.at[1] - bb[1]] : null, nLines: c.nLines, gUsed: c.gUsed });
+  return c;
+}
+function compareRegionRaw(bb, orig, res, g) {
   let area = 0, maxDev = 0, at = null, nLines = 0, gUsed = g;
   for (let ax = 0; ax < 2; ax++) {
     const O = ax ? orig.map(swapAtom) : orig, R = ax ? res.map(swapAtom) : res;
     const x0 = ax ? bb[1] : bb[0], x1 = ax ? bb[3] : bb[2], y0 = ax ? bb[0] : bb[1], y1 = ax ? bb[2] : bb[3];
-    let lines = scanLines(y0, y1, [O, R], g), ge = g;
-    while (lines.length > 20000) { ge *= 2; lines = scanLines(y0, y1, [O, R], ge); }
+    let lines = scanLines(y0, y1, [O, R], g, x0, x1), ge = g;
+    while (lines.length > 20000) { ge *= 2; lines = scanLines(y0, y1, [O, R], ge, x0, x1); }
     if (ge > gUsed) gUsed = ge;
     nLines += lines.length;
     for (const ln of lines) {
-      const y = ln.y, oi = ivClip(foldRow(O, y), x0, x1), ri = ivClip(foldRow(R, y), x0, x1);
+      const y = ln.y, oi = ivClip(foldRow(O, y, x0, x1), x0, x1), ri = ivClip(foldRow(R, y, x0, x1), x0, x1);
       for (let side = 0; side < 2; side++) {
         const X = side ? ivSub(ri, oi) : ivSub(oi, ri);
         for (const v of X) {
           const L = v[1] - v[0]; if (!(L > 0)) continue;
           if (ax === 0) area += L * ln.w;
           let dev = L;
-          if (L >= 5e-5) {
+          if (L >= 1e-3) { // 이보다 짧은 차이는 길이 자체를 차이로 본다(실제 차이 ≤ 길이)
             dev = 0;
             for (const fr of [0.02, 0.5, 0.98]) {
               const x = v[0] + L * fr; let d;
@@ -908,10 +1084,11 @@ function buildGerber(L, cfg) {
     } else if (s.role === 'trace' && s.strokes) {
       st.traces++; s.out = 'line';
       for (const pl of chainStrokes(s.strokes)) { const a = circ(pl.w); a.count += pl.pts.length - 1; st.segs += pl.pts.length - 1; let arr = o.strokes.get(a.code); if (!arr) o.strokes.set(a.code, arr = []); arr.push(pl.pts); }
-      for (const f of s.fills) { o.fills.push(f.map(q => ({ x: q[0], y: q[1], b: 0 }))); st.fills++; }
+      for (const f of s.fills) { o.fills.push(f); st.fills++; }
     } else { o.areas.push(s.pts); st.areas++; s.out = 'area'; }
   }
-  const o = [], xy = p => 'X' + fmtC(p[0]) + 'Y' + fmtC(p[1]);
+  const o = [], parts = [], xy = p => 'X' + fmtC(p[0]) + 'Y' + fmtC(p[1]);
+  const flush = () => { if (o.length > 20000) { parts.push(o.join('\r\n')); o.length = 0; } }; // 큰 파일: 줄 배열을 쌓아 두지 않고 덩어리로 묶는다
   function region(P) {
     o.push('G36*'); let mode = 1; o.push(xy([P[0].x, P[0].y]) + 'D02*');
     for (let i = 0; i < P.length; i++) {
@@ -926,16 +1103,17 @@ function buildGerber(L, cfg) {
   if (!keys.length) o.push('%LPD*%');
   for (const k of keys) {
     o.push(k % 2 ? '%LPC*%' : '%LPD*%'); const v = levels.get(k);
-    if (v.areas.length) { o.push('G04 AREA*'); for (const p of v.areas) region(p); }
-    if (v.fills.length) { o.push('G04 FILL*'); for (const p of v.fills) region(p); }
-    for (const [code, arr] of v.strokes) { o.push('D' + code + '*'); for (const pl of arr) { o.push(xy(pl[0]) + 'D02*'); for (let i = 1; i < pl.length; i++) o.push(xy(pl[i]) + 'D01*'); } }
-    for (const [code, arr] of v.flashes) { o.push('D' + code + '*'); for (const p of arr) o.push(xy(p) + 'D03*'); }
+    if (v.areas.length) { o.push('G04 AREA*'); for (const p of v.areas) { region(p); flush(); } }
+    if (v.fills.length) { o.push('G04 FILL*'); for (const d of v.fills) { o.push('G36*', xy([d[0], d[1]]) + 'D02*'); for (let i = 2; i < d.length; i += 2) o.push(xy([d[i], d[i + 1]]) + 'D01*'); o.push(xy([d[0], d[1]]) + 'D01*', 'G37*'); flush(); } }
+    for (const [code, arr] of v.strokes) { o.push('D' + code + '*'); for (const pl of arr) { o.push(xy(pl[0]) + 'D02*'); for (let i = 1; i < pl.length; i++) o.push(xy(pl[i]) + 'D01*'); flush(); } }
+    for (const [code, arr] of v.flashes) { o.push('D' + code + '*'); for (const p of arr) { o.push(xy(p) + 'D03*'); flush(); } }
   }
   const head = ['G04 DXF_to_Gerber build ' + BUILD + '*', 'G04 ' + L.target.toUpperCase() + '*', '%FSLAX46Y46*%', '%MOMM*%'];
   for (const mc of macros) head.push(mc);
   for (const a of aps) head.push('%ADD' + a.code + a.def + '*%');
   head.push('G01*', 'G75*');
-  return { text: head.concat(o, ['M02*']).join('\r\n') + '\r\n', aps, stats: st };
+  o.push('M02*'); parts.push(o.join('\r\n'));
+  return { text: head.join('\r\n') + '\r\n' + parts.join('\r\n') + '\r\n', aps, stats: st };
 }
 
 /* ================================================================
@@ -968,11 +1146,24 @@ function arcPts(x, y, nx, ny, ci, cj, ccw) {
   for (let j = 1; j < k; j++) { const t = a1 + sw * j / k; out.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]); }
   out.push([nx, ny]); return out;
 }
+// 읽은 요소는 숫자만 간직하고, 그릴 때·비교할 때 쓰는 atom은 필요할 때 만든다
+const PRIM_C = new Map();
+class Prim {
+  get atoms() {
+    let a = PRIM_C.get(this); if (a) return a;
+    if (PRIM_C.size > 60000) PRIM_C.clear();
+    const d = this.d;
+    if (this.kind === 'stroke') a = [mkCap(d[0], d[1], d[2], d[3], d[4], this.pol)];
+    else if (this.kind === 'flash') a = this.apDef.atoms.map(q => moveAtom(q, d[0], d[1], this.pol));
+    else { const pts = []; for (let i = 0; i < d.length; i += 2) pts.push([d[i], d[i + 1]]); a = [mkPoly(pts, this.pol)]; }
+    PRIM_C.set(this, a); return a;
+  }
+}
 function parseGerber(text) {
   const prims = [], aps = {}, macros = {};
   let dec = 6, unit = 1, cur = null, x = 0, y = 0, interp = 1, inRegion = false, contour = null, pol = 0, sub = 'area', lastD = 2;
-  const add = (kind, atoms, extra) => { let b = [Infinity, Infinity, -Infinity, -Infinity]; for (const a of atoms) { b[0] = Math.min(b[0], a.bb[0]); b[1] = Math.min(b[1], a.bb[1]); b[2] = Math.max(b[2], a.bb[2]); b[3] = Math.max(b[3], a.bb[3]); } prims.push(Object.assign({ kind, pol, atoms, bbox: b, seq: prims.length }, extra || {})); };
-  const closeContour = () => { if (contour && contour.length > 2) add('region', [mkPoly(contour, pol)], { sub }); contour = null; };
+  const add = (kind, atoms, d, extra) => { let b = [Infinity, Infinity, -Infinity, -Infinity]; for (const a of atoms) { b[0] = Math.min(b[0], a.bb[0]); b[1] = Math.min(b[1], a.bb[1]); b[2] = Math.max(b[2], a.bb[2]); b[3] = Math.max(b[3], a.bb[3]); } prims.push(Object.assign(new Prim(), { kind, pol, d, bbox: b, seq: prims.length }, extra || {})); };
+  const closeContour = () => { if (contour && contour.length > 2) { const d = new Float64Array(contour.length * 2); contour.forEach((q, i) => { d[2 * i] = q[0]; d[2 * i + 1] = q[1]; }); add('region', [mkPoly(contour, pol)], d, { sub }); } contour = null; };
   function ext(s) {
     const cmds = s.split('*').map(t => t.replace(/[\r\n]+/g, '').trim()).filter(Boolean); if (!cmds.length) return;
     const c = cmds[0];
@@ -1004,8 +1195,8 @@ function parseGerber(text) {
     else if (d === 1) {
       const seg = interp === 1 ? [[nx, ny]] : arcPts(x, y, nx, ny, ci, cj, interp === 3);
       if (inRegion) { if (!contour) contour = [[x, y]]; for (const p of seg) contour.push(p); }
-      else if (cur) { let px = x, py = y; for (const p of seg) { add('stroke', [mkCap(px, py, p[0], p[1], cur.sw / 2, pol)], { ap: cur.code }); px = p[0]; py = p[1]; } }
-    } else if (d === 3 && cur) add('flash', cur.atoms.map(a => moveAtom(a, nx, ny, pol)), { ap: cur.code });
+      else if (cur) { let px = x, py = y; for (const p of seg) { add('stroke', [mkCap(px, py, p[0], p[1], cur.sw / 2, pol)], [px, py, p[0], p[1], cur.sw / 2], { ap: cur.code }); px = p[0]; py = p[1]; } }
+    } else if (d === 3 && cur) add('flash', cur.atoms.map(a => moveAtom(a, nx, ny, pol)), [nx, ny], { ap: cur.code, apDef: cur });
     x = nx; y = ny;
   }
   let i = 0; const n = text.length;
@@ -1068,7 +1259,7 @@ async function convertLayer(L, cfg, tick) {
   for (const s of act) {
     const au = autoRole(s, L.target, cfg.ratio); s.auto = au.role; s.autoWhy = au.why || '';
     let role = au.role, why = au.why || '', quiet = !!au.quiet; const ov = cfg.overrides[s.id];
-    const canTrace = !s.ell && !s.pts.some(p => p.b);
+    const canTrace = !s.ell;
     if (ov === 'pad' && s.pad) role = 'pad'; else if (ov === 'trace' && canTrace) role = 'trace'; else if (ov === 'region') { role = 'region'; why = '사용자 지정'; quiet = true; }
     if (s.isVoid && role === 'trace') { role = 'region'; why = '빈 곳'; quiet = true; }
     if (s.hasChild && role === 'trace' && ov !== 'trace') { role = 'region'; why = '안에 다른 객체가 있는 면'; quiet = false; }
@@ -1077,39 +1268,42 @@ async function convertLayer(L, cfg, tick) {
   }
   const margin = Math.max(4 * cfg.grid, 2 * cfg.thr), snap = v => Math.round(Math.round(v / cfg.apTol) * cfg.apTol * 1e6) / 1e6;
   const exp = b => [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin];
-  const atom0 = s => s._a0 || (s._a0 = mkPoly(s.flat, 0));
   const traces = act.filter(s => s.role === 'trace'); cnt = 0;
   for (const s of traces) {
     if (++cnt % 20 === 0) await tick(L.label + ': 배선 복원 ' + cnt + '/' + traces.length);
     const nb = [...new Set(s.contacts.map(c => c.o))].filter(o => !o.isVoid && o.parent !== s && s.parent !== o);
     const inNb = (x, y) => { for (const o of nb) if (inTol(o, x, y, 1e-6)) return true; return false; };
-    const r = reconstructTrace(s.pts.map(p => [p.x, p.y]), (x, y) => inTol(s, x, y, 1e-6) || inNb(x, y), inNb);
-    let why = r.ok ? '' : r.why, at = null;
-    if (r.ok) {
-      for (const k of r.strokes) k.w = snap(k.w);
-      const bb = exp(s.bbox), oth = grid.query(bb).filter(o => o !== s && !o.isVoid).map(atom0);
-      const c = compareRegion(bb, [atom0(s)].concat(oth), r.strokes.map(k => mkCap(k.x1, k.y1, k.x2, k.y2, k.w / 2)).concat(r.fills.map(f => mkPoly(f)), oth), cfg.grid);
-      if (c.maxDev > cfg.thr) { why = '복원 결과와 원본의 차이 ' + c.maxDev.toFixed(4) + 'mm (기준 초과)'; at = c.at; }
+    const r = reconstructTrace(s.pts.some(p => p.b) ? flattenPath(s.pts, TRACE_FLAT) : s.pts.map(p => [p.x, p.y]), (x, y) => inTol(s, x, y, 1e-6) || inNb(x, y), inNb);
+    if (!r.ok) { s.role = 'region'; s.why = r.why; s.fallback = true; warn('fallback', s, '영역으로 대체: ' + r.why); }
+    else { for (const k of r.strokes) k.w = snap(k.w); s.strokes = r.strokes; s.fills = r.fills.map(f => { const d = new Float64Array(f.length * 2); f.forEach((q, i) => { d[2 * i] = q[0]; d[2 * i + 1] = q[1]; }); return d; }); s.narrow = r.warns; }
+  }
+  // Gerber를 쓰고 다시 읽어 모든 객체를 원본과 비교한다. 복원한 배선이 기준을 넘으면 그 객체만 영역으로 바꿔 다시 쓴다.
+  const ATOM_C = new Map(), atomL = o => { let a = ATOM_C.get(o); if (!a) { if (ATOM_C.size > 40000) ATOM_C.clear(); a = mkPoly(o.flat, o.level % 2); ATOM_C.set(o, a); } return a; };
+  let worst = 0, nBad = 0;
+  for (let pass = 0; pass < 3; pass++) {
+    await tick(L.label + ': Gerber 작성');
+    const g = buildGerber(L, cfg); L.text = g.text; L.apertures = g.aps; L.stats = g.stats;
+    L.prims = parseGerber(L.text);
+    const pg = new Grid(cs); for (const p of L.prims) pg.add(p.bbox, p);
+    const bad = []; worst = 0; nBad = 0; cnt = 0;
+    for (const s of act) {
+      if (++cnt % 50 === 0) await tick(L.label + ': 형상 비교 ' + cnt + '/' + act.length);
+      const bb = exp(s.bbox);
+      const c = compareTiled(s, bb, margin, tb => grid.query(tb).sort((a, b) => a.level - b.level || a.id - b.id).map(atomL),
+        tb => { const res = []; for (const p of pg.query(tb).sort((a, b) => a.seq - b.seq)) for (const a of p.atoms) res.push(a); return res; }, cfg.grid);
+      s.diff = c;
+      if (c.maxDev > worst) worst = c.maxDev;
+      if (c.maxDev > cfg.thr) { nBad++; bad.push(s); }
     }
-    if (why) { s.role = 'region'; s.why = why; s.fallback = true; warn('fallback', s, '영역으로 대체: ' + why, at); }
-    else { s.strokes = r.strokes; s.fills = r.fills; for (const w of r.warns) warn('narrow', s, w.msg, [w.x, w.y]); }
+    const redo = pass < 2 ? bad.filter(s => s.role === 'trace' && s.strokes) : [];
+    if (!redo.length) { for (const s of bad) warn('diff', s, '출력과 원본의 차이 ' + s.diff.maxDev.toFixed(4) + 'mm (기준 ' + cfg.thr + 'mm 초과)', s.diff.at); break; }
+    for (const s of redo) { const why = '복원 결과와 원본의 차이 ' + s.diff.maxDev.toFixed(4) + 'mm (기준 초과)'; s.role = 'region'; s.why = why; s.fallback = true; s.strokes = s.fills = s.narrow = null; warn('fallback', s, '영역으로 대체: ' + why, s.diff.at); }
   }
-  await tick(L.label + ': Gerber 작성');
-  const g = buildGerber(L, cfg); L.text = g.text; L.apertures = g.aps; L.stats = g.stats;
-  L.prims = parseGerber(L.text);
+  for (const s of act) if (s.narrow) for (const w of s.narrow) warn('narrow', s, w.msg, [w.x, w.y]);
   for (const a of L.apertures) if (a.err > cfg.thr) W.push({ type: 'ellipse', target: L.target, id: null, msg: 'D' + a.code + ' 타원 근사 오차 ' + a.err.toFixed(4) + 'mm (기준 초과) → 분할 수를 늘리세요', bbox: null });
-  const pg = new Grid(cs); for (const p of L.prims) pg.add(p.bbox, p);
-  let worst = 0, nBad = 0; cnt = 0;
-  for (const s of act) {
-    if (++cnt % 50 === 0) await tick(L.label + ': 형상 비교 ' + cnt + '/' + act.length);
-    const bb = exp(s.bbox);
-    const os = grid.query(bb).sort((a, b) => a.level - b.level).map(o => o._aL || (o._aL = mkPoly(o.flat, o.level % 2)));
-    const res = []; for (const p of pg.query(bb).sort((a, b) => a.seq - b.seq)) for (const a of p.atoms) res.push(a);
-    const c = compareRegion(bb, os, res, cfg.grid); s.diff = c;
-    if (c.maxDev > worst) worst = c.maxDev;
-    if (c.maxDev > cfg.thr) { nBad++; warn('diff', s, '출력과 원본의 차이 ' + c.maxDev.toFixed(4) + 'mm (기준 ' + cfg.thr + 'mm 초과)', c.at); }
-  }
   L.verify = { worst, nBad, checked: act.length };
+  // 큰 도면에서 메모리를 아끼도록 변환에만 쓰던 것을 지운다
+  for (const s of S) { s.lines = s.contacts = s.containers = null; }
 }
 // cfg: { layers:{이름:'cu1'|'cu2'|'mask'|'none'}, files:{cu1,..}, mirror:{cu1,..}, origin, ratio, grid, thr, apTol, noMacro, ellN, allVoid, overrides:{id:role}, voids:{id:bool} }
 async function convertAll(base, cfg, prog) {
@@ -1118,12 +1312,13 @@ async function convertAll(base, cfg, prog) {
   const gb = [Infinity, Infinity, -Infinity, -Infinity];
   for (const s of base.shapes) if (TARGETS[cfg.layers[s.layer]]) { gb[0] = Math.min(gb[0], s.bbox[0]); gb[1] = Math.min(gb[1], s.bbox[1]); gb[2] = Math.max(gb[2], s.bbox[2]); gb[3] = Math.max(gb[3], s.bbox[3]); }
   const ox = cfg.origin === 'll' && isFinite(gb[0]) ? gb[0] : 0, oy = cfg.origin === 'll' && isFinite(gb[1]) ? gb[1] : 0, out = [];
+  let nid = base.shapes.length;
   for (const tg of Object.keys(TARGETS)) {
     const src = base.shapes.filter(s => cfg.layers[s.layer] === tg);
     if (!src.length) continue;
     const L = { target: tg, label: TARGETS[tg].label, file: cfg.files[tg], mirror: !!cfg.mirror[tg], shapes: [], warnings: [] };
     const mir = cfg.mirror[tg] ? gb[0] + gb[2] - 2 * ox : null;
-    for (const s of src) { const w = workShape(s, ox, oy, mir); if (w) L.shapes.push(w); }
+    for (const s of src) { const w = workShape(s, ox, oy, mir); if (!w) continue; const ps = splitShape(w, SPLIT_N); if (ps.length === 1) L.shapes.push(w); else { L.split = (L.split || 0) + 1; for (const q of ps) { q.id = nid++; q.partOf = s.id; L.shapes.push(q); } } }
     await convertLayer(L, cfg, tick);
     out.push(L);
   }
@@ -1266,7 +1461,7 @@ if (typeof document !== 'undefined') (function () {
   const KIND_COL = { stroke: '#34d17a', flash: '#ffb224', area: '#ff5aa8', fill: '#3fc1ff' };
   // 종류별 색에서도 층을 구분한다: 동박 1 = 밝은 색, 동박 2 = 같은 색의 어두운 톤, 솔더마스크 = 옅은 톤
   const shade = (hex, k, w) => '#' + [1, 3, 5].map(i => { const v = parseInt(hex.substr(i, 2), 16); return Math.round(v * k + 255 * w).toString(16).padStart(2, '0'); }).join('');
-  const kindCol = (tg, kind) => tg === 'cu2' ? shade(KIND_COL[kind], 0.5, 0) : tg === 'mask' ? shade(KIND_COL[kind], 0.4, 0.6) : KIND_COL[kind];
+  const KC = {}, kindCol = (tg, kind) => KC[tg + kind] || (KC[tg + kind] = tg === 'cu2' ? shade(KIND_COL[kind], 0.5, 0) : tg === 'mask' ? shade(KIND_COL[kind], 0.4, 0.6) : KIND_COL[kind]);
   const MASK_LINE_COL = '#c77dff'; // '마스크 선으로 보기'의 테두리 색
   const LAYER_COL = { cu1: '#ff5a5a', cu2: '#4f8dff', mask: '#3ccf6e' };
   const WT = { fallback: ['영역으로 출력(대체)', 'w'], narrow: ['좁은 패드 → 직각 마감', 'w'], overlap: ['같은 층 겹침', 'e'], nested: ['다른 객체 안의 폴리선', 'w'], diff: ['형상 차이 기준 초과', 'e'], dup: ['중복 객체', 'w'], width: ['폭 있는 폴리선', 'w'], arcflat: ['블록 배율로 호를 꺾은선으로 바꿈', 'w'], ellipse: ['타원 근사 오차', 'w'] };
@@ -1290,16 +1485,19 @@ if (typeof document !== 'undefined') (function () {
     S.base = buildBase(S.dxf, $('oUnit').value);
     const b = S.base, stem = S.fileName.replace(/\.[^.]*$/, '') || 'output';
     if (fresh) {
-      let nCu = 0;
+      // 이름으로 추정: 마스크 → 솔더마스크, 동박처럼 보이는 이름 우선, 외형·치수·부품 같은 이름은 출력 안 함
+      const isMask = nm => /mask|solder|(^|[^a-z])sm([^a-z]|$)|마스크|레지스트/i.test(nm), isCu = nm => /copper|동박|배선|패턴|(^|[^a-z])(cu|top|bot|bottom|l[1-9])([^a-z]|$)/i.test(nm), isAux = nm => /outline|zone|limit|body|text|info|dim|border|frame|외형|치수|부품/i.test(nm) || nm === '0';
+      const named = [...b.layerCount].filter(([nm, n]) => n > 0 && !isMask(nm) && isCu(nm) && !/pad/i.test(nm)).map(q => q[0]), cuNames = named.length ? named : [...b.layerCount].filter(([nm, n]) => n > 0 && !isMask(nm) && !isAux(nm)).map(q => q[0]);
       for (const [name, n] of b.layerCount) {
         let t = 'none';
-        if (n > 0) { if (/mask|solder|(^|[^a-z])sm([^a-z]|$)|마스크|레지스트/i.test(name)) t = 'mask'; else if (nCu < 2) t = ['cu1', 'cu2'][nCu++]; }
+        if (n > 0) { if (isMask(name)) t = 'mask'; else { const ix = cuNames.indexOf(name); if (ix >= 0 && ix < 2) t = ['cu1', 'cu2'][ix]; } }
         S.layerTarget[name] = t;
       }
       for (const tg in TARGETS) S.files[tg] = stem + TARGETS[tg].suffix + '.gbr';
     }
     $('fileInfo').textContent = S.fileName + ' · ' + (b.ver || '버전 표시 없음') + ' · 단위 ' + b.unitText + ' · 닫힌 도형 ' + b.shapes.length + '개';
     let msg = '읽기 완료: 닫힌 도형 ' + b.shapes.length + '개, 무시한 객체 ' + b.ignored.length + '개.';
+    if (b.joined && b.joined.loops) msg += ' 끝이 맞닿은 열린 선 ' + b.joined.parts + '개를 이어 닫힌 외곽선 ' + b.joined.loops + '개로 만들었습니다.';
     if (b.ver && b.ver !== 'AC1015') msg += '<br>참고: 이 파일은 ' + esc(b.ver) + ' 형식입니다(AutoCAD 2000 = AC1015). 읽기는 시도했습니다.';
     setMsg(msg, false);
     if (!b.shapes.length) setMsg('닫힌 도형(폴리선·원 등)을 찾지 못했습니다. 무시한 객체 목록을 확인해 주세요.', true);
@@ -1455,7 +1653,15 @@ if (typeof document !== 'undefined') (function () {
   /* ---------- 미리보기 ---------- */
   const cv = $('cv'), ctx = cv.getContext('2d'), off = document.createElement('canvas'), off2 = document.createElement('canvas');
   let rafPending = false;
-  function draw() { if (rafPending) return; rafPending = true; requestAnimationFrame(() => { rafPending = false; render(); }); }
+  // 그리는 데 오래 걸리는 큰 도면: 움직이는 동안은 직전 화면을 늘려 보이고, 멈추면 다시 그린다
+  const snapCv = document.createElement('canvas'); let snap = null, lastMs = 0, idleT = null;
+  function fullRender() { if (rafPending) return; rafPending = true; requestAnimationFrame(() => { rafPending = false; const t = performance.now(); render(); lastMs = performance.now() - t; if (lastMs > 120) { snapCv.width = cv.width; snapCv.height = cv.height; snapCv.getContext('2d').drawImage(cv, 0, 0); snap = { cx: V.cx, cy: V.cy, scale: V.scale, w: cv.width, h: cv.height }; } else snap = null; }); }
+  function draw() {
+    if (!snap || lastMs <= 120) { fullRender(); return; }
+    const k = V.scale / snap.scale; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.fillStyle = '#10151b'; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(snapCv, cv.width / 2 + (snap.cx - V.cx) * V.scale - snap.w / 2 * k, cv.height / 2 - (snap.cy - V.cy) * V.scale - snap.h / 2 * k, snap.w * k, snap.h * k);
+    clearTimeout(idleT); idleT = setTimeout(fullRender, 200);
+  }
   function resize() { const r = $('cvWrap').getBoundingClientRect(); V.dpr = window.devicePixelRatio || 1; cv.width = Math.max(10, Math.round(r.width * V.dpr)); cv.height = Math.max(10, Math.round(r.height * V.dpr)); off.width = off2.width = cv.width; off.height = off2.height = cv.height; draw(); }
   function fit() { if (S.result && S.result.bbox) zoomTo(S.result.bbox, true); else draw(); }
   function zoomTo(bb, whole) {
@@ -1479,10 +1685,14 @@ if (typeof document !== 'undefined') (function () {
     if ($('vRes').checked) for (const tg of order) {
       const L = layerOf(tg); if (!L || !V.show[tg]) continue;
       const o = off.getContext('2d'); o.setTransform(1, 0, 0, 1, 0, 0); o.globalCompositeOperation = 'source-over'; o.clearRect(0, 0, off.width, off.height); world(o);
+      const px0 = V.dpr / V.scale, tiny = 1.5 * px0; let lastCol = null, lastPol = -1;
       for (const p of L.prims) {
-        if (!bbHit(p.bbox, vb)) continue;
-        o.globalCompositeOperation = p.pol ? 'destination-out' : 'source-over';
-        o.fillStyle = o.strokeStyle = byLayer ? LAYER_COL[tg] : kindCol(tg, p.kind === 'region' ? p.sub : p.kind);
+        const b = p.bbox; if (b[0] > vb[2] || b[2] < vb[0] || b[1] > vb[3] || b[3] < vb[1]) continue;
+        if (p.pol !== lastPol) { o.globalCompositeOperation = p.pol ? 'destination-out' : 'source-over'; lastPol = p.pol; }
+        const col = byLayer ? LAYER_COL[tg] : kindCol(tg, p.kind === 'region' ? p.sub : p.kind);
+        if (col !== lastCol) { o.fillStyle = o.strokeStyle = col; lastCol = col; }
+        const w = b[2] - b[0], h = b[3] - b[1];
+        if (w < tiny && h < tiny) { o.fillRect(b[0], b[1], Math.max(w, px0), Math.max(h, px0)); continue; } // 화면에서 점만 한 것은 점으로
         for (const a of p.atoms) drawAtom(o, a);
       }
       if (tg === 'mask' && $('vMaskLine').checked) { // 테두리만 남긴다: 면에서 '안쪽으로 줄인 면'을 뺀다
@@ -1503,7 +1713,8 @@ if (typeof document !== 'undefined') (function () {
       ctx.lineWidth = 1 * px; ctx.strokeStyle = ctx.fillStyle = '#06301a';
       for (const p of L.prims) {
         if (p.kind !== 'stroke' || !bbHit(p.bbox, vb)) continue;
-        const a = p.atoms[0]; if (a.t !== 'c' || a.r * V.scale < 2.5 * V.dpr) continue;
+        if (p.d[4] * V.scale < 2.5 * V.dpr) continue;
+        const a = p.atoms[0]; if (a.t !== 'c') continue;
         ctx.beginPath(); ctx.moveTo(a.x1, a.y1); ctx.lineTo(a.x2, a.y2); ctx.stroke();
         for (const q of [[a.x1, a.y1], [a.x2, a.y2]]) { ctx.beginPath(); ctx.arc(q[0], q[1], 2.2 * px, 0, 2 * Math.PI); ctx.fill(); }
       }
@@ -1511,7 +1722,7 @@ if (typeof document !== 'undefined') (function () {
     if ($('vOrig').checked) for (const tg of order) {
       const L = layerOf(tg); if (!L || !V.show[tg]) continue;
       ctx.lineWidth = 1.1 * px; ctx.strokeStyle = byLayer ? '#ffffff' : (tg === 'mask' ? '#b9f5c8' : tg === 'cu2' ? '#b8ccff' : '#ffffff');
-      for (const s of L.shapes) { if (!bbHit(s.bbox, vb)) continue; ctx.setLineDash(s.isVoid || s.dup ? [4 * px, 3 * px] : []); pathOf(ctx, V.scale < 300 ? s.coarse : s.flat); ctx.stroke(); }
+      for (const s of L.shapes) { if (!bbHit(s.bbox, vb) || (s.bbox[2] - s.bbox[0] < 3 * px && s.bbox[3] - s.bbox[1] < 3 * px)) continue; ctx.setLineDash(s.isVoid || s.dup ? [4 * px, 3 * px] : []); pathOf(ctx, V.scale < 300 ? s.coarse : s.flat); ctx.stroke(); }
       ctx.setLineDash([]);
     }
     if (V.sel) { const s = findShape(V.sel.target, V.sel.id); if (s) { ctx.lineWidth = 2.5 * px; ctx.strokeStyle = '#ffe600'; pathOf(ctx, s.flat); ctx.stroke(); } }
