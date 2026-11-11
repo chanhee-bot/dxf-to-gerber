@@ -1,0 +1,1584 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>DXF → Gerber 변환기</title>
+<style>
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:"Malgun Gothic","맑은 고딕",system-ui,sans-serif;font-size:13px;color:#1c2430;background:#e9edf2;display:flex;flex-direction:column;min-width:1280px}
+header{display:flex;align-items:baseline;gap:14px;padding:8px 16px;background:#1f2b3a;color:#fff}
+header h1{font-size:17px;margin:0;font-weight:700}
+#build{font-size:12px;color:#9fb3c8}
+#fileInfo{font-size:12px;color:#d5dee8;margin-left:auto}
+main{flex:1;display:flex;min-height:0}
+#left{width:430px;overflow:auto;padding:8px;flex:none}
+#right{width:400px;overflow:auto;padding:8px;flex:none}
+#outTbl td:first-child,#outTbl button,#sumBox td:first-child,#sumBox th{white-space:nowrap}
+#sumBox th,#sumBox td{padding:3px 4px}
+#center{flex:1;display:flex;flex-direction:column;min-width:0;background:#10151b}
+.card{background:#fff;border:1px solid #cfd6de;border-radius:6px;padding:10px;margin-bottom:8px}
+.card h2{font-size:13px;margin:0 0 8px;color:#1f2b3a}
+button,.btn{font:inherit;padding:4px 10px;border:1px solid #8a97a6;border-radius:4px;background:#f6f8fa;cursor:pointer;display:inline-block}
+button:hover,.btn:hover{background:#e3e9f0}
+button:disabled{opacity:.45;cursor:default}
+button.primary{background:#1f6feb;border-color:#1f6feb;color:#fff}
+button.primary:hover{background:#1a5fd0}
+#drop{border:2px dashed #9aa7b5;border-radius:6px;padding:14px 10px;text-align:center;line-height:2}
+#drop.over{background:#dcebff;border-color:#1f6feb}
+#fileMsg{margin-top:6px;line-height:1.5}
+.err{color:#c62828;font-weight:700}
+.opts{display:grid;grid-template-columns:1fr 130px;gap:5px 8px;align-items:center}
+.opts input[type=number],.opts select{width:100%;font:inherit;padding:2px 4px}
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid #d5dbe2;padding:3px 5px;text-align:left;vertical-align:middle}
+th{background:#f0f3f6;font-weight:700;white-space:nowrap}
+td.num,th.num{text-align:right}
+td input[type=text]{width:100%;font:inherit;padding:2px 4px}
+td select{font:inherit;width:100%}
+#toolbar{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;padding:6px 10px;background:#1b232d;color:#d5dee8}
+#toolbar label{white-space:nowrap;cursor:pointer}
+#toolbar select{font:inherit}
+#cvWrap{flex:1;position:relative;min-height:0}
+#cv{position:absolute;left:0;top:0;width:100%;height:100%;cursor:crosshair}
+#legend{display:flex;gap:16px;align-items:center;padding:5px 10px;background:#1b232d;color:#d5dee8;font-size:12px}
+#legend i{display:inline-block;width:14px;height:10px;margin-right:4px;vertical-align:middle;border-radius:2px}
+#coord{margin-left:auto;font-family:Consolas,monospace}
+#hint{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);color:#7d8b99;font-size:15px;text-align:center;line-height:1.8;pointer-events:none}
+details{margin-bottom:6px}
+summary{cursor:pointer;font-weight:700;padding:3px 0}
+.list{max-height:260px;overflow:auto;border:1px solid #d5dbe2;border-radius:4px}
+.item{padding:3px 6px;border-bottom:1px solid #edf0f3;cursor:pointer;line-height:1.45}
+.item:hover{background:#eaf2ff}
+.item small{color:#66727f}
+.tag{display:inline-block;padding:0 5px;border-radius:3px;font-size:11px;margin-right:4px;color:#fff;background:#6b7785}
+.tag.w{background:#d9822b}.tag.e{background:#c62828}.tag.i{background:#2e7d32}
+.ok{color:#2e7d32;font-weight:700}.bad{color:#c62828;font-weight:700}
+#busy{position:fixed;inset:0;background:rgba(16,21,27,.55);display:none;align-items:center;justify-content:center;z-index:50}
+#busy div{background:#fff;padding:18px 28px;border-radius:8px;font-size:14px}
+#pop{position:absolute;display:none;z-index:20;background:#fff;border:1px solid #6b7785;border-radius:6px;padding:8px 10px;box-shadow:0 4px 14px rgba(0,0,0,.35);min-width:230px;line-height:1.6}
+#pop b{display:block;margin-bottom:2px}
+#pop .row{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+#pop button.on{background:#1f6feb;color:#fff;border-color:#1f6feb}
+.muted{color:#66727f}
+</style>
+</head>
+<body>
+<header>
+  <h1>DXF → Gerber 변환기</h1><span id="build"></span><span id="fileInfo"></span>
+</header>
+<main>
+<section id="left">
+  <div class="card">
+    <h2>1. 도면 파일</h2>
+    <div id="drop">여기에 .dxf 파일을 끌어다 놓으세요<br>
+      <label class="btn">파일 선택<input type="file" id="file" accept=".dxf,.DXF" hidden></label>
+      <button id="btnExample">예제 도면 열기</button></div>
+    <div id="fileMsg" class="muted">오토캐드 2000 형식(ASCII) DXF를 읽습니다. 파일은 이 PC 밖으로 나가지 않습니다.</div>
+  </div>
+  <div class="card">
+    <h2>2. 옵션</h2>
+    <div class="opts">
+      <label for="oUnit">도면 단위</label>
+      <select id="oUnit"><option value="auto">자동($INSUNITS, 없으면 mm)</option><option value="mm">mm</option><option value="inch">inch</option></select>
+      <label for="oOrigin">원점</label>
+      <select id="oOrigin"><option value="dxf">DXF 좌표 그대로</option><option value="ll">전체 좌측 하단 = 0,0</option></select>
+      <label for="oRatio">패드 판정 비율 (긴 변÷짧은 변 이하)</label><input type="number" id="oRatio" value="4" min="1" step="0.5">
+      <label for="oGrid">형상 비교 격자 (mm)</label><input type="number" id="oGrid" value="0.002" min="0.0005" step="0.001">
+      <label for="oThr">형상 차이 경고 기준 (mm)</label><input type="number" id="oThr" value="0.005" min="0.0005" step="0.001">
+      <label for="oApTol">조리개 공유 허용 오차 (mm)</label><input type="number" id="oApTol" value="0.0001" min="0.000001" step="0.0001">
+      <label for="oEllN">타원 다각형 분할 수</label><input type="number" id="oEllN" value="48" min="12" max="360" step="4">
+      <label for="oNoMacro">매크로(AM) 대신 영역으로 내기</label><input type="checkbox" id="oNoMacro">
+      <label for="oAllVoid">안쪽 폴리선을 모두 빈 곳으로</label><input type="checkbox" id="oAllVoid">
+    </div>
+  </div>
+  <div class="card">
+    <h2>3. 레이어</h2>
+    <table id="layerTbl"><thead><tr><th>DXF 레이어</th><th class="num">객체</th><th>출력 대상</th></tr></thead><tbody><tr><td colspan="3" class="muted">도면을 열면 표시됩니다.</td></tr></tbody></table>
+  </div>
+  <div class="card">
+    <h2>4. 출력 파일</h2>
+    <table id="outTbl"><thead><tr><th>출력</th><th>파일 이름</th><th title="좌우 반전(아랫면을 뒤집어 볼 때)">좌우 반전</th><th></th></tr></thead><tbody><tr><td colspan="4" class="muted">도면을 열면 표시됩니다.</td></tr></tbody></table>
+    <div style="margin-top:8px"><button id="btnZip" class="primary" disabled>전체 zip 내려받기</button></div>
+  </div>
+</section>
+<section id="center">
+  <div id="toolbar">
+    <span id="tbLayers"></span>
+    <label><input type="checkbox" id="vOrig" checked> 원본 외곽선</label>
+    <label><input type="checkbox" id="vRes" checked> 변환 결과</label>
+    <label><input type="checkbox" id="vCenter" checked> 중심선</label>
+    <label>색 <select id="vColor"><option value="kind">종류별</option><option value="layer">레이어별</option></select></label>
+    <button id="btnFit">전체 보기</button>
+  </div>
+  <div id="cvWrap"><canvas id="cv"></canvas><div id="hint">도면을 열면 변환 결과가 여기에 표시됩니다.<br>휠: 확대·축소 / 끌기: 이동 / 클릭: 객체 선택(패드↔배선 바꾸기)</div><div id="pop"></div></div>
+  <div id="legend"><span id="legendItems"></span><span id="coord"></span></div>
+</section>
+<section id="right">
+  <div class="card"><h2>변환 요약</h2><div id="sumBox" class="muted">도면을 열면 표시됩니다.</div></div>
+  <div class="card"><h2>경고</h2><div id="warnBox" class="muted">없음</div></div>
+  <div class="card"><h2>조리개 목록</h2><div id="apBox" class="muted">없음</div></div>
+  <div class="card"><h2>패드 판정 변경</h2><div id="ovBox" class="muted">없음</div></div>
+  <div class="card"><h2>무시한 객체</h2><div id="ignBox" class="muted">없음</div></div>
+</section>
+</main>
+<div id="busy"><div id="busyMsg">변환 중…</div></div>
+<script>
+'use strict';
+const BUILD = '1111-1957';
+
+/* ================================================================
+ * 1. 기하 기본
+ * ================================================================ */
+const FLAT_TOL = 2e-5;      // 호를 꺾은선으로 펼 때 허용 오차(mm)
+const hyp = Math.hypot;
+
+function arcOf(x1, y1, x2, y2, b) {
+  const dx = x2 - x1, dy = y2 - y1, k = (1 - b * b) / (4 * b);
+  const cx = (x1 + x2) / 2 - dy * k, cy = (y1 + y2) / 2 + dx * k;
+  return { cx, cy, r: hyp(x1 - cx, y1 - cy), a1: Math.atan2(y1 - cy, x1 - cx), sweep: 4 * Math.atan(b) };
+}
+function flattenPath(pts, tol) {
+  const out = [], n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const p = pts[i], q = pts[(i + 1) % n];
+    out.push([p.x, p.y]);
+    if (p.b) {
+      const a = arcOf(p.x, p.y, q.x, q.y, p.b);
+      const step = 2 * Math.acos(Math.max(0, 1 - tol / a.r)) || 0.01;
+      const k = Math.min(4000, Math.max(2, Math.ceil(Math.abs(a.sweep) / step)));
+      for (let j = 1; j < k; j++) { const t = a.a1 + a.sweep * j / k; out.push([a.cx + a.r * Math.cos(t), a.cy + a.r * Math.sin(t)]); }
+    }
+  }
+  return out;
+}
+function polyArea(f) { let a = 0; for (let i = 0, n = f.length; i < n; i++) { const p = f[i], q = f[(i + 1) % n]; a += p[0] * q[1] - q[0] * p[1]; } return a / 2; }
+function bboxOf(f) { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const p of f) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; } return [x0, y0, x1, y1]; }
+function bbHit(a, b, m) { m = m || 0; return a[0] <= b[2] + m && b[0] <= a[2] + m && a[1] <= b[3] + m && b[1] <= a[3] + m; }
+function pip(f, x, y) { let c = false; for (let i = 0, n = f.length, j = n - 1; i < n; j = i++) { const a = f[i], b = f[j]; if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; }
+function dSeg(x, y, x1, y1, x2, y2) { const dx = x2 - x1, dy = y2 - y1, l = dx * dx + dy * dy; let t = l ? ((x - x1) * dx + (y - y1) * dy) / l : 0; t = t < 0 ? 0 : t > 1 ? 1 : t; return hyp(x - x1 - dx * t, y - y1 - dy * t); }
+function dBoundary(f, x, y) { let m = Infinity; for (let i = 0, n = f.length, j = n - 1; i < n; j = i++) { const d = dSeg(x, y, f[j][0], f[j][1], f[i][0], f[i][1]); if (d < m) m = d; } return m; }
+function inTol(s, x, y, tol) { const b = s.bbox; if (x < b[0] - tol || x > b[2] + tol || y < b[1] - tol || y > b[3] + tol) return false; return pip(s.flat, x, y) || dBoundary(s.flat, x, y) <= tol; }
+
+// 아핀 [a,b,c,d,e,f] : x' = a x + c y + e , y' = b x + d y + f
+const M_ID = [1, 0, 0, 1, 0, 0];
+function mMul(A, B) { return [A[0] * B[0] + A[2] * B[1], A[1] * B[0] + A[3] * B[1], A[0] * B[2] + A[2] * B[3], A[1] * B[2] + A[3] * B[3], A[0] * B[4] + A[2] * B[5] + A[4], A[1] * B[4] + A[3] * B[5] + A[5]]; }
+function mT(x, y) { return [1, 0, 0, 1, x, y]; }
+function mR(deg) { const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); return [c, s, -s, c, 0, 0]; }
+function mS(x, y) { return [x, 0, 0, y, 0, 0]; }
+function mAp(M, x, y) { return [M[0] * x + M[2] * y + M[4], M[1] * x + M[3] * y + M[5]]; }
+function mDet(M) { return M[0] * M[3] - M[1] * M[2]; }
+function mIsSim(M) { const l1 = M[0] * M[0] + M[1] * M[1], l2 = M[2] * M[2] + M[3] * M[3]; return Math.abs(M[0] * M[2] + M[1] * M[3]) < 1e-9 * (l1 + l2) && Math.abs(l1 - l2) < 1e-9 * (l1 + l2); }
+
+// 중복점 제거, 일직선 꼭짓점 병합, 반시계 방향으로 정리
+function normalizePath(pts) {
+  let P = [];
+  const n0 = pts.length;
+  for (let i = 0; i < n0; i++) { const p = pts[i], q = pts[(i + 1) % n0]; if (hyp(p.x - q.x, p.y - q.y) < 1e-9) continue; P.push({ x: p.x, y: p.y, b: Math.abs(p.b || 0) < 1e-12 ? 0 : p.b }); }
+  let changed = true;
+  while (changed && P.length > 2) {
+    changed = false;
+    for (let i = 0; i < P.length && P.length > 2; i++) {
+      const n = P.length, a = P[(i + n - 1) % n], c = P[i], d = P[(i + 1) % n];
+      if (a.b || c.b) continue;
+      const ux = d.x - a.x, uy = d.y - a.y, l = hyp(ux, uy);
+      if (l < 1e-12) continue;
+      const dist = Math.abs((c.x - a.x) * uy - (c.y - a.y) * ux) / l;
+      const dot = (c.x - a.x) * (d.x - c.x) + (c.y - a.y) * (d.y - c.y);
+      if (dist < 1e-7 && dot > 0) { P.splice(i, 1); i--; changed = true; }
+    }
+  }
+  if (P.length < 2) return null;
+  if (polyArea(flattenPath(P, 1e-3)) < 0) {
+    const n = P.length, R = [];
+    for (let i = 0; i < n; i++) { const o = P[n - 1 - i]; R.push({ x: o.x, y: o.y, b: -P[(2 * n - 2 - i) % n].b || 0 }); }
+    P = R;
+  }
+  return P;
+}
+function finishShape(s) {
+  s.flat = flattenPath(s.pts, FLAT_TOL);
+  s.coarse = flattenPath(s.pts, 1e-3);
+  s.bbox = bboxOf(s.flat);
+  s.area = polyArea(s.flat);
+  return s;
+}
+function makeShape(pts, meta) {
+  const P = normalizePath(pts);
+  if (!P || (P.length < 3 && !P.some(p => p.b))) return null;
+  const s = Object.assign({ pts: P }, meta);
+  finishShape(s);
+  if (!(s.area > 1e-10)) return null;
+  return s;
+}
+function ellipsePts(e, n) { const c = Math.cos(e.rot), s = Math.sin(e.rot), o = []; for (let i = 0; i < n; i++) { const t = 2 * Math.PI * i / n, x = e.rx * Math.cos(t), y = e.ry * Math.sin(t); o.push({ x: e.cx + x * c - y * s, y: e.cy + x * s + y * c, b: 0 }); } return o; }
+function ellipseFromConj(cx, cy, ax, ay, bx, by) {
+  const qxx = ax * ax + bx * bx, qyy = ay * ay + by * by, qxy = ax * ay + bx * by;
+  const tr = qxx + qyy, df = Math.sqrt(Math.max(0, (qxx - qyy) * (qxx - qyy) / 4 + qxy * qxy));
+  return { cx, cy, rx: Math.sqrt(tr / 2 + df), ry: Math.sqrt(Math.max(0, tr / 2 - df)), rot: 0.5 * Math.atan2(2 * qxy, qxx - qyy) };
+}
+function makeEllipseShape(e, meta) {
+  if (Math.abs(e.rx - e.ry) < 1e-7) return makeShape([{ x: e.cx - e.rx, y: e.cy, b: 1 }, { x: e.cx + e.rx, y: e.cy, b: 1 }], meta);
+  const n = Math.min(2000, Math.max(64, Math.ceil(Math.PI / Math.acos(Math.max(0, 1 - FLAT_TOL / e.rx)))));
+  const s = makeShape(ellipsePts(e, n), meta);
+  if (s) s.ell = e;
+  return s;
+}
+
+// 격자 색인
+class Grid {
+  constructor(cs) { this.cs = cs; this.m = new Map(); this.big = []; this.stamp = 0; }
+  add(b, it) {
+    const cs = this.cs, i0 = Math.floor(b[0] / cs), i1 = Math.floor(b[2] / cs), j0 = Math.floor(b[1] / cs), j1 = Math.floor(b[3] / cs);
+    if ((i1 - i0 + 1) * (j1 - j0 + 1) > 2500) { this.big.push(it); return; }
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const k = i + ',' + j; let a = this.m.get(k); if (!a) this.m.set(k, a = []); a.push(it); }
+  }
+  query(b, m) {
+    m = m || 0;
+    const cs = this.cs, out = [], st = ++this.stamp, seen = new Set();
+    const i0 = Math.floor((b[0] - m) / cs), i1 = Math.floor((b[2] + m) / cs), j0 = Math.floor((b[1] - m) / cs), j1 = Math.floor((b[3] + m) / cs);
+    const push = it => { if (!seen.has(it)) { seen.add(it); if (bbHit(it.bbox, b, m)) out.push(it); } };
+    if ((i1 - i0 + 1) * (j1 - j0 + 1) > 20000) { for (const a of this.m.values()) for (const it of a) push(it); }
+    else for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const a = this.m.get(i + ',' + j); if (a) for (const it of a) push(it); }
+    for (const it of this.big) push(it);
+    return out;
+  }
+}
+
+/* ================================================================
+ * 2. DXF 읽기
+ * ================================================================ */
+function decodeDxf(buf) {
+  const u8 = new Uint8Array(buf);
+  let head = ''; for (let i = 0; i < Math.min(22, u8.length); i++) head += String.fromCharCode(u8[i]);
+  if (head.indexOf('AutoCAD Binary DXF') === 0) throw new Error('BINARY');
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(u8); }
+  catch (e) { try { return new TextDecoder('euc-kr').decode(u8); } catch (e2) { return new TextDecoder('latin1').decode(u8); } }
+}
+function parseHatch(p) {
+  const paths = [], n = p.length; let k = 0, bad = 0;
+  while (k < n && p[k][0] !== 91) k++;
+  if (k >= n) return { paths, bad };
+  const np = parseInt(p[k][1]); k++;
+  for (let a = 0; a < np && k < n; a++) {
+    while (k < n && p[k][0] !== 92) k++;
+    if (k >= n) break;
+    const flag = parseInt(p[k][1]); k++;
+    if (flag & 2) {
+      let nv = 0;
+      while (k < n && (p[k][0] === 72 || p[k][0] === 73 || p[k][0] === 93)) { if (p[k][0] === 93) { nv = parseInt(p[k][1]); k++; break; } k++; }
+      const pts = [];
+      while (k < n) {
+        const c = p[k][0];
+        if (c === 10) { if (pts.length === nv) break; pts.push({ x: +p[k][1], y: 0, b: 0 }); }
+        else if (c === 20 && pts.length) pts[pts.length - 1].y = +p[k][1];
+        else if (c === 42 && pts.length) pts[pts.length - 1].b = +p[k][1];
+        else break;
+        k++;
+      }
+      paths.push(pts);
+    } else {
+      while (k < n && p[k][0] !== 93) k++;
+      if (k >= n) break;
+      const ne = parseInt(p[k][1]); k++;
+      const pts = []; let ok = true;
+      const rd = () => { const v = parseFloat(p[k][1]); k++; return v; };
+      for (let e = 0; e < ne && k < n; e++) {
+        while (k < n && p[k][0] !== 72) k++;
+        if (k >= n) { ok = false; break; }
+        const et = parseInt(p[k][1]); k++;
+        if (et === 1) { const x1 = rd(), y1 = rd(); rd(); rd(); pts.push({ x: x1, y: y1, b: 0 }); }
+        else if (et === 2) {
+          const cx = rd(), cy = rd(), r = rd(), a0 = rd(), a1 = rd(), ccw = rd();
+          let sw = ((a1 - a0) % 360 + 360) % 360; if (sw < 1e-9) sw = 360;
+          const st = (ccw ? a0 : -a0) * Math.PI / 180, swr = (ccw ? sw : -sw) * Math.PI / 180;
+          const parts = sw > 180 ? 2 : 1;
+          for (let q = 0; q < parts; q++) { const t = st + swr * q / parts; pts.push({ x: cx + r * Math.cos(t), y: cy + r * Math.sin(t), b: Math.tan(swr / parts / 4) }); }
+        } else { ok = false; break; }
+      }
+      if (ok && pts.length) paths.push(pts); else { bad++; if (!ok) break; }
+    }
+  }
+  return { paths, bad };
+}
+function entGeom(e) {
+  const g = { layer: '0', type: e.type };
+  let ex = 1;
+  for (const q of e.p) { const c = q[0]; if (c === 8) g.layer = q[1].trim(); else if (c === 5) g.handle = q[1].trim(); else if (c === 230) ex = parseFloat(q[1]); else if (c === 67 && parseInt(q[1]) === 1) g.paper = true; }
+  g.flip = ex < 0;
+  const num = (c, d) => { for (const q of e.p) if (q[0] === c) { const v = parseFloat(q[1]); return isNaN(v) ? d : v; } return d; };
+  switch (e.type) {
+    case 'LWPOLYLINE': {
+      const pts = []; let flags = 0, hasW = false, cur = null;
+      for (const q of e.p) {
+        const c = q[0], v = q[1];
+        if (c === 10) { cur = { x: +v, y: 0, b: 0 }; pts.push(cur); }
+        else if (c === 20 && cur) cur.y = +v;
+        else if (c === 42 && cur) cur.b = +v;
+        else if (c === 70) flags = parseInt(v);
+        else if ((c === 40 || c === 41 || c === 43) && Math.abs(+v) > 1e-12) hasW = true;
+      }
+      g.t = 'poly'; g.pts = pts; g.closed = !!(flags & 1); g.hasW = hasW; break;
+    }
+    case 'POLYLINE': {
+      const flags = num(70, 0) | 0;
+      if (flags & (8 | 16 | 64)) { g.t = 'other'; g.x = NaN; g.y = NaN; break; }
+      let hasW = Math.abs(num(40, 0)) > 1e-12 || Math.abs(num(41, 0)) > 1e-12; const pts = [];
+      for (const v of (e.verts || [])) {
+        const o = { x: 0, y: 0, b: 0 }; let vf = 0;
+        for (const q of v.p) { const c = q[0]; if (c === 10) o.x = +q[1]; else if (c === 20) o.y = +q[1]; else if (c === 42) o.b = +q[1]; else if (c === 70) vf = parseInt(q[1]); else if ((c === 40 || c === 41) && Math.abs(+q[1]) > 1e-12) hasW = true; }
+        if (!(vf & 16)) pts.push(o);
+      }
+      g.t = 'poly'; g.pts = pts; g.closed = !!(flags & 1); g.hasW = hasW; break;
+    }
+    case 'CIRCLE': g.t = 'circle'; g.cx = num(10, 0); g.cy = num(20, 0); g.r = num(40, 0); break;
+    case 'ELLIPSE': {
+      g.t = 'ellipse'; g.cx = num(10, 0); g.cy = num(20, 0); g.mx = num(11, 1); g.my = num(21, 0); g.ratio = num(40, 1);
+      const a0 = num(41, 0), a1 = num(42, 2 * Math.PI); g.full = Math.abs(Math.abs(a1 - a0) - 2 * Math.PI) < 1e-6; g.x = g.cx; g.y = g.cy; break;
+    }
+    case 'SOLID': case 'TRACE': {
+      const a = [num(10, 0), num(20, 0)], b = [num(11, 0), num(21, 0)], c = [num(12, 0), num(22, 0)], d = [num(13, c[0]), num(23, c[1])];
+      g.t = 'poly'; g.closed = true; g.hasW = false; g.pts = [a, b, d, c].map(p => ({ x: p[0], y: p[1], b: 0 })); break;
+    }
+    case 'HATCH': { g.t = 'hatch'; g.solid = num(70, 0) === 1; const h = parseHatch(e.p); g.paths = h.paths; g.bad = h.bad; g.x = h.paths[0] && h.paths[0][0] ? h.paths[0][0].x : NaN; g.y = h.paths[0] && h.paths[0][0] ? h.paths[0][0].y : NaN; break; }
+    case 'INSERT': g.t = 'insert'; g.name = ''; for (const q of e.p) if (q[0] === 2) g.name = q[1].trim(); g.x = num(10, 0); g.y = num(20, 0); g.sx = num(41, 1); g.sy = num(42, 1); g.rot = num(50, 0); g.cols = Math.max(1, num(70, 1) | 0); g.rows = Math.max(1, num(71, 1) | 0); g.dc = num(44, 0); g.dr = num(45, 0); break;
+    default: g.t = 'other'; g.x = num(10, NaN); g.y = num(20, NaN);
+  }
+  return g;
+}
+function parseDxf(text) {
+  const L = text.split(/\r\n|\r|\n/), C = [], V = [];
+  for (let i = 0; i + 1 < L.length; i += 2) { const s = L[i].trim(); if (!/^-?\d+$/.test(s)) { i--; continue; } C.push(parseInt(s, 10)); V.push(L[i + 1]); }
+  const dxf = { ver: '', insunits: null, layers: [], blocks: {}, ents: [] };
+  const N = C.length; let i = 0;
+  const tv = () => V[i].trim().toUpperCase();
+  function readEnt() { const type = tv(); i++; const p = []; while (i < N && C[i] !== 0) { p.push([C[i], V[i]]); i++; } return { type, p }; }
+  function readEntities(stop) {
+    const out = [];
+    while (i < N) {
+      if (C[i] !== 0) { i++; continue; }
+      const t = tv(); if (t === stop || t === 'ENDSEC' || t === 'EOF') break;
+      const e = readEnt();
+      if (e.type === 'POLYLINE') { e.verts = []; while (i < N && C[i] === 0) { const t2 = tv(); if (t2 === 'VERTEX') e.verts.push(readEnt()); else { if (t2 === 'SEQEND') readEnt(); break; } } }
+      out.push(e);
+    }
+    return out;
+  }
+  const atEndSec = () => C[i] === 0 && tv() === 'ENDSEC';
+  while (i < N) {
+    if (C[i] === 0 && tv() === 'SECTION') {
+      i++; const name = (i < N && C[i] === 2) ? tv() : ''; i++;
+      if (name === 'HEADER') {
+        while (i < N && !atEndSec()) { if (C[i] === 9) { const k = tv(); i++; if (i < N) { if (k === '$ACADVER') dxf.ver = V[i].trim(); else if (k === '$INSUNITS') dxf.insunits = parseInt(V[i]); } } else i++; }
+      } else if (name === 'TABLES') {
+        let inLayer = false;
+        while (i < N && !atEndSec()) {
+          if (C[i] === 0) {
+            const t = tv();
+            if (t === 'TABLE') { i++; inLayer = (i < N && C[i] === 2 && tv() === 'LAYER'); continue; }
+            if (t === 'ENDTAB') inLayer = false;
+            if (t === 'LAYER' && inLayer) { const e = readEnt(); const nm = e.p.find(q => q[0] === 2); if (nm) dxf.layers.push(nm[1].trim()); continue; }
+          }
+          i++;
+        }
+      } else if (name === 'BLOCKS') {
+        while (i < N && !atEndSec()) {
+          if (C[i] === 0 && tv() === 'BLOCK') {
+            const b = readEnt(); const g = c => { const q = b.p.find(z => z[0] === c); return q ? q[1] : null; };
+            const blk = { name: (g(2) || '').trim(), bx: parseFloat(g(10)) || 0, by: parseFloat(g(20)) || 0, ents: readEntities('ENDBLK') };
+            dxf.blocks[blk.name.toUpperCase()] = blk;
+          } else i++;
+        }
+      } else if (name === 'ENTITIES') dxf.ents = readEntities('ENDSEC');
+    } else i++;
+  }
+  return dxf;
+}
+
+// 블록을 펼쳐 닫힌 도형 목록(mm)으로 만든다
+function buildBase(dxf, unitMode) {
+  const U = { 1: 25.4, 2: 304.8, 4: 1, 5: 10, 6: 1000, 8: 25.4e-6, 9: 0.0254, 10: 914.4, 13: 1e-3, 14: 100 };
+  let scale = 1, unitText = 'mm';
+  if (unitMode === 'inch') { scale = 25.4; unitText = 'inch(지정)'; }
+  else if (unitMode === 'mm') unitText = 'mm(지정)';
+  else if (dxf.insunits && U[dxf.insunits]) { scale = U[dxf.insunits]; unitText = ({ 1: 'inch', 4: 'mm', 5: 'cm', 6: 'm' })[dxf.insunits] || ('$INSUNITS=' + dxf.insunits); }
+  else unitText = 'mm(가정: $INSUNITS 없음)';
+  const base = { shapes: [], ignored: [], notes: [], layerCount: new Map(), scale, unitText, ver: dxf.ver };
+  for (const n of dxf.layers) base.layerCount.set(n, 0);
+  const add = (s, layer) => { if (!s) return; s.id = base.shapes.length; s.layer = layer; base.shapes.push(s); base.layerCount.set(layer, (base.layerCount.get(layer) || 0) + 1); };
+  const ign = (type, layer, M, x, y, why) => { const p = (isFinite(x) && isFinite(y)) ? mAp(M, x, y) : null; base.ignored.push({ type, layer, x: p ? p[0] : null, y: p ? p[1] : null, why: why || '' }); };
+  function addPoly(pts, M, layer, meta) {
+    let P = pts;
+    const sim = mIsSim(M), det = mDet(M);
+    if (!sim && P.some(p => p.b)) { P = flattenPath(P, FLAT_TOL / Math.max(1e-9, Math.sqrt(Math.abs(det)))).map(p => ({ x: p[0], y: p[1], b: 0 })); meta.arcFlat = true; }
+    const T = P.map(p => { const q = mAp(M, p.x, p.y); return { x: q[0], y: q[1], b: det < 0 ? -(p.b || 0) : (p.b || 0) }; });
+    const s = makeShape(T, meta);
+    if (s) add(s, layer); else ign(meta.src + ' (넓이 0)', layer, M, pts[0] ? pts[0].x : NaN, pts[0] ? pts[0].y : NaN);
+  }
+  function walk(ents, M, layerOv, depth) {
+    for (const e of ents) {
+      const g = e._g || (e._g = entGeom(e));
+      if (g.paper) continue;
+      const layer = (g.layer === '0' && layerOv) ? layerOv : g.layer;
+      const Me = g.flip ? mMul(M, [-1, 0, 0, 1, 0, 0]) : M;
+      if (g.t === 'poly') {
+        let pts = g.pts, closed = g.closed;
+        if (!closed && pts.length > 2 && hyp(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 1e-9) { closed = true; pts = pts.slice(0, -1); }
+        if (!closed) { ign(e.type + ' (열린 선)', layer, Me, pts[0] ? pts[0].x : NaN, pts[0] ? pts[0].y : NaN); continue; }
+        addPoly(pts, Me, layer, { src: e.type, handle: g.handle, hasW: g.hasW });
+      } else if (g.t === 'circle') {
+        if (!(g.r > 0)) continue;
+        const c = mAp(Me, g.cx, g.cy);
+        if (mIsSim(Me)) { const r = g.r * Math.sqrt(Math.abs(mDet(Me))); add(makeShape([{ x: c[0] - r, y: c[1], b: 1 }, { x: c[0] + r, y: c[1], b: 1 }], { src: 'CIRCLE', handle: g.handle }), layer); }
+        else add(makeEllipseShape(ellipseFromConj(c[0], c[1], Me[0] * g.r, Me[1] * g.r, Me[2] * g.r, Me[3] * g.r), { src: 'CIRCLE', handle: g.handle }), layer);
+      } else if (g.t === 'ellipse') {
+        if (!g.full) { ign('ELLIPSE (열린 호)', layer, Me, g.cx, g.cy); continue; }
+        const c = mAp(Me, g.cx, g.cy), bx = -g.my * g.ratio, by = g.mx * g.ratio;
+        add(makeEllipseShape(ellipseFromConj(c[0], c[1], Me[0] * g.mx + Me[2] * g.my, Me[1] * g.mx + Me[3] * g.my, Me[0] * bx + Me[2] * by, Me[1] * bx + Me[3] * by), { src: 'ELLIPSE', handle: g.handle }), layer);
+      } else if (g.t === 'hatch') {
+        if (!g.solid) { ign('HATCH (무늬)', layer, Me, g.x, g.y); continue; }
+        if (g.bad) ign('HATCH (지원하지 않는 경계)', layer, Me, g.x, g.y);
+        for (const pts of g.paths) addPoly(pts, Me, layer, { src: 'HATCH', handle: g.handle });
+      } else if (g.t === 'insert') {
+        const blk = dxf.blocks[g.name.toUpperCase()];
+        if (!blk || depth > 8) { ign('INSERT (블록 없음: ' + g.name + ')', layer, Me, g.x, g.y); continue; }
+        for (let r = 0; r < g.rows; r++) for (let c = 0; c < g.cols; c++) {
+          const Mi = mMul(mMul(mMul(mMul(mMul(Me, mT(g.x, g.y)), mR(g.rot)), mT(c * g.dc, r * g.dr)), mS(g.sx, g.sy)), mT(-blk.bx, -blk.by));
+          walk(blk.ents, Mi, layer, depth + 1);
+        }
+      } else ign(e.type, layer, Me, g.x, g.y);
+    }
+  }
+  walk(dxf.ents, mS(scale, scale), null, 0);
+  return base;
+}
+
+/* ================================================================
+ * 3. 패드 모양 인식 · 맞닿음 · 겹침
+ * ================================================================ */
+const RT = 2e-5;
+function angNorm(a) { a %= Math.PI; if (a < 0) a += Math.PI; if (Math.PI - a < 1e-7 || a < 1e-7) a = 0; return a; }
+function normPad(type, cx, cy, w, h, rot, r) {
+  let a = angNorm(rot);
+  if (Math.abs(a - Math.PI / 2) < 1e-7) { const t = w; w = h; h = t; a = 0; }
+  else if (a !== 0 && w < h) { const t = w; w = h; h = t; a = angNorm(a + Math.PI / 2); }
+  if (type === 'O' && Math.abs(w - h) < RT) return { type: 'C', cx, cy, d: w };
+  const o = { type, cx, cy, w, h, rot: a }; if (r != null) o.r = r; return o;
+}
+function recognizePad(s) {
+  if (s.ell) return { type: 'E', cx: s.ell.cx, cy: s.ell.cy, rx: s.ell.rx, ry: s.ell.ry, rot: angNorm(s.ell.rot) };
+  const P = s.pts, n = P.length; let arcs = 0; for (const p of P) if (p.b) arcs++;
+  const A = i => { const p = P[i % n], q = P[(i + 1) % n]; return arcOf(p.x, p.y, q.x, q.y, p.b); };
+  if (arcs === n && n >= 2) {
+    let c = null, sw = 0;
+    for (let i = 0; i < n; i++) { if (P[i].b < 0) return null; const a = A(i); sw += a.sweep; if (!c) c = a; else if (Math.abs(a.cx - c.cx) > RT || Math.abs(a.cy - c.cy) > RT || Math.abs(a.r - c.r) > RT) return null; }
+    return Math.abs(sw - 2 * Math.PI) < 1e-6 ? { type: 'C', cx: c.cx, cy: c.cy, d: 2 * c.r } : null;
+  }
+  if (n === 4 && arcs === 0) {
+    const e0x = P[1].x - P[0].x, e0y = P[1].y - P[0].y, e1x = P[2].x - P[1].x, e1y = P[2].y - P[1].y;
+    if (Math.abs(P[0].x + P[2].x - P[1].x - P[3].x) > RT || Math.abs(P[0].y + P[2].y - P[1].y - P[3].y) > RT) return null;
+    const w = hyp(e0x, e0y), h = hyp(e1x, e1y);
+    if (Math.abs(e0x * e1x + e0y * e1y) / (w * h) > 1e-6) return null;
+    return normPad('R', (P[0].x + P[2].x) / 2, (P[0].y + P[2].y) / 2, w, h, Math.atan2(e0y, e0x));
+  }
+  if (n === 4 && arcs === 2) {
+    const k = P[0].b ? 1 : 0, a = P[k], b = P[(k + 1) % 4], c = P[(k + 2) % 4], d = P[(k + 3) % 4];
+    if (a.b || c.b || Math.abs(b.b - 1) > 1e-6 || Math.abs(d.b - 1) > 1e-6) return null;
+    const ex = b.x - a.x, ey = b.y - a.y, fx = d.x - c.x, fy = d.y - c.y, ls = hyp(ex, ey), cxv = c.x - b.x, cyv = c.y - b.y, w = hyp(cxv, cyv);
+    if (Math.abs(ex + fx) > RT || Math.abs(ey + fy) > RT || Math.abs(ex * cxv + ey * cyv) / (ls * w) > 1e-6) return null;
+    return normPad('O', (a.x + b.x + c.x + d.x) / 4, (a.y + b.y + c.y + d.y) / 4, ls + w, w, Math.atan2(ey, ex));
+  }
+  if (n === 8 && arcs === 4) {
+    const k = P[0].b ? 1 : 0, T8 = Math.tan(Math.PI / 8);
+    let r = null, sx = 0, sy = 0;
+    for (let j = 0; j < 4; j++) {
+      if (P[(k + 2 * j) % 8].b || Math.abs(P[(k + 2 * j + 1) % 8].b - T8) > 1e-5) return null;
+      const a = A(k + 2 * j + 1); if (r === null) r = a.r; else if (Math.abs(a.r - r) > RT) return null; sx += a.cx; sy += a.cy;
+    }
+    const v = j => { const p = P[(k + 2 * j) % 8], q = P[(k + 2 * j + 1) % 8]; return [q.x - p.x, q.y - p.y]; };
+    const e0 = v(0), e1 = v(1), e2 = v(2), e3 = v(3), l0 = hyp(e0[0], e0[1]), l1 = hyp(e1[0], e1[1]);
+    if (Math.abs(e0[0] + e2[0]) > RT || Math.abs(e0[1] + e2[1]) > RT || Math.abs(e1[0] + e3[0]) > RT || Math.abs(e1[1] + e3[1]) > RT) return null;
+    if (Math.abs(e0[0] * e1[0] + e0[1] * e1[1]) / (l0 * l1) > 1e-6) return null;
+    return normPad('RR', sx / 4, sy / 4, l0 + 2 * r, l1 + 2 * r, Math.atan2(e0[1], e0[0]), r);
+  }
+  return null;
+}
+function shapeLines(s) {
+  const L = [], P = s.pts, n = P.length;
+  for (let i = 0; i < n; i++) { const p = P[i], q = P[(i + 1) % n]; if (p.b) continue; const len = hyp(q.x - p.x, q.y - p.y); if (len < 1e-9) continue; L.push({ x1: p.x, y1: p.y, x2: q.x, y2: q.y, len, dx: (q.x - p.x) / len, dy: (q.y - p.y) / len }); }
+  return L;
+}
+const CT = 2e-5;
+function findContacts(A, B) {
+  for (const ea of A.lines) for (const eb of B.lines) {
+    if (Math.abs(ea.dx * eb.dy - ea.dy * eb.dx) > 1e-6) continue;
+    if (Math.abs((eb.x1 - ea.x1) * ea.dy - (eb.y1 - ea.y1) * ea.dx) > CT) continue;
+    const t1 = (eb.x1 - ea.x1) * ea.dx + (eb.y1 - ea.y1) * ea.dy, t2 = (eb.x2 - ea.x1) * ea.dx + (eb.y2 - ea.y1) * ea.dy;
+    const ov = Math.min(ea.len, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2));
+    if (ov > 2 * CT) { A.contacts.push({ o: B, e: ea, oe: eb, ov }); B.contacts.push({ o: A, e: eb, oe: ea, ov }); }
+  }
+}
+// 두 도형의 관계: 겹침 / 포함 / 없음
+function shapeRelation(A, B) {
+  const D = 1e-4;
+  const cnt = (inner, outer) => { let strict = 0, out = 0, sp = null; for (const p of inner.coarse) { const inside = pip(outer.flat, p[0], p[1]), d = dBoundary(outer.flat, p[0], p[1]); if (inside && d > D) { strict++; if (!sp) sp = p; } else if (!inside && d > D) out++; } return { strict, out, sp }; };
+  const fa = A.coarse, fb = B.coarse;
+  if (fa.length * fb.length <= 250000) for (let i = 0; i < fa.length; i++) {
+    const p = fa[i], p2 = fa[(i + 1) % fa.length], rx = p2[0] - p[0], ry = p2[1] - p[1], rl = hyp(rx, ry);
+    for (let j = 0; j < fb.length; j++) {
+      const q = fb[j], q2 = fb[(j + 1) % fb.length], sx = q2[0] - q[0], sy = q2[1] - q[1], sl = hyp(sx, sy), den = rx * sy - ry * sx;
+      if (Math.abs(den) < 0.05 * rl * sl) continue;
+      const t = ((q[0] - p[0]) * sy - (q[1] - p[1]) * sx) / den, u = ((q[0] - p[0]) * ry - (q[1] - p[1]) * rx) / den;
+      if (t * rl > D && (1 - t) * rl > D && u * sl > D && (1 - u) * sl > D) return { t: 'overlap', x: p[0] + rx * t, y: p[1] + ry * t };
+    }
+  }
+  const small = A.area <= B.area ? A : B, large = small === A ? B : A;
+  const c1 = cnt(small, large);
+  if (c1.strict && !c1.out) return { t: 'in', inner: small, outer: large };
+  if (c1.strict) return { t: 'overlap', x: c1.sp[0], y: c1.sp[1] };
+  const c2 = cnt(large, small);
+  if (c2.strict) return { t: 'overlap', x: c2.sp[0], y: c2.sp[1] };
+  return null;
+}
+function autoRole(s, target, ratio) {
+  if (target === 'mask') return s.pad ? { role: 'pad' } : { role: 'region', why: '솔더마스크 개구부(패드 모양 아님)', quiet: true };
+  if (s.pad) {
+    if (s.pad.type !== 'R') return { role: 'pad' };
+    const lo = Math.min(s.pad.w, s.pad.h), hi = Math.max(s.pad.w, s.pad.h);
+    let tv = false, pv = false;
+    for (const c of s.contacts) {
+      if (c.o.isVoid || c.o.parent === s || s.parent === c.o) continue;
+      if (c.e.len <= lo + 1e-6 && c.ov >= c.e.len - 1e-4) tv = true;
+      if (c.ov < c.e.len - 1e-4 && c.ov >= c.oe.len - 1e-4) pv = true;
+    }
+    if (hi / lo <= ratio + 1e-9) return (tv && !pv) ? { role: 'trace', why: '짧은 변 전체에 다른 객체가 이어짐' } : { role: 'pad' };
+    return (pv && !tv) ? { role: 'pad', why: '더 좁은 객체가 변에 맞닿음' } : { role: 'trace' };
+  }
+  if (s.pts.some(p => p.b)) return { role: 'region', why: '호가 있는 외곽선(패드 모양 아님)' };
+  return { role: 'trace' };
+}
+
+/* ================================================================
+ * 4. 배선 외곽선 → 중심선 + 폭
+ * ================================================================ */
+function convexClipArea(P, Q) {
+  let out = P;
+  for (let i = 0; i < Q.length && out.length; i++) {
+    const a = Q[i], b = Q[(i + 1) % Q.length], inp = out; out = [];
+    const side = p => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+    for (let j = 0; j < inp.length; j++) {
+      const c = inp[j], d = inp[(j + 1) % inp.length], sc = side(c), sd = side(d);
+      if (sc >= 0) out.push(c);
+      if ((sc > 0 && sd < 0) || (sc < 0 && sd > 0)) { const t = sc / (sc - sd); out.push([c[0] + (d[0] - c[0]) * t, c[1] + (d[1] - c[1]) * t]); }
+    }
+  }
+  return out.length > 2 ? Math.abs(polyArea(out)) : 0;
+}
+// poly: 반시계 방향 꼭짓점 [[x,y]..]. inAllowed(x,y): 이 객체나 맞닿은 이웃 안인가. inNeighbor(x,y): 이웃 안인가.
+function reconstructTrace(poly, inAllowed, inNeighbor) {
+  const n = poly.length;
+  if (n < 4) return { ok: false, why: '꼭짓점이 4개 미만' };
+  if (n > 400) return { ok: false, why: '꼭짓점이 너무 많음(' + n + '개)' };
+  const E = [];
+  for (let i = 0; i < n; i++) { const p = poly[i], q = poly[(i + 1) % n], len = hyp(q[0] - p[0], q[1] - p[1]), dx = (q[0] - p[0]) / len, dy = (q[1] - p[1]) / len; E.push({ px: p[0], py: p[1], dx, dy, nx: -dy, ny: dx, len }); }
+  // (1) 마주 보는 평행 변 쌍 찾기: 각 변에서 안쪽으로 수선을 쏘아 처음 만나는 변이 반대 방향 평행이면 한 쌍
+  const ANG = 2e-4, cands = [];
+  for (let i = 0; i < n; i++) {
+    const e = E[i], ts = [0, e.len];
+    for (let k = 0; k < n; k++) { const t = (poly[k][0] - e.px) * e.dx + (poly[k][1] - e.py) * e.dy; if (t > 1e-7 && t < e.len - 1e-7) ts.push(t); }
+    ts.sort((a, b) => a - b);
+    let cur = null;
+    for (let a = 0; a + 1 < ts.length; a++) {
+      const t0 = ts[a], t1 = ts[a + 1];
+      if (t1 - t0 < 1e-7) continue;
+      const tm = (t0 + t1) / 2, mx = e.px + e.dx * tm, my = e.py + e.dy * tm;
+      let best = Infinity, bk = -1;
+      for (let k = 0; k < n; k++) {
+        if (k === i) continue;
+        const f = E[k], den = e.nx * f.dy - e.ny * f.dx;
+        if (Math.abs(den) < 1e-12) continue;
+        const rx = f.px - mx, ry = f.py - my, s = (rx * f.dy - ry * f.dx) / den, u = (rx * e.ny - ry * e.nx) / den;
+        if (s > 1e-7 && u >= -1e-9 && u <= f.len + 1e-9 && s < best) { best = s; bk = k; }
+      }
+      if (bk >= 0) {
+        const f = E[bk];
+        if (Math.abs(e.dx * f.dy - e.dy * f.dx) < ANG && e.dx * f.dx + e.dy * f.dy < 0) {
+          if (cur && cur.k === bk && Math.abs(cur.t1 - t0) < 1e-7) cur.t1 = t1;
+          else { cur = { i, k: bk, t0, t1, w: best }; if (i < bk) cands.push(cur); }
+          continue;
+        }
+      }
+      cur = null;
+    }
+  }
+  if (!cands.length) return { ok: false, why: '마주 보는 평행 변이 없음' };
+  for (const c of cands) {
+    const e = E[c.i], f = E[c.k];
+    if (c.t0 < 1e-7) c.t0 = 0; if (c.t1 > e.len - 1e-7) c.t1 = e.len;
+    const A = [e.px + e.dx * c.t0, e.py + e.dy * c.t0], B = [e.px + e.dx * c.t1, e.py + e.dy * c.t1], C = [B[0] + e.nx * c.w, B[1] + e.ny * c.w], D = [A[0] + e.nx * c.w, A[1] + e.ny * c.w];
+    c.rect = [A, B, C, D]; c.len = c.t1 - c.t0; c.area = c.len * c.w;
+    let k0 = (C[0] - f.px) * f.dx + (C[1] - f.py) * f.dy, k1 = (D[0] - f.px) * f.dx + (D[1] - f.py) * f.dy;
+    if (k0 < 1e-7) k0 = 0; if (k1 > f.len - 1e-7) k1 = f.len;
+    c.k0 = k0; c.k1 = k1; c.ux = e.dx; c.uy = e.dy;
+    c.a = [(A[0] + D[0]) / 2, (A[1] + D[1]) / 2]; c.b = [(B[0] + C[0]) / 2, (B[1] + C[1]) / 2];
+  }
+  // (2) 길쭉한 것부터 고르고, 이미 고른 구간과 겹치는 후보는 버린다
+  cands.sort((p, q) => q.len / q.w - p.len / p.w);
+  const S = [];
+  for (const c of cands) { let ok = true; for (const s of S) if (convexClipArea(c.rect, s.rect) > 1e-4 * Math.min(c.area, s.area)) { ok = false; break; } if (ok) S.push(c); }
+  if (n > 4 && S[0].len / S[0].w < 1.5) return { ok: false, why: '배선 모양이 아님(가장 긴 구간도 길이÷폭 1.5 미만)' };
+  // (3) 구간 양 끝의 현(chord)으로 외곽선을 나눠, 구간 사이에 남는 조각(꺾임·분기·테이퍼·끝단)을 구한다
+  const IV = [];
+  S.forEach((s, si) => { s.ivI = { edge: s.i, a: s.t0, b: s.t1, sec: si, startEnd: 'A' }; s.ivK = { edge: s.k, a: s.k0, b: s.k1, sec: si, startEnd: 'B' }; IV.push(s.ivI, s.ivK); });
+  IV.sort((p, q) => p.edge - q.edge || p.a - q.a); IV.forEach((v, ix) => { v.ix = ix; });
+  const m = IV.length, used = new Array(m).fill(false), cells = [];
+  const PT = (edge, t) => [E[edge].px + E[edge].dx * t, E[edge].py + E[edge].dy * t];
+  for (let s0 = 0; s0 < m; s0++) {
+    if (used[s0]) continue;
+    const cell = { pts: [], ends: [] }; let ix = s0, guard = 0;
+    do {
+      used[ix] = true;
+      const cur = IV[ix], nx = IV[(ix + 1) % m], cnt = (ix === m - 1 ? nx.edge + n : nx.edge) - cur.edge;
+      cell.pts.push(PT(cur.edge, cur.b));
+      for (let j = 0; j < cnt; j++) cell.pts.push(poly[(cur.edge + 1 + j) % n]);
+      cell.pts.push(PT(nx.edge, nx.a));
+      cell.ends.push({ sec: nx.sec, end: nx.startEnd });
+      const sec = S[nx.sec]; ix = (nx === sec.ivI ? sec.ivK : sec.ivI).ix;
+    } while (ix !== s0 && ++guard <= m);
+    const d = [];
+    for (const p of cell.pts) { const l = d[d.length - 1]; if (!l || hyp(l[0] - p[0], l[1] - p[1]) > 1e-7) d.push(p); }
+    while (d.length > 1 && hyp(d[0][0] - d[d.length - 1][0], d[0][1] - d[d.length - 1][1]) <= 1e-7) d.pop();
+    cell.pts = d; cell.area = d.length > 2 ? Math.abs(polyArea(d)) : 0; cell.deg = cell.area < 1e-9;
+    cells.push(cell);
+  }
+  // (4) 각 구간 끝을 어디까지 늘릴 수 있는지: 조각 안에서 다른 구간 중심선과 만나는 점(꺾임점·분기점)
+  for (const cell of cells) for (const en of cell.ends) {
+    const s = S[en.sec];
+    en.pt = en.end === 'A' ? { x: s.a[0], y: s.a[1], ox: -s.ux, oy: -s.uy } : { x: s.b[0], y: s.b[1], ox: s.ux, oy: s.uy };
+    en.terminal = cell.ends.length === 1 && cell.deg;
+    let ext = null;
+    if (en.terminal) ext = s.w / 2;
+    else if (cell.pts.length > 2) for (const o of cell.ends) {
+      if (o === en) continue;
+      const t = S[o.sec], den = en.pt.ox * t.uy - en.pt.oy * t.ux;
+      if (Math.abs(den) < 1e-6) continue;
+      const tt = ((t.a[0] - en.pt.x) * t.uy - (t.a[1] - en.pt.y) * t.ux) / den;
+      if (tt < -1e-7) continue;
+      const X = [en.pt.x + en.pt.ox * tt, en.pt.y + en.pt.oy * tt];
+      if (!(pip(cell.pts, X[0], X[1]) || dBoundary(cell.pts, X[0], X[1]) < 1e-6)) continue;
+      if (ext === null || tt < ext) ext = Math.max(0, tt);
+    }
+    en.ext = ext; s['end' + en.end] = en;
+  }
+  // (5) 끝 처리: 늘린 위치 → 현 위치 → w/2 줄이고 직각 채움 순으로, 둥근 끝이 밖으로 나가지 않는 첫 위치를 고른다
+  const strokes = [], fills = [], warns = [];
+  const fit = (x, y, r) => { const rr = r - 1e-6; for (let k = 0; k < 72; k++) { const a = Math.PI * k / 36; if (!inAllowed(x + rr * Math.cos(a), y + rr * Math.sin(a))) return false; } return true; };
+  for (const s of S) {
+    const r = s.w / 2, res = {};
+    for (const nm of ['A', 'B']) {
+      const en = s['end' + nm], c = [];
+      if (en.ext !== null && en.ext > 1e-9) c.push(en.ext);
+      c.push(0, -r);
+      let ch = null;
+      for (const t of c) if (fit(en.pt.x + en.pt.ox * t, en.pt.y + en.pt.oy * t, r)) { ch = t; break; }
+      res[nm] = ch;
+    }
+    if (res.A === null || res.B === null || s.len + res.A + res.B < 1e-4) { fills.push(s.rect); continue; }
+    strokes.push({ x1: s.a[0] - s.ux * res.A, y1: s.a[1] - s.uy * res.A, x2: s.b[0] + s.ux * res.B, y2: s.b[1] + s.uy * res.B, w: s.w });
+    for (const nm of ['A', 'B']) {
+      if (res[nm] !== -r) continue;
+      const en = s['end' + nm], c1 = nm === 'A' ? s.rect[3] : s.rect[1], c2 = nm === 'A' ? s.rect[0] : s.rect[2], bx = -en.pt.ox * r, by = -en.pt.oy * r;
+      fills.push([c1, c2, [c2[0] + bx, c2[1] + by], [c1[0] + bx, c1[1] + by]]);
+      if (en.terminal && inNeighbor(en.pt.x + en.pt.ox * 1e-4, en.pt.y + en.pt.oy * 1e-4)) warns.push({ x: en.pt.x, y: en.pt.y, msg: '맞닿은 패드가 좁아 둥근 끝이 들어가지 않음 → 직각 마감' });
+    }
+  }
+  if (!strokes.length) return { ok: false, why: '선으로 바꿀 수 있는 구간이 없음' };
+  // (6) 남는 조각 중 선으로 다 덮이지 않는 것(마이터 모서리, 테이퍼 등)은 영역으로 채운다
+  const covered = (x, y) => { for (const k of strokes) if (dSeg(x, y, k.x1, k.y1, k.x2, k.y2) <= k.w / 2 + 1e-7) return true; return false; };
+  for (const cell of cells) {
+    if (cell.deg || cell.pts.length < 3) continue;
+    const f = cell.pts, bb = bboxOf(f); let cx = 0, cy = 0; for (const p of f) { cx += p[0] / f.length; cy += p[1] / f.length; }
+    const tp = [];
+    for (let i = 0; i < f.length; i++) { const p = f[i], q = f[(i + 1) % f.length]; tp.push([p[0] + (cx - p[0]) * 0.002, p[1] + (cy - p[1]) * 0.002], [(p[0] + q[0]) / 2 + (cx - (p[0] + q[0]) / 2) * 0.002, (p[1] + q[1]) / 2 + (cy - (p[1] + q[1]) / 2) * 0.002]); }
+    for (let i = 0; i < 10; i++) for (let j = 0; j < 10; j++) tp.push([bb[0] + (bb[2] - bb[0]) * (i + 0.5) / 10, bb[1] + (bb[3] - bb[1]) * (j + 0.5) / 10]);
+    let all = true;
+    for (const p of tp) if (pip(f, p[0], p[1]) && !covered(p[0], p[1])) { all = false; break; }
+    if (!all) fills.push(f);
+  }
+  return { ok: true, strokes, fills, warns };
+}
+
+/* ================================================================
+ * 5. 형상 비교 (원본 XOR 결과)
+ * ================================================================ */
+function mkDisc(cx, cy, r, pol) { return { t: 'd', cx, cy, r, pol: pol || 0, bb: [cx - r, cy - r, cx + r, cy + r] }; }
+function mkCap(x1, y1, x2, y2, r, pol) {
+  const l = hyp(x2 - x1, y2 - y1); if (l < 1e-9) return mkDisc(x1, y1, r, pol);
+  const nx = -(y2 - y1) / l * r, ny = (x2 - x1) / l * r;
+  return { t: 'c', x1, y1, x2, y2, r, pol: pol || 0, q: [[x1 + nx, y1 + ny], [x1 - nx, y1 - ny], [x2 - nx, y2 - ny], [x2 + nx, y2 + ny]], bb: [Math.min(x1, x2) - r, Math.min(y1, y2) - r, Math.max(x1, x2) + r, Math.max(y1, y2) + r] };
+}
+function mkPoly(pts, pol) { return { t: 'p', pts, pol: pol || 0, bb: bboxOf(pts) }; }
+function swapAtom(a) {
+  if (a._sw) return a._sw;
+  const s = a.t === 'd' ? mkDisc(a.cy, a.cx, a.r, a.pol) : a.t === 'c' ? mkCap(a.y1, a.x1, a.y2, a.x2, a.r, a.pol) : mkPoly(a.pts.map(p => [p[1], p[0]]), a.pol);
+  a._sw = s; return s;
+}
+function ivUnion(a) { a.sort((p, q) => p[0] - q[0]); const o = []; for (const v of a) { const l = o[o.length - 1]; if (l && v[0] <= l[1]) { if (v[1] > l[1]) l[1] = v[1]; } else o.push([v[0], v[1]]); } return o; }
+function ivSub(a, b) {
+  const o = []; let j = 0;
+  for (const v of a) {
+    let s = v[0]; const e = v[1];
+    while (j < b.length && b[j][1] <= s) j++;
+    let k = j;
+    while (k < b.length && b[k][0] < e) { if (b[k][0] > s) o.push([s, b[k][0]]); if (b[k][1] > s) s = b[k][1]; k++; }
+    if (s < e) o.push([s, e]);
+  }
+  return o;
+}
+function ivClip(a, x0, x1) { const o = []; for (const v of a) { const s = Math.max(v[0], x0), e = Math.min(v[1], x1); if (e > s) o.push([s, e]); } return o; }
+function atomSpan(a, y, out) {
+  if (a.t === 'd') { const dy = y - a.cy, h = a.r * a.r - dy * dy; if (h > 0) { const s = Math.sqrt(h); out.push([a.cx - s, a.cx + s]); } return; }
+  if (a.t === 'c') {
+    let lo = Infinity, hi = -Infinity;
+    let dy = y - a.y1, h = a.r * a.r - dy * dy; if (h > 0) { const s = Math.sqrt(h); lo = Math.min(lo, a.x1 - s); hi = Math.max(hi, a.x1 + s); }
+    dy = y - a.y2; h = a.r * a.r - dy * dy; if (h > 0) { const s = Math.sqrt(h); lo = Math.min(lo, a.x2 - s); hi = Math.max(hi, a.x2 + s); }
+    for (let i = 0; i < 4; i++) { const p = a.q[i], q = a.q[(i + 1) % 4]; if ((p[1] > y) !== (q[1] > y)) { const x = p[0] + (y - p[1]) * (q[0] - p[0]) / (q[1] - p[1]); if (x < lo) lo = x; if (x > hi) hi = x; } }
+    if (hi > lo) out.push([lo, hi]); return;
+  }
+  const f = a.pts, xs = [];
+  for (let i = 0, n = f.length, j = n - 1; i < n; j = i++) { const p = f[j], q = f[i]; if ((p[1] > y) !== (q[1] > y)) xs.push(p[0] + (y - p[1]) * (q[0] - p[0]) / (q[1] - p[1])); }
+  xs.sort((p, q) => p - q);
+  for (let i = 0; i + 1 < xs.length; i += 2) if (xs[i + 1] > xs[i]) out.push([xs[i], xs[i + 1]]);
+}
+function foldRow(items, y) {
+  let acc = [], cur = [], cp = 0;
+  const apply = () => { if (!cur.length) return; acc = cp ? ivSub(acc, ivUnion(cur)) : ivUnion(acc.concat(cur)); cur = []; };
+  for (const a of items) { if (y < a.bb[1] || y > a.bb[3]) continue; if (a.pol !== cp) { apply(); cp = a.pol; } atomSpan(a, y, cur); }
+  apply(); return acc;
+}
+function scanLines(y0, y1, lists, g) {
+  const ev = [y0, y1], dense = [];
+  for (const L of lists) for (const a of L) {
+    if (a.bb[3] < y0 || a.bb[1] > y1) continue;
+    if (a.t === 'd') dense.push([a.cy - a.r, a.cy + a.r]);
+    else if (a.t === 'c') { dense.push([a.y1 - a.r, a.y1 + a.r], [a.y2 - a.r, a.y2 + a.r]); for (const p of a.q) ev.push(p[1]); }
+    else if (a.pts.length > 64) dense.push([a.bb[1], a.bb[3]]);
+    else for (const p of a.pts) ev.push(p[1]);
+  }
+  for (const d of dense) ev.push(d[0], d[1]);
+  const dz = ivUnion(dense), e = ev.filter(v => v >= y0 && v <= y1).sort((a, b) => a - b), lines = [];
+  let last = -Infinity, di = 0;
+  for (let i = 0; i + 1 < e.length; i++) {
+    const a = e[i], b = e[i + 1], h = b - a; if (h < 1e-9) continue;
+    const mid = (a + b) / 2;
+    while (di < dz.length && dz[di][1] < mid) di++;
+    const isD = di < dz.length && dz[di][0] <= mid;
+    if (isD || h <= 3 * g) {
+      if (h < g * 0.5) { if (mid - last < g * 0.5) continue; lines.push({ y: mid, w: h }); last = mid; }
+      else { const k = Math.max(1, Math.round(h / g)); for (let j = 0; j < k; j++) { const y = a + h * (j + 0.5) / k; lines.push({ y, w: h / k }); last = y; } }
+    } else { const d = Math.min(g * 0.5, h * 0.1); lines.push({ y: a + d, w: h / 4 }, { y: mid, w: h / 2 }, { y: b - d, w: h / 4 }); last = b - d; }
+  }
+  return lines;
+}
+function distRes(R, x, y) {
+  let m = Infinity;
+  for (const a of R) {
+    if (a.pol) continue;
+    if (x < a.bb[0] - m || x > a.bb[2] + m || y < a.bb[1] - m || y > a.bb[3] + m) continue;
+    const d = a.t === 'd' ? hyp(x - a.cx, y - a.cy) - a.r : a.t === 'c' ? dSeg(x, y, a.x1, a.y1, a.x2, a.y2) - a.r : (pip(a.pts, x, y) ? 0 : dBoundary(a.pts, x, y));
+    if (d < m) m = d;
+  }
+  return Math.max(0, m);
+}
+function distOrig(O, x, y) { let m = Infinity; for (const a of O) { const d = dBoundary(a.pts, x, y); if (d < m) m = d; } return m; }
+// bb 안에서 원본(orig: 다각형 atom, 깊이 순)과 결과(res: atom, 출력 순)를 비교한다
+function compareRegion(bb, orig, res, g) {
+  let area = 0, maxDev = 0, at = null, nLines = 0, gUsed = g;
+  for (let ax = 0; ax < 2; ax++) {
+    const O = ax ? orig.map(swapAtom) : orig, R = ax ? res.map(swapAtom) : res;
+    const x0 = ax ? bb[1] : bb[0], x1 = ax ? bb[3] : bb[2], y0 = ax ? bb[0] : bb[1], y1 = ax ? bb[2] : bb[3];
+    let lines = scanLines(y0, y1, [O, R], g), ge = g;
+    while (lines.length > 20000) { ge *= 2; lines = scanLines(y0, y1, [O, R], ge); }
+    if (ge > gUsed) gUsed = ge;
+    nLines += lines.length;
+    for (const ln of lines) {
+      const y = ln.y, oi = ivClip(foldRow(O, y), x0, x1), ri = ivClip(foldRow(R, y), x0, x1);
+      for (let side = 0; side < 2; side++) {
+        const X = side ? ivSub(ri, oi) : ivSub(oi, ri);
+        for (const v of X) {
+          const L = v[1] - v[0]; if (!(L > 0)) continue;
+          if (ax === 0) area += L * ln.w;
+          let dev = L;
+          if (L >= 5e-5) {
+            dev = 0;
+            for (const fr of [0.02, 0.5, 0.98]) {
+              const x = v[0] + L * fr; let d;
+              if (side) d = distOrig(O, x, y); else { d = distRes(R, x, y); if (d < 1e-9) d = distOrig(O, x, y); }
+              if (d > dev) dev = d;
+            }
+            if (dev > L) dev = L;
+          }
+          if (dev > maxDev) { maxDev = dev; const xm = (v[0] + v[1]) / 2; at = ax ? [y, xm] : [xm, y]; }
+        }
+      }
+    }
+  }
+  return { area, maxDev, at, nLines, gUsed };
+}
+
+/* ================================================================
+ * 6. Gerber 쓰기 (RS-274X, X2 속성 없음)
+ * ================================================================ */
+function fmtC(v) { const n = Math.round(v * 1e6); return String(n === 0 ? 0 : n); }
+function fmtN(v) { let s = (Math.round(v * 1e6) / 1e6).toFixed(6).replace(/0+$/, '').replace(/\.$/, ''); return (s === '-0' || s === '') ? '0' : s; }
+function chainStrokes(strokes) {
+  const key = (x, y) => Math.round(x * 1e6) + ',' + Math.round(y * 1e6), ends = new Map(), used = new Array(strokes.length).fill(false), out = [];
+  strokes.forEach((s, i) => { for (const k of [key(s.x1, s.y1), key(s.x2, s.y2)]) { let a = ends.get(k); if (!a) ends.set(k, a = []); a.push(i); } });
+  for (let i = 0; i < strokes.length; i++) {
+    if (used[i]) continue; used[i] = true;
+    const s = strokes[i], pts = [[s.x1, s.y1], [s.x2, s.y2]];
+    const grow = atEnd => {
+      for (;;) {
+        const p = atEnd ? pts[pts.length - 1] : pts[0], q = atEnd ? pts[pts.length - 2] : pts[1], dx = p[0] - q[0], dy = p[1] - q[1], pk = key(p[0], p[1]);
+        let best = -1, bd = -2, bp = null;
+        for (const j of ends.get(pk) || []) {
+          if (used[j] || Math.abs(strokes[j].w - s.w) > 1e-9) continue;
+          const t = strokes[j], far = key(t.x1, t.y1) === pk ? [t.x2, t.y2] : [t.x1, t.y1], ex = far[0] - p[0], ey = far[1] - p[1], d = (dx * ex + dy * ey) / ((hyp(dx, dy) * hyp(ex, ey)) || 1);
+          if (d > bd) { bd = d; best = j; bp = far; }
+        }
+        if (best < 0) break;
+        used[best] = true; if (atEnd) pts.push(bp); else pts.unshift(bp);
+      }
+    };
+    grow(true); grow(false);
+    out.push({ w: s.w, pts });
+  }
+  return out;
+}
+function ellipseApproxErr(rx, ry, n) { let m = 0; for (let i = 0; i < n; i++) { const t0 = 2 * Math.PI * i / n, t1 = 2 * Math.PI * (i + 1) / n, tm = (t0 + t1) / 2; const d = dSeg(rx * Math.cos(tm), ry * Math.sin(tm), rx * Math.cos(t0), ry * Math.sin(t0), rx * Math.cos(t1), ry * Math.sin(t1)); if (d > m) m = d; } return m; }
+function buildGerber(L, cfg) {
+  const tol = cfg.apTol, snap = v => Math.round(Math.round(v / tol) * tol * 1e6) / 1e6;
+  const aps = [], apMap = new Map(), macros = [];
+  const ap = (key, def, desc, extra) => { let a = apMap.get(key); if (!a) { a = Object.assign({ code: 10 + aps.length, def, desc, count: 0 }, extra || {}); aps.push(a); apMap.set(key, a); } return a; };
+  const circ = d => { d = snap(d); return ap('C' + d, 'C,' + fmtN(d), '원 Ø' + fmtN(d)); };
+  const macro = (key, body, desc, extra) => { let a = apMap.get(key); if (!a) { const name = 'M' + (macros.length + 1); macros.push('%AM' + name + '*\n' + body.join('*\n') + '*%'); a = ap(key, name, desc, Object.assign({ macro: true }, extra || {})); } return a; };
+  function padAp(p) {
+    const deg = Math.round(p.rot * 180 / Math.PI * 1e4) / 1e4, cs = Math.cos(p.rot), sn = Math.sin(p.rot);
+    if (p.type === 'C') return circ(p.d);
+    if (p.type === 'E') {
+      if (cfg.noMacro) return null;
+      const rx = snap(p.rx), ry = snap(p.ry), n = cfg.ellN, c = [];
+      for (let i = 0; i <= n; i++) { const t = 2 * Math.PI * (i % n) / n, x = rx * Math.cos(t), y = ry * Math.sin(t); c.push((i % 6 === 0 ? '\n' : '') + fmtN(x * cs - y * sn) + ',' + fmtN(x * sn + y * cs)); }
+      const err = ellipseApproxErr(rx, ry, n);
+      return macro('E' + rx + 'x' + ry + 'r' + deg, ['4,1,' + n + ',' + c.join(',') + ',0'], '타원 ' + fmtN(2 * rx) + '×' + fmtN(2 * ry) + (deg ? ' ∠' + deg + '°' : '') + ' (매크로, ' + n + '각형, 근사 오차 ' + err.toFixed(4) + 'mm)', { err });
+    }
+    const w = snap(p.w), h = snap(p.h);
+    if (p.type === 'R') {
+      if (p.rot === 0) return ap('R' + w + 'x' + h, 'R,' + fmtN(w) + 'X' + fmtN(h), '사각 ' + fmtN(w) + '×' + fmtN(h));
+      if (cfg.noMacro) return null;
+      return macro('RM' + w + 'x' + h + 'r' + deg, ['21,1,' + fmtN(w) + ',' + fmtN(h) + ',0,0,' + fmtN(deg)], '회전 사각 ' + fmtN(w) + '×' + fmtN(h) + ' ∠' + deg + '° (매크로)');
+    }
+    if (p.type === 'O') {
+      if (p.rot === 0) return ap('O' + w + 'x' + h, 'O,' + fmtN(w) + 'X' + fmtN(h), '오블롱 ' + fmtN(w) + '×' + fmtN(h));
+      if (cfg.noMacro) return null;
+      const d = (w - h) / 2;
+      return macro('OM' + w + 'x' + h + 'r' + deg, ['21,1,' + fmtN(w - h) + ',' + fmtN(h) + ',0,0,' + fmtN(deg), '1,1,' + fmtN(h) + ',' + fmtN(d * cs) + ',' + fmtN(d * sn), '1,1,' + fmtN(h) + ',' + fmtN(-d * cs) + ',' + fmtN(-d * sn)], '회전 오블롱 ' + fmtN(w) + '×' + fmtN(h) + ' ∠' + deg + '° (매크로)');
+    }
+    if (p.type === 'RR') {
+      if (cfg.noMacro) return null;
+      const r = snap(p.r), body = [];
+      if (h - 2 * r > 1e-6) body.push('21,1,' + fmtN(w) + ',' + fmtN(h - 2 * r) + ',0,0,' + fmtN(deg));
+      if (w - 2 * r > 1e-6) body.push('21,1,' + fmtN(w - 2 * r) + ',' + fmtN(h) + ',0,0,' + fmtN(deg));
+      for (const q of [[1, 1], [-1, 1], [-1, -1], [1, -1]]) { const x = q[0] * (w / 2 - r), y = q[1] * (h / 2 - r); body.push('1,1,' + fmtN(2 * r) + ',' + fmtN(x * cs - y * sn) + ',' + fmtN(x * sn + y * cs)); }
+      return macro('RR' + w + 'x' + h + 'c' + r + 'r' + deg, body, '둥근 모서리 사각 ' + fmtN(w) + '×' + fmtN(h) + ' R' + fmtN(r) + (deg ? ' ∠' + deg + '°' : '') + ' (매크로)');
+    }
+    return null;
+  }
+  const levels = new Map();
+  const lv = k => { let o = levels.get(k); if (!o) { o = { areas: [], fills: [], strokes: new Map(), flashes: new Map() }; levels.set(k, o); } return o; };
+  const st = { pads: 0, padAreas: 0, traces: 0, segs: 0, areas: 0, fills: 0, voids: 0 };
+  for (const s of L.shapes) {
+    if (s.dup) continue;
+    const o = lv(s.level); if (s.isVoid) st.voids++;
+    if (s.role === 'pad') {
+      const a = padAp(s.pad); st.pads++;
+      if (a) { a.count++; let arr = o.flashes.get(a.code); if (!arr) o.flashes.set(a.code, arr = []); arr.push([s.pad.cx, s.pad.cy]); s.out = 'flash'; s.apCode = a.code; }
+      else { o.areas.push(s.ell ? ellipsePts(s.ell, cfg.ellN) : s.pts); st.padAreas++; s.out = 'padarea'; }
+    } else if (s.role === 'trace' && s.strokes) {
+      st.traces++; s.out = 'line';
+      for (const pl of chainStrokes(s.strokes)) { const a = circ(pl.w); a.count += pl.pts.length - 1; st.segs += pl.pts.length - 1; let arr = o.strokes.get(a.code); if (!arr) o.strokes.set(a.code, arr = []); arr.push(pl.pts); }
+      for (const f of s.fills) { o.fills.push(f.map(q => ({ x: q[0], y: q[1], b: 0 }))); st.fills++; }
+    } else { o.areas.push(s.pts); st.areas++; s.out = 'area'; }
+  }
+  const o = [], xy = p => 'X' + fmtC(p[0]) + 'Y' + fmtC(p[1]);
+  function region(P) {
+    o.push('G36*'); let mode = 1; o.push(xy([P[0].x, P[0].y]) + 'D02*');
+    for (let i = 0; i < P.length; i++) {
+      const p = P[i], q = P[(i + 1) % P.length];
+      if (!p.b) { if (mode !== 1) { o.push('G01*'); mode = 1; } o.push(xy([q.x, q.y]) + 'D01*'); }
+      else { const a = arcOf(p.x, p.y, q.x, q.y, p.b), md = p.b > 0 ? 3 : 2; if (mode !== md) { o.push('G0' + md + '*'); mode = md; } o.push(xy([q.x, q.y]) + 'I' + fmtC(a.cx - p.x) + 'J' + fmtC(a.cy - p.y) + 'D01*'); }
+    }
+    if (mode !== 1) o.push('G01*');
+    o.push('G37*');
+  }
+  const keys = [...levels.keys()].sort((a, b) => a - b);
+  if (!keys.length) o.push('%LPD*%');
+  for (const k of keys) {
+    o.push(k % 2 ? '%LPC*%' : '%LPD*%'); const v = levels.get(k);
+    if (v.areas.length) { o.push('G04 AREA*'); for (const p of v.areas) region(p); }
+    if (v.fills.length) { o.push('G04 FILL*'); for (const p of v.fills) region(p); }
+    for (const [code, arr] of v.strokes) { o.push('D' + code + '*'); for (const pl of arr) { o.push(xy(pl[0]) + 'D02*'); for (let i = 1; i < pl.length; i++) o.push(xy(pl[i]) + 'D01*'); } }
+    for (const [code, arr] of v.flashes) { o.push('D' + code + '*'); for (const p of arr) o.push(xy(p) + 'D03*'); }
+  }
+  const head = ['G04 DXF_to_Gerber build ' + BUILD + '*', 'G04 ' + L.target.toUpperCase() + '*', '%FSLAX46Y46*%', '%MOMM*%'];
+  for (const mc of macros) head.push(mc);
+  for (const a of aps) head.push('%ADD' + a.code + a.def + '*%');
+  head.push('G01*', 'G75*');
+  return { text: head.concat(o, ['M02*']).join('\r\n') + '\r\n', aps, stats: st };
+}
+
+/* ================================================================
+ * 7. Gerber 읽기 (출력 파일을 다시 읽어 미리보기·검사에 사용)
+ * ================================================================ */
+function rotPt(x, y, deg) { if (!deg) return [x, y]; const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); return [x * c - y * s, x * s + y * c]; }
+function mkAperture(name, prm, macros, unit) {
+  const U = v => v * unit;
+  if (name === 'C') return { atoms: [mkDisc(0, 0, U(prm[0]) / 2)], sw: U(prm[0]) };
+  if (name === 'R') { const w = U(prm[0]) / 2, h = U(prm[1] == null ? prm[0] : prm[1]) / 2; return { atoms: [mkPoly([[-w, -h], [w, -h], [w, h], [-w, h]])], sw: 2 * Math.min(w, h) }; }
+  if (name === 'O') { const w = U(prm[0]), h = U(prm[1] == null ? prm[0] : prm[1]); return { atoms: [w >= h ? mkCap(-(w - h) / 2, 0, (w - h) / 2, 0, h / 2) : mkCap(0, -(h - w) / 2, 0, (h - w) / 2, w / 2)], sw: Math.min(w, h) }; }
+  const body = macros[name], atoms = [];
+  if (!body) return { atoms, sw: 0 };
+  for (const line of body) {
+    const v = line.replace(/\s+/g, '').replace(/\$(\d+)/g, (m, k) => String(prm[+k - 1] || 0)).split(',').map(Number);
+    if (v.some(isNaN) || v[1] === 0) continue;
+    if (v[0] === 1) { const c = rotPt(U(v[3] || 0), U(v[4] || 0), v[5] || 0); atoms.push(mkDisc(c[0], c[1], U(v[2]) / 2)); }
+    else if (v[0] === 21) { const w = U(v[2]) / 2, h = U(v[3]) / 2, cx = U(v[4]), cy = U(v[5]); atoms.push(mkPoly([[cx - w, cy - h], [cx + w, cy - h], [cx + w, cy + h], [cx - w, cy + h]].map(p => rotPt(p[0], p[1], v[6] || 0)))); }
+    else if (v[0] === 20) { const x1 = U(v[3]), y1 = U(v[4]), x2 = U(v[5]), y2 = U(v[6]), l = hyp(x2 - x1, y2 - y1) || 1, nx = -(y2 - y1) / l * U(v[2]) / 2, ny = (x2 - x1) / l * U(v[2]) / 2; atoms.push(mkPoly([[x1 + nx, y1 + ny], [x1 - nx, y1 - ny], [x2 - nx, y2 - ny], [x2 + nx, y2 + ny]].map(p => rotPt(p[0], p[1], v[7] || 0)))); }
+    else if (v[0] === 4) { const n = v[2], pts = []; for (let i = 0; i < n; i++) pts.push(rotPt(U(v[3 + 2 * i]), U(v[4 + 2 * i]), v[5 + 2 * n] || 0)); if (pts.length > 2) atoms.push(mkPoly(pts)); }
+    else if (v[0] === 5) { const n = v[2], pts = []; for (let i = 0; i < n; i++) { const a = 2 * Math.PI * i / n; pts.push(rotPt(U(v[3]) + U(v[5]) / 2 * Math.cos(a), U(v[4]) + U(v[5]) / 2 * Math.sin(a), v[6] || 0)); } atoms.push(mkPoly(pts)); }
+  }
+  return { atoms, sw: 0 };
+}
+function moveAtom(a, dx, dy, pol) { return a.t === 'd' ? mkDisc(a.cx + dx, a.cy + dy, a.r, pol) : a.t === 'c' ? mkCap(a.x1 + dx, a.y1 + dy, a.x2 + dx, a.y2 + dy, a.r, pol) : mkPoly(a.pts.map(p => [p[0] + dx, p[1] + dy]), pol); }
+function arcPts(x, y, nx, ny, ci, cj, ccw) {
+  const cx = x + ci, cy = y + cj, r = hyp(ci, cj), a1 = Math.atan2(y - cy, x - cx), a2 = Math.atan2(ny - cy, nx - cx);
+  let sw = ccw ? a2 - a1 : a1 - a2; while (sw <= 1e-12) sw += 2 * Math.PI; if (!ccw) sw = -sw;
+  const step = 2 * Math.acos(Math.max(0, 1 - FLAT_TOL / Math.max(r, 1e-9))) || 0.01, k = Math.min(4000, Math.max(2, Math.ceil(Math.abs(sw) / step))), out = [];
+  for (let j = 1; j < k; j++) { const t = a1 + sw * j / k; out.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]); }
+  out.push([nx, ny]); return out;
+}
+function parseGerber(text) {
+  const prims = [], aps = {}, macros = {};
+  let dec = 6, unit = 1, cur = null, x = 0, y = 0, interp = 1, inRegion = false, contour = null, pol = 0, sub = 'area', lastD = 2;
+  const add = (kind, atoms, extra) => { let b = [Infinity, Infinity, -Infinity, -Infinity]; for (const a of atoms) { b[0] = Math.min(b[0], a.bb[0]); b[1] = Math.min(b[1], a.bb[1]); b[2] = Math.max(b[2], a.bb[2]); b[3] = Math.max(b[3], a.bb[3]); } prims.push(Object.assign({ kind, pol, atoms, bbox: b, seq: prims.length }, extra || {})); };
+  const closeContour = () => { if (contour && contour.length > 2) add('region', [mkPoly(contour, pol)], { sub }); contour = null; };
+  function ext(s) {
+    const cmds = s.split('*').map(t => t.replace(/[\r\n]+/g, '').trim()).filter(Boolean); if (!cmds.length) return;
+    const c = cmds[0];
+    if (c.indexOf('FS') === 0) { const m = /X(\d)(\d)/.exec(c); if (m) dec = +m[2]; }
+    else if (c.indexOf('MO') === 0) unit = c.indexOf('IN') >= 0 ? 25.4 : 1;
+    else if (c.indexOf('LP') === 0) { pol = c[2] === 'C' ? 1 : 0; sub = 'area'; }
+    else if (c.indexOf('AM') === 0) macros[c.slice(2)] = cmds.slice(1);
+    else if (c.indexOf('AD') === 0) { const m = /^ADD(\d+)([^,]+)(?:,(.*))?$/.exec(c); if (m) { aps[+m[1]] = mkAperture(m[2], m[3] ? m[3].split('X').map(Number) : [], macros, unit); aps[+m[1]].code = +m[1]; } }
+  }
+  function data(b) {
+    b = b.replace(/[\r\n\s]+/g, ''); if (!b) return;
+    if (/^G0?4/.test(b)) { if (b.indexOf('FILL') >= 0) sub = 'fill'; else if (b.indexOf('AREA') >= 0) sub = 'area'; return; }
+    if (/^M0/.test(b)) { closeContour(); return; }
+    let nx = x, ny = y, ci = 0, cj = 0, d = null, hasXY = false, m; const re = /([GXYIJD])([+-]?\d+)/g, sc = unit / Math.pow(10, dec);
+    while ((m = re.exec(b))) {
+      const v = +m[2];
+      switch (m[1]) {
+        case 'G': if (v === 1 || v === 2 || v === 3) interp = v; else if (v === 36) { inRegion = true; contour = null; } else if (v === 37) { closeContour(); inRegion = false; } break;
+        case 'X': nx = v * sc; hasXY = true; break;
+        case 'Y': ny = v * sc; hasXY = true; break;
+        case 'I': ci = v * sc; break;
+        case 'J': cj = v * sc; break;
+        case 'D': d = v; break;
+      }
+    }
+    if (d !== null && d >= 10) { cur = aps[d] || null; return; }
+    if (d === null) { if (!hasXY) return; d = lastD; } else lastD = d;
+    if (d === 2) { if (inRegion) { closeContour(); contour = [[nx, ny]]; } }
+    else if (d === 1) {
+      const seg = interp === 1 ? [[nx, ny]] : arcPts(x, y, nx, ny, ci, cj, interp === 3);
+      if (inRegion) { if (!contour) contour = [[x, y]]; for (const p of seg) contour.push(p); }
+      else if (cur) { let px = x, py = y; for (const p of seg) { add('stroke', [mkCap(px, py, p[0], p[1], cur.sw / 2, pol)], { ap: cur.code }); px = p[0]; py = p[1]; } }
+    } else if (d === 3 && cur) add('flash', cur.atoms.map(a => moveAtom(a, nx, ny, pol)), { ap: cur.code });
+    x = nx; y = ny;
+  }
+  let i = 0; const n = text.length;
+  while (i < n) {
+    const ch = text[i];
+    if (ch === '\r' || ch === '\n' || ch === ' ' || ch === '\t') { i++; continue; }
+    if (ch === '%') { const j = text.indexOf('%', i + 1); if (j < 0) break; ext(text.slice(i + 1, j)); i = j + 1; }
+    else { const j = text.indexOf('*', i); if (j < 0) break; data(text.slice(i, j)); i = j + 1; }
+  }
+  closeContour();
+  return prims;
+}
+
+/* ================================================================
+ * 8. 변환 전체 흐름
+ * ================================================================ */
+const TARGETS = { cu1: { label: '동박 1', suffix: '_L1' }, cu2: { label: '동박 2', suffix: '_L2' }, mask: { label: '솔더마스크', suffix: '_SM' } };
+function workShape(s, ox, oy, mir) {
+  const pts = s.pts.map(p => ({ x: mir == null ? p.x - ox : mir - (p.x - ox), y: p.y - oy, b: mir == null ? p.b : -p.b }));
+  const w = makeShape(pts, { id: s.id, layer: s.layer, src: s.src, handle: s.handle, hasW: s.hasW, arcFlat: s.arcFlat });
+  if (w && s.ell) w.ell = { cx: mir == null ? s.ell.cx - ox : mir - (s.ell.cx - ox), cy: s.ell.cy - oy, rx: s.ell.rx, ry: s.ell.ry, rot: mir == null ? s.ell.rot : Math.PI - s.ell.rot };
+  return w;
+}
+async function convertLayer(L, cfg, tick) {
+  const W = L.warnings, S = L.shapes;
+  const warn = (type, s, msg, pt) => W.push({ type, target: L.target, id: s ? s.id : null, msg, bbox: pt ? [pt[0], pt[1], pt[0], pt[1]] : (s ? s.bbox : null) });
+  const seen = new Map();
+  for (const s of S) {
+    const k = s.pts.map(p => Math.round(p.x * 1e5) + ',' + Math.round(p.y * 1e5) + ',' + Math.round(p.b * 1e5)).sort().join(';');
+    if (seen.has(k)) { s.dup = true; s.role = 'dup'; warn('dup', s, '같은 자리에 같은 모양이 또 있음 → 하나만 출력'); } else seen.set(k, s);
+  }
+  const act = S.filter(s => !s.dup);
+  let sumA = 0;
+  for (const s of act) {
+    s.pad = recognizePad(s); s.lines = shapeLines(s); s.contacts = []; s.containers = []; s.parent = null; s.level = 0; s.isVoid = false;
+    sumA += (s.bbox[2] - s.bbox[0]) * (s.bbox[3] - s.bbox[1]);
+    if (s.hasW) warn('width', s, '폭이 있는 폴리선 → 폭을 무시하고 외곽선만 사용');
+    if (s.arcFlat) warn('arcflat', s, '가로세로 배율이 다른 블록 안의 호 → 꺾은선으로 바꿈');
+  }
+  const cs = Math.min(20, Math.max(0.2, 2 * Math.sqrt(sumA / Math.max(1, act.length))));
+  const grid = new Grid(cs); for (const s of act) grid.add(s.bbox, s);
+  await tick(L.label + ': 맞닿음·겹침 검사');
+  let cnt = 0;
+  for (const s of act) {
+    for (const o of grid.query(s.bbox, CT)) {
+      if (o.id <= s.id) continue;
+      findContacts(s, o);
+      const rel = shapeRelation(s, o);
+      if (rel) { if (rel.t === 'overlap') warn('overlap', s, '같은 층 안에서 객체가 겹침', [rel.x, rel.y]); else rel.inner.containers.push(rel.outer); }
+    }
+    if (++cnt % 200 === 0) await tick(L.label + ': 맞닿음·겹침 검사 ' + cnt + '/' + act.length);
+  }
+  for (const s of [...act].sort((a, b) => a.containers.length - b.containers.length)) {
+    if (!s.containers.length) continue;
+    s.parent = s.containers.reduce((m, c) => (c.area < m.area ? c : m)); s.parent.hasChild = true;
+    const v = cfg.voids[s.id]; s.isVoid = v === undefined ? !!cfg.allVoid : !!v;
+    s.level = s.parent.level + ((s.parent.level % 2 === 1) !== s.isVoid ? 1 : 0);
+    warn('nested', s, s.isVoid ? '다른 객체 안의 폴리선: 빈 곳으로 처리' : '다른 객체 안의 폴리선: 동박으로 처리(빈 곳이면 눌러서 바꾸세요)');
+  }
+  for (const s of act) {
+    const au = autoRole(s, L.target, cfg.ratio); s.auto = au.role; s.autoWhy = au.why || '';
+    let role = au.role, why = au.why || '', quiet = !!au.quiet; const ov = cfg.overrides[s.id];
+    const canTrace = !s.ell && !s.pts.some(p => p.b);
+    if (ov === 'pad' && s.pad) role = 'pad'; else if (ov === 'trace' && canTrace) role = 'trace'; else if (ov === 'region') { role = 'region'; why = '사용자 지정'; quiet = true; }
+    if (s.isVoid && role === 'trace') { role = 'region'; why = '빈 곳'; quiet = true; }
+    if (s.hasChild && role === 'trace' && ov !== 'trace') { role = 'region'; why = '안에 다른 객체가 있는 면'; quiet = false; }
+    s.canTrace = canTrace; s.role = role; s.why = role === 'region' ? why : ''; s.overridden = role !== au.role;
+    if (role === 'region' && !quiet && !s.isVoid) warn('fallback', s, '영역으로 출력: ' + why);
+  }
+  const margin = Math.max(4 * cfg.grid, 2 * cfg.thr), snap = v => Math.round(Math.round(v / cfg.apTol) * cfg.apTol * 1e6) / 1e6;
+  const exp = b => [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin];
+  const atom0 = s => s._a0 || (s._a0 = mkPoly(s.flat, 0));
+  const traces = act.filter(s => s.role === 'trace'); cnt = 0;
+  for (const s of traces) {
+    if (++cnt % 20 === 0) await tick(L.label + ': 배선 복원 ' + cnt + '/' + traces.length);
+    const nb = [...new Set(s.contacts.map(c => c.o))].filter(o => !o.isVoid && o.parent !== s && s.parent !== o);
+    const inNb = (x, y) => { for (const o of nb) if (inTol(o, x, y, 1e-6)) return true; return false; };
+    const r = reconstructTrace(s.pts.map(p => [p.x, p.y]), (x, y) => inTol(s, x, y, 1e-6) || inNb(x, y), inNb);
+    let why = r.ok ? '' : r.why, at = null;
+    if (r.ok) {
+      for (const k of r.strokes) k.w = snap(k.w);
+      const bb = exp(s.bbox), oth = grid.query(bb).filter(o => o !== s && !o.isVoid).map(atom0);
+      const c = compareRegion(bb, [atom0(s)].concat(oth), r.strokes.map(k => mkCap(k.x1, k.y1, k.x2, k.y2, k.w / 2)).concat(r.fills.map(f => mkPoly(f)), oth), cfg.grid);
+      if (c.maxDev > cfg.thr) { why = '복원 결과와 원본의 차이 ' + c.maxDev.toFixed(4) + 'mm (기준 초과)'; at = c.at; }
+    }
+    if (why) { s.role = 'region'; s.why = why; s.fallback = true; warn('fallback', s, '영역으로 대체: ' + why, at); }
+    else { s.strokes = r.strokes; s.fills = r.fills; for (const w of r.warns) warn('narrow', s, w.msg, [w.x, w.y]); }
+  }
+  await tick(L.label + ': Gerber 작성');
+  const g = buildGerber(L, cfg); L.text = g.text; L.apertures = g.aps; L.stats = g.stats;
+  L.prims = parseGerber(L.text);
+  for (const a of L.apertures) if (a.err > cfg.thr) W.push({ type: 'ellipse', target: L.target, id: null, msg: 'D' + a.code + ' 타원 근사 오차 ' + a.err.toFixed(4) + 'mm (기준 초과) → 분할 수를 늘리세요', bbox: null });
+  const pg = new Grid(cs); for (const p of L.prims) pg.add(p.bbox, p);
+  let worst = 0, nBad = 0; cnt = 0;
+  for (const s of act) {
+    if (++cnt % 50 === 0) await tick(L.label + ': 형상 비교 ' + cnt + '/' + act.length);
+    const bb = exp(s.bbox);
+    const os = grid.query(bb).sort((a, b) => a.level - b.level).map(o => o._aL || (o._aL = mkPoly(o.flat, o.level % 2)));
+    const res = []; for (const p of pg.query(bb).sort((a, b) => a.seq - b.seq)) for (const a of p.atoms) res.push(a);
+    const c = compareRegion(bb, os, res, cfg.grid); s.diff = c;
+    if (c.maxDev > worst) worst = c.maxDev;
+    if (c.maxDev > cfg.thr) { nBad++; warn('diff', s, '출력과 원본의 차이 ' + c.maxDev.toFixed(4) + 'mm (기준 ' + cfg.thr + 'mm 초과)', c.at); }
+  }
+  L.verify = { worst, nBad, checked: act.length };
+}
+// cfg: { layers:{이름:'cu1'|'cu2'|'mask'|'none'}, files:{cu1,..}, mirror:{cu1,..}, origin, ratio, grid, thr, apTol, noMacro, ellN, allVoid, overrides:{id:role}, voids:{id:bool} }
+async function convertAll(base, cfg, prog) {
+  let last = Date.now();
+  const tick = async msg => { if (prog && Date.now() - last > 120) { await prog(msg); last = Date.now(); } };
+  const gb = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const s of base.shapes) if (TARGETS[cfg.layers[s.layer]]) { gb[0] = Math.min(gb[0], s.bbox[0]); gb[1] = Math.min(gb[1], s.bbox[1]); gb[2] = Math.max(gb[2], s.bbox[2]); gb[3] = Math.max(gb[3], s.bbox[3]); }
+  const ox = cfg.origin === 'll' && isFinite(gb[0]) ? gb[0] : 0, oy = cfg.origin === 'll' && isFinite(gb[1]) ? gb[1] : 0, out = [];
+  for (const tg of Object.keys(TARGETS)) {
+    const src = base.shapes.filter(s => cfg.layers[s.layer] === tg);
+    if (!src.length) continue;
+    const L = { target: tg, label: TARGETS[tg].label, file: cfg.files[tg], mirror: !!cfg.mirror[tg], shapes: [], warnings: [] };
+    const mir = cfg.mirror[tg] ? gb[0] + gb[2] - 2 * ox : null;
+    for (const s of src) { const w = workShape(s, ox, oy, mir); if (w) L.shapes.push(w); }
+    await convertLayer(L, cfg, tick);
+    out.push(L);
+  }
+  return { layers: out, bbox: isFinite(gb[0]) ? [gb[0] - ox, gb[1] - oy, gb[2] - ox, gb[3] - oy] : null, offset: [ox, oy] };
+}
+
+/* ================================================================
+ * 9. zip (압축 없는 stored 방식)
+ * ================================================================ */
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function makeZip(files) { // files: [{name, text}]
+  const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+  const d = new Date(), dt = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(), tm = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  for (const f of files) {
+    const name = enc.encode(f.name), data = enc.encode(f.text), crc = crc32(data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true); h.setUint16(10, tm, true); h.setUint16(12, dt, true);
+    h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, name.length, true); h.setUint16(28, 0, true);
+    parts.push(new Uint8Array(h.buffer), name, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true); c.setUint16(12, tm, true); c.setUint16(14, dt, true);
+    c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
+    central.push(new Uint8Array(c.buffer), name);
+    off += 30 + name.length + data.length;
+  }
+  let cs = 0; for (const p of central) cs += p.length;
+  const e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, cs, true); e.setUint32(16, off, true);
+  const all = parts.concat(central, [new Uint8Array(e.buffer)]); let total = 0; for (const p of all) total += p.length;
+  const out = new Uint8Array(total); let o = 0; for (const p of all) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+/* ================================================================
+ * 10. 예제 도면 (개발 검증용)
+ * ================================================================ */
+function offsetPolyline(c, w) { // 중심선 → 마이터 외곽선(끝은 직각)
+  const n = c.length, L = [], R = [], h = w / 2;
+  for (let i = 0; i < n; i++) {
+    const d1 = i > 0 ? [c[i][0] - c[i - 1][0], c[i][1] - c[i - 1][1]] : null, d2 = i < n - 1 ? [c[i + 1][0] - c[i][0], c[i + 1][1] - c[i][1]] : null;
+    const nm = d => { const l = hyp(d[0], d[1]); return [-d[1] / l, d[0] / l]; };
+    let mx, my;
+    if (d1 && d2) { const a = nm(d1), b = nm(d2), k = 1 + a[0] * b[0] + a[1] * b[1]; mx = (a[0] + b[0]) / k; my = (a[1] + b[1]) / k; } else { const a = nm(d1 || d2); mx = a[0]; my = a[1]; }
+    L.push([c[i][0] + mx * h, c[i][1] + my * h]); R.push([c[i][0] - mx * h, c[i][1] - my * h]);
+  }
+  return R.concat(L.reverse());
+}
+function makeExampleDxf() {
+  let o = [];
+  const w = (c, v) => { o.push(String(c), String(v)); };
+  const lw = (layer, pts, opt) => { opt = opt || {}; w(0, 'LWPOLYLINE'); w(8, layer); w(90, pts.length); w(70, opt.open ? 0 : 1); if (opt.width) w(43, opt.width); for (const p of pts) { w(10, p[0]); w(20, p[1]); if (p[2]) w(42, p[2]); } };
+  const rot = (pts, deg, cx, cy) => { const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); return pts.map(p => [cx + p[0] * c - p[1] * s, cy + p[0] * s + p[1] * c, p[2] || 0]); };
+  const rectP = (W, H) => [[-W / 2, -H / 2], [W / 2, -H / 2], [W / 2, H / 2], [-W / 2, H / 2]];
+  const rect = (layer, cx, cy, W, H, deg) => lw(layer, rot(rectP(W, H), deg || 0, cx, cy));
+  const oblP = (Lg, W) => { const a = (Lg - W) / 2; return [[-a, -W / 2], [a, -W / 2, 1], [a, W / 2], [-a, W / 2, 1]]; };
+  const rrP = (W, H, r) => { const t = Math.tan(Math.PI / 8), x = W / 2, y = H / 2; return [[-x + r, -y], [x - r, -y, t], [x, -y + r], [x, y - r, t], [x - r, y], [-x + r, y, t], [-x, y - r], [-x, -y + r, t]]; };
+  const circP = r => [[-r, 0, 1], [r, 0, 1]];
+  const A = 'L1_TOP', B = 'L2_BOT', M = 'SM_TOP', T = '치수';
+  // ---- 블록 ----
+  const blk = []; o = blk;
+  w(0, 'BLOCK'); w(8, '0'); w(2, 'PADPAIR'); w(70, 0); w(10, 0); w(20, 0); w(30, 0); w(3, 'PADPAIR');
+  rect('0', -1, 0, 0.6, 0.9); rect('0', 1, 0.1, 0.8, 0.5); lw('0', [[-0.7, -0.075], [0.6, -0.075], [0.6, 0.075], [-0.7, 0.075]]);
+  w(0, 'ENDBLK'); w(8, '0');
+  // ---- 도형 ----
+  const ent = []; o = ent;
+  // a. 직선
+  rect(A, 2, 2, 1.0, 1.5); rect(A, 12, 2, 1.0, 1.5); lw(A, [[2.5, 1.9], [11.5, 1.9], [11.5, 2.1], [2.5, 2.1]]);
+  // b. 뾰족한 꺾임(90도), 45도 두 번 꺾임
+  rect(A, 2, 6, 1, 1); rect(A, 8, 10.5, 1, 1); lw(A, [[2.5, 5.875], [8.125, 5.875], [8.125, 10], [7.875, 10], [7.875, 6.125], [2.5, 6.125]]);
+  rect(A, 14, 6, 1, 1); rect(A, 22, 8, 1, 1); lw(A, offsetPolyline([[14.5, 6], [17, 6], [19, 8], [21.5, 8]], 0.2));
+  // c. T자 분기
+  rect(A, 2, 14, 1, 1); rect(A, 12, 14, 1, 1); rect(A, 7, 17.5, 1, 1);
+  lw(A, [[2.5, 13.9], [11.5, 13.9], [11.5, 14.1], [7.075, 14.1], [7.075, 17], [6.925, 17], [6.925, 14.1], [2.5, 14.1]]);
+  // d. 폭 변화: 계단(끝은 떠 있음), 테이퍼
+  rect(A, 14, 14, 1, 1); lw(A, [[14.5, 13.85], [17, 13.85], [17, 13.925], [20, 13.925], [20, 14.075], [17, 14.075], [17, 14.15], [14.5, 14.15]]);
+  rect(A, 14, 17, 1, 1); rect(A, 21, 17, 1, 1); lw(A, [[14.5, 16.8], [16.5, 16.8], [17.5, 16.9], [20.5, 16.9], [20.5, 17.1], [17.5, 17.1], [16.5, 17.2], [14.5, 17.2]]);
+  // e. 끝이 떠 있는 배선, 비스듬한 분기
+  rect(A, 2, 20, 1, 1); lw(A, [[2.5, 19.9], [6, 19.9], [6, 20.1], [2.5, 20.1]]);
+  rect(A, 10, 20, 1, 1); rect(A, 20, 20, 1, 1);
+  { const q = 0.1 / Math.SQRT2, t = 0.1 * Math.SQRT2; lw(A, [[10.5, 19.9], [19.5, 19.9], [19.5, 20.1], [15 + t + 0.1, 20.1], [17 + q, 22 - q], [17 - q, 22 + q], [15 - t + 0.1, 20.1], [10.5, 20.1]]); }
+  // f. 각종 패드
+  rect(A, 2, 24, 1.2, 0.8);
+  w(0, 'CIRCLE'); w(8, A); w(10, 4.5); w(20, 24); w(40, 0.5);
+  lw(A, rot(circP(0.4), 0, 6.5, 24)); lw(A, rot(oblP(1.6, 0.6), 0, 9, 24)); lw(A, rot(oblP(1.4, 0.6), 90, 11, 24)); lw(A, rot(rrP(1.4, 1.0, 0.2), 0, 13.5, 24));
+  w(0, 'ELLIPSE'); w(8, A); w(10, 16); w(20, 24); w(30, 0); w(11, 0.8); w(21, 0); w(31, 0); w(40, 0.5); w(41, 0); w(42, 2 * Math.PI);
+  rect(A, 18.5, 24, 1.2, 0.6, 30); lw(A, rot(oblP(1.4, 0.5), 45, 21, 24)); lw(A, rot(rrP(1.4, 0.9, 0.25), 20, 23.5, 24));
+  // g. 블록: 그대로, 90도, 좌우 반전, 30도, 2x2 배열
+  const ins = (x, y, e) => { w(0, 'INSERT'); w(8, A); w(2, 'PADPAIR'); w(10, x); w(20, y); for (const k in e) w(k, e[k]); };
+  ins(3, 28, {}); ins(7, 28, { 50: 90 }); ins(11, 28, { 41: -1 }); ins(15, 28, { 50: 30 }); ins(19, 27, { 70: 2, 71: 2, 44: 3.5, 45: 1.5 });
+  // h. 패드 사이 짧은 배선 토막(비율 2)
+  rect(A, 2, 31, 1, 1); rect(A, 3.4, 31, 1, 1); lw(A, [[2.5, 30.9], [2.9, 30.9], [2.9, 31.1], [2.5, 31.1]]);
+  // i. 배선보다 좁은 패드
+  rect(A, 8, 31, 1.0, 0.3); rect(A, 11.5, 31, 1, 1); lw(A, [[8.5, 30.8], [11, 30.8], [11, 31.2], [8.5, 31.2]]);
+  // j. 넓은 동박면 + 안쪽 폴리선(구멍) + 그 안의 섬
+  lw(A, [[16, 30], [22, 30], [22, 34], [19.5, 34], [19.5, 33.5], [16, 33.5]]); lw(A, rot(circP(0.8), 0, 19, 32)); lw(A, rot(circP(0.3), 0, 19, 32)); lw(A, [[17, 30.5], [18, 30.5], [18, 31], [17, 31]]);
+  // k. 같은 층 겹침
+  rect(A, 24, 31, 1, 1); rect(A, 24.5, 31.3, 1, 1);
+  // l. 폭 있는 폴리선, 열린 폴리선, 선, 글자
+  lw(A, rot(rectP(1, 1), 0, 26, 24), { width: 0.2 }); lw(A, [[24, 27], [25, 27], [25, 28]], { open: true });
+  w(0, 'LINE'); w(8, A); w(10, 24); w(20, 20); w(11, 26); w(21, 21);
+  w(0, 'TEXT'); w(8, T); w(10, 2); w(20, 35.5); w(40, 0.8); w(1, 'EXAMPLE');
+  w(0, 'MTEXT'); w(8, T); w(10, 10); w(20, 35.5); w(40, 0.8); w(1, 'TEST');
+  // m. R12 POLYLINE
+  w(0, 'POLYLINE'); w(8, A); w(66, 1); w(70, 1);
+  for (const p of rot(rectP(1, 1), 0, 26, 2)) { w(0, 'VERTEX'); w(8, A); w(10, p[0]); w(20, p[1]); }
+  w(0, 'SEQEND'); w(8, A);
+  // 2층
+  rect(B, 5, 5, 1, 1); rect(B, 5, 12.5, 1, 1); lw(B, [[4.85, 5.5], [5.15, 5.5], [5.15, 12], [4.85, 12]]);
+  rect(B, 20.5, 14, 1, 1); lw(B, offsetPolyline([[10, 4], [13, 7], [13, 11], [16, 14], [20, 14]], 0.25));
+  rect(B, 3, 22, 1, 1); rect(B, 9, 26, 1, 1); rect(B, 9, 18, 1, 1);
+  lw(B, [[3.5, 21.9], [8.9, 21.9], [8.9, 18.5], [9.1, 18.5], [9.1, 25.5], [8.9, 25.5], [8.9, 22.1], [3.5, 22.1]]);
+  // 솔더마스크
+  rect(M, 2, 2, 1.1, 1.6); rect(M, 12, 2, 1.1, 1.6); rect(M, 2, 24, 1.3, 0.9);
+  w(0, 'CIRCLE'); w(8, M); w(10, 4.5); w(20, 24); w(40, 0.55);
+  lw(M, rot(oblP(1.7, 0.7), 0, 9, 24)); lw(M, rot(rrP(1.5, 1.1, 0.25), 0, 13.5, 24));
+  lw(M, [[16, 30], [18, 30], [18.5, 31], [17, 32], [16, 31.2]]);
+  const head = []; o = head;
+  w(0, 'SECTION'); w(2, 'HEADER'); w(9, '$ACADVER'); w(1, 'AC1015'); w(9, '$INSUNITS'); w(70, 4); w(0, 'ENDSEC');
+  w(0, 'SECTION'); w(2, 'TABLES'); w(0, 'TABLE'); w(2, 'LAYER'); w(70, 5);
+  for (const n of ['0', A, B, M, T]) { w(0, 'LAYER'); w(2, n); w(70, 0); w(62, 7); w(6, 'CONTINUOUS'); }
+  w(0, 'ENDTAB'); w(0, 'ENDSEC'); w(0, 'SECTION'); w(2, 'BLOCKS');
+  const all = head.concat(blk); o = all;
+  w(0, 'ENDSEC'); w(0, 'SECTION'); w(2, 'ENTITIES');
+  const fin = all.concat(ent); o = fin;
+  w(0, 'ENDSEC'); w(0, 'EOF');
+  return fin.join('\r\n') + '\r\n';
+}
+
+/* ================================================================
+ * 11. 화면
+ * ================================================================ */
+if (typeof document !== 'undefined') (function () {
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  $('build').textContent = '빌드 ' + BUILD;
+  const S = { dxf: null, base: null, fileName: '', layerTarget: {}, files: {}, filesEdited: {}, mirror: {}, overrides: {}, voids: {}, result: null, busy: false, pending: false };
+  const V = { scale: 20, cx: 0, cy: 0, show: { cu1: true, cu2: true, mask: true }, sel: null, flash: null, dpr: 1 };
+  window.__app = { S, V };
+  const KIND_COL = { stroke: '#34d17a', flash: '#ffb224', area: '#ff5aa8', fill: '#3fc1ff' };
+  const LAYER_COL = { cu1: '#ff5a5a', cu2: '#4f8dff', mask: '#3ccf6e' };
+  const WT = { fallback: ['영역으로 출력(대체)', 'w'], narrow: ['좁은 패드 → 직각 마감', 'w'], overlap: ['같은 층 겹침', 'e'], nested: ['다른 객체 안의 폴리선', 'w'], diff: ['형상 차이 기준 초과', 'e'], dup: ['중복 객체', 'w'], width: ['폭 있는 폴리선', 'w'], arcflat: ['블록 배율로 호를 꺾은선으로 바꿈', 'w'], ellipse: ['타원 근사 오차', 'w'] };
+
+  /* ---------- 파일 ---------- */
+  function setMsg(html, err) { const m = $('fileMsg'); m.innerHTML = html; m.className = err ? 'err' : 'muted'; }
+  function loadText(text, name) {
+    let dxf;
+    try { dxf = parseDxf(text); } catch (e) { setMsg('DXF를 읽지 못했습니다: ' + esc(e.message), true); return; }
+    S.dxf = dxf; S.fileName = name; S.overrides = {}; S.voids = {}; S.layerTarget = {}; S.filesEdited = {}; S.mirror = {}; S.result = null; V.sel = null; closePop();
+    rebuildBase(true);
+  }
+  function loadBuffer(buf, name) {
+    let text;
+    try { text = decodeDxf(buf); }
+    catch (e) { setMsg(e.message === 'BINARY' ? '바이너리 DXF는 읽을 수 없습니다. 오토캐드에서 "다른 이름으로 저장 → AutoCAD 2000 DXF"(ASCII)로 다시 저장해 주세요.' : '파일을 읽지 못했습니다: ' + esc(e.message), true); return; }
+    loadText(text, name);
+  }
+  function rebuildBase(fresh) {
+    if (!S.dxf) return;
+    S.base = buildBase(S.dxf, $('oUnit').value);
+    const b = S.base, stem = S.fileName.replace(/\.[^.]*$/, '') || 'output';
+    if (fresh) {
+      let nCu = 0;
+      for (const [name, n] of b.layerCount) {
+        let t = 'none';
+        if (n > 0) { if (/mask|solder|(^|[^a-z])sm([^a-z]|$)|마스크|레지스트/i.test(name)) t = 'mask'; else if (nCu < 2) t = ['cu1', 'cu2'][nCu++]; }
+        S.layerTarget[name] = t;
+      }
+      for (const tg in TARGETS) S.files[tg] = stem + TARGETS[tg].suffix + '.gbr';
+    }
+    $('fileInfo').textContent = S.fileName + ' · ' + (b.ver || '버전 표시 없음') + ' · 단위 ' + b.unitText + ' · 닫힌 도형 ' + b.shapes.length + '개';
+    let msg = '읽기 완료: 닫힌 도형 ' + b.shapes.length + '개, 무시한 객체 ' + b.ignored.length + '개.';
+    if (b.ver && b.ver !== 'AC1015') msg += '<br>참고: 이 파일은 ' + esc(b.ver) + ' 형식입니다(AutoCAD 2000 = AC1015). 읽기는 시도했습니다.';
+    setMsg(msg, false);
+    if (!b.shapes.length) setMsg('닫힌 도형(폴리선·원 등)을 찾지 못했습니다. 무시한 객체 목록을 확인해 주세요.', true);
+    renderLayerTable(); renderOutTable(); renderIgnored();
+    convert(true);
+  }
+  function renderLayerTable() {
+    const tb = $('layerTbl').tBodies[0]; tb.innerHTML = '';
+    for (const [name, n] of S.base.layerCount) {
+      const tr = tb.insertRow();
+      tr.insertCell().textContent = name;
+      const c = tr.insertCell(); c.className = 'num'; c.textContent = n;
+      const sel = document.createElement('select');
+      for (const [v, t] of [['cu1', '동박 1'], ['cu2', '동박 2'], ['mask', '솔더마스크'], ['none', '출력 안 함']]) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); }
+      sel.value = S.layerTarget[name] || 'none'; sel.dataset.layer = name;
+      sel.onchange = () => { S.layerTarget[name] = sel.value; convert(true); };
+      tr.insertCell().appendChild(sel);
+    }
+  }
+  function renderOutTable() {
+    const tb = $('outTbl').tBodies[0]; tb.innerHTML = '';
+    for (const tg in TARGETS) {
+      const tr = tb.insertRow(); tr.insertCell().textContent = TARGETS[tg].label;
+      const inp = document.createElement('input'); inp.type = 'text'; inp.value = S.files[tg]; inp.id = 'file_' + tg;
+      inp.onchange = () => { S.files[tg] = inp.value.trim() || S.files[tg]; inp.value = S.files[tg]; };
+      tr.insertCell().appendChild(inp);
+      const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = !!S.mirror[tg]; ck.id = 'mir_' + tg;
+      ck.onchange = () => { S.mirror[tg] = ck.checked; convert(false); };
+      const c = tr.insertCell(); c.style.textAlign = 'center'; c.appendChild(ck);
+      const bt = document.createElement('button'); bt.textContent = '내려받기'; bt.id = 'dl_' + tg; bt.disabled = true;
+      bt.onclick = () => { const L = layerOf(tg); if (L) download(S.files[tg], [L.text], 'text/plain'); };
+      tr.insertCell().appendChild(bt);
+    }
+  }
+  function layerOf(tg) { return S.result ? S.result.layers.find(l => l.target === tg) : null; }
+  function download(name, parts, type) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(parts, { type })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500); }
+
+  /* ---------- 변환 ---------- */
+  function cfgNow() {
+    const num = (id, d) => { const v = parseFloat($(id).value); return isFinite(v) && v > 0 ? v : d; };
+    return { layers: Object.assign({}, S.layerTarget), files: Object.assign({}, S.files), mirror: Object.assign({}, S.mirror), origin: $('oOrigin').value, ratio: num('oRatio', 4), grid: num('oGrid', 0.002), thr: num('oThr', 0.005), apTol: num('oApTol', 0.0001), noMacro: $('oNoMacro').checked, ellN: Math.max(12, Math.round(num('oEllN', 48))), allVoid: $('oAllVoid').checked, overrides: S.overrides, voids: S.voids };
+  }
+  async function convert(refit) {
+    if (!S.base) return;
+    if (S.busy) { S.pending = true; S.pendingFit = S.pendingFit || refit; return; }
+    S.busy = true; $('busy').style.display = 'flex'; $('busyMsg').textContent = '변환 중…';
+    await new Promise(r => setTimeout(r, 20));
+    const t0 = performance.now();
+    try {
+      S.result = await convertAll(S.base, cfgNow(), async msg => { $('busyMsg').textContent = msg; await new Promise(r => setTimeout(r, 0)); });
+      S.result.ms = performance.now() - t0;
+    } catch (e) { console.error(e); S.result = null; setMsg('변환 중 오류: ' + esc(e.message), true); }
+    S.busy = false; $('busy').style.display = 'none';
+    $('hint').style.display = S.result && S.result.layers.length ? 'none' : '';
+    for (const tg in TARGETS) { const b = $('dl_' + tg); if (b) b.disabled = !layerOf(tg); }
+    $('btnZip').disabled = !(S.result && S.result.layers.length);
+    renderToolbarLayers(); renderSummary(); renderLegend();
+    if (refit) fit(); else draw();
+    if (V.sel) { const s = findShape(V.sel.target, V.sel.id); if (s) showPop(s, V.sel.target, null); else closePop(); }
+    if (S.pending) { S.pending = false; const f = S.pendingFit; S.pendingFit = false; convert(f); }
+  }
+  function findShape(tg, id) { const L = layerOf(tg); return L ? L.shapes.find(s => s.id === id) : null; }
+
+  /* ---------- 요약 · 경고 ---------- */
+  function shapeText(s) {
+    const p = s.pad;
+    if (!p) return '다각형(꼭짓점 ' + s.pts.length + '개' + (s.pts.some(q => q.b) ? ', 호 포함' : '') + ')';
+    const d = p.rot ? ' ∠' + (p.rot * 180 / Math.PI).toFixed(2) + '°' : '';
+    if (p.type === 'C') return '원 Ø' + fmtN(p.d);
+    if (p.type === 'E') return '타원 ' + fmtN(2 * p.rx) + '×' + fmtN(2 * p.ry) + d;
+    return ({ R: '사각 ', O: '오블롱 ', RR: '둥근 모서리 사각 ' })[p.type] + fmtN(p.w) + '×' + fmtN(p.h) + (p.type === 'RR' ? ' R' + fmtN(p.r) : '') + d;
+  }
+  const ROLE_T = { pad: '패드(플래시)', trace: '배선(선)', region: '영역', dup: '중복(출력 안 함)' };
+  function renderSummary() {
+    const R = S.result;
+    if (!R || !R.layers.length) { $('sumBox').innerHTML = '<span class="muted">출력 대상 레이어가 없습니다. 레이어 표에서 출력 대상을 고르세요.</span>'; $('warnBox').textContent = '없음'; $('apBox').textContent = '없음'; renderOverrides(); return; }
+    let h = '<table><thead><tr><th>출력</th><th class="num">패드<br>(플래시)</th><th class="num">배선<br>(객체/선분)</th><th class="num">영역<br>(대체)</th><th class="num">모서리<br>채움</th><th class="num">최대 차이<br>(mm)</th></tr></thead><tbody>';
+    let allOk = true;
+    for (const L of R.layers) {
+      const st = L.stats, ok = L.verify.nBad === 0; if (!ok) allOk = false;
+      h += '<tr><td>' + L.label + (L.mirror ? ' <small>(반전)</small>' : '') + '</td><td class="num">' + (st.pads - st.padAreas) + (st.padAreas ? ' <small>+영역 ' + st.padAreas + '</small>' : '') + '</td><td class="num">' + st.traces + ' / ' + st.segs + '</td><td class="num">' + st.areas + '</td><td class="num">' + st.fills + '</td><td class="num ' + (ok ? 'ok' : 'bad') + '">' + L.verify.worst.toFixed(4) + '</td></tr>';
+    }
+    h += '</tbody></table><div style="margin-top:6px;line-height:1.6">';
+    h += '형상 비교: ' + (allOk ? '<span class="ok">모든 객체가 기준 이내</span>' : '<span class="bad">기준 초과 객체 있음 — 경고 목록 확인</span>') + '<br>';
+    h += '<span class="muted">출력 Gerber를 다시 읽어 원본 외곽선과 비교한 결과입니다. 변환 ' + (R.ms / 1000).toFixed(1) + '초';
+    if (R.bbox) h += ' · 전체 크기 ' + (R.bbox[2] - R.bbox[0]).toFixed(3) + ' × ' + (R.bbox[3] - R.bbox[1]).toFixed(3) + 'mm';
+    h += '</span></div>';
+    $('sumBox').innerHTML = h; $('sumBox').className = '';
+    // 경고
+    const groups = {};
+    for (const L of R.layers) for (const w of L.warnings) (groups[w.type] || (groups[w.type] = [])).push(w);
+    const wb = $('warnBox'); wb.innerHTML = ''; wb.className = '';
+    const keys = Object.keys(WT).filter(k => groups[k]);
+    if (!keys.length) { wb.innerHTML = '<span class="ok">경고 없음</span>'; }
+    for (const k of keys) {
+      const d = document.createElement('details'); d.open = true;
+      d.innerHTML = '<summary><span class="tag ' + WT[k][1] + '">' + groups[k].length + '</span>' + WT[k][0] + '</summary>';
+      const list = document.createElement('div'); list.className = 'list';
+      groups[k].slice(0, 400).forEach(w => {
+        const it = document.createElement('div'); it.className = 'item'; it.dataset.wtype = k;
+        it.innerHTML = '<small>' + TARGETS[w.target].label + (w.id != null ? ' #' + w.id : '') + (w.bbox ? ' (' + ((w.bbox[0] + w.bbox[2]) / 2).toFixed(3) + ', ' + ((w.bbox[1] + w.bbox[3]) / 2).toFixed(3) + ')' : '') + '</small><br>' + esc(w.msg);
+        if (w.bbox) it.onclick = () => { V.show[w.target] = true; renderToolbarLayers(); zoomTo(w.bbox); const s = w.id != null ? findShape(w.target, w.id) : null; if (s) { V.sel = { target: w.target, id: s.id }; showPop(s, w.target, null); } };
+        list.appendChild(it);
+      });
+      if (groups[k].length > 400) { const m = document.createElement('div'); m.className = 'item muted'; m.textContent = '… 외 ' + (groups[k].length - 400) + '개'; list.appendChild(m); }
+      d.appendChild(list); wb.appendChild(d);
+    }
+    // 조리개
+    let a = '';
+    for (const L of R.layers) {
+      a += '<details open><summary>' + L.label + ' — ' + esc(L.file) + ' (' + L.apertures.length + '개)</summary><table><thead><tr><th>D코드</th><th>모양·크기(mm)</th><th class="num">사용</th></tr></thead><tbody>';
+      for (const p of L.apertures) a += '<tr><td>D' + p.code + '</td><td>' + esc(p.desc) + '</td><td class="num">' + p.count + '</td></tr>';
+      if (!L.apertures.length) a += '<tr><td colspan="3" class="muted">조리개 없음(영역만 출력)</td></tr>';
+      a += '</tbody></table></details>';
+    }
+    $('apBox').innerHTML = a; $('apBox').className = '';
+    renderOverrides();
+  }
+  function renderOverrides() {
+    const box = $('ovBox'); box.innerHTML = ''; box.className = '';
+    const rows = [];
+    if (S.result) for (const L of S.result.layers) for (const s of L.shapes) {
+      if (S.overrides[s.id]) rows.push({ L, s, text: '자동 ' + ROLE_T[s.auto] + ' → ' + ROLE_T[s.role], undo: () => { delete S.overrides[s.id]; } });
+      if (S.voids[s.id] !== undefined && s.parent) rows.push({ L, s, text: '안쪽 폴리선 → ' + (s.isVoid ? '빈 곳' : '동박'), undo: () => { delete S.voids[s.id]; } });
+    }
+    if (!rows.length) { box.innerHTML = '<span class="muted">없음 — 미리보기에서 객체를 눌러 바꿀 수 있습니다.</span>'; return; }
+    const list = document.createElement('div'); list.className = 'list';
+    for (const r of rows) {
+      const it = document.createElement('div'); it.className = 'item';
+      it.innerHTML = '<small>' + r.L.label + ' #' + r.s.id + ' · ' + esc(shapeText(r.s)) + '</small><br>' + r.text + ' ';
+      const b = document.createElement('button'); b.textContent = '되돌리기'; b.onclick = ev => { ev.stopPropagation(); r.undo(); convert(false); };
+      it.appendChild(b); it.onclick = () => zoomTo(r.s.bbox);
+      list.appendChild(it);
+    }
+    box.appendChild(list);
+  }
+  function renderIgnored() {
+    const box = $('ignBox'), ig = S.base.ignored; box.className = '';
+    if (!ig.length) { box.innerHTML = '<span class="muted">없음</span>'; return; }
+    const cnt = {}; for (const g of ig) cnt[g.type] = (cnt[g.type] || 0) + 1;
+    box.innerHTML = '<div style="margin-bottom:4px">' + Object.keys(cnt).map(k => esc(k) + ' ' + cnt[k] + '개').join(', ') + '</div>';
+    const list = document.createElement('div'); list.className = 'list';
+    ig.slice(0, 300).forEach(g => {
+      const it = document.createElement('div'); it.className = 'item';
+      it.innerHTML = esc(g.type) + ' <small>레이어 ' + esc(g.layer) + (g.x != null ? ' (' + g.x.toFixed(3) + ', ' + g.y.toFixed(3) + ')' : '') + '</small>';
+      if (g.x != null) it.onclick = () => { const o = S.result ? S.result.offset : [0, 0]; zoomTo([g.x - o[0], g.y - o[1], g.x - o[0], g.y - o[1]]); };
+      list.appendChild(it);
+    });
+    if (ig.length > 300) { const m = document.createElement('div'); m.className = 'item muted'; m.textContent = '… 외 ' + (ig.length - 300) + '개'; list.appendChild(m); }
+    box.appendChild(list);
+  }
+
+  /* ---------- 미리보기 ---------- */
+  const cv = $('cv'), ctx = cv.getContext('2d'), off = document.createElement('canvas');
+  let rafPending = false;
+  function draw() { if (rafPending) return; rafPending = true; requestAnimationFrame(() => { rafPending = false; render(); }); }
+  function resize() { const r = $('cvWrap').getBoundingClientRect(); V.dpr = window.devicePixelRatio || 1; cv.width = Math.max(10, Math.round(r.width * V.dpr)); cv.height = Math.max(10, Math.round(r.height * V.dpr)); off.width = cv.width; off.height = cv.height; draw(); }
+  function fit() { if (S.result && S.result.bbox) zoomTo(S.result.bbox, true); else draw(); }
+  function zoomTo(bb, whole) {
+    const w = Math.max(bb[2] - bb[0], whole ? 1e-3 : 1.5), h = Math.max(bb[3] - bb[1], whole ? 1e-3 : 1.5);
+    V.cx = (bb[0] + bb[2]) / 2; V.cy = (bb[1] + bb[3]) / 2; V.scale = Math.min(cv.width / w, cv.height / h) * (whole ? 0.92 : 0.5);
+    if (!whole) { V.flash = { bb, t: Date.now() }; setTimeout(draw, 1600); }
+    draw();
+  }
+  function world(o) { o.setTransform(V.scale, 0, 0, -V.scale, cv.width / 2 - V.cx * V.scale, cv.height / 2 + V.cy * V.scale); }
+  function viewBox() { const w = cv.width / V.scale / 2, h = cv.height / V.scale / 2; return [V.cx - w, V.cy - h, V.cx + w, V.cy + h]; }
+  function drawAtom(o, a) {
+    if (a.t === 'd') { o.beginPath(); o.arc(a.cx, a.cy, a.r, 0, 2 * Math.PI); o.fill(); }
+    else if (a.t === 'c') { o.beginPath(); o.moveTo(a.x1, a.y1); o.lineTo(a.x2, a.y2); o.lineWidth = 2 * a.r; o.lineCap = 'round'; o.stroke(); }
+    else { o.beginPath(); const f = a.pts; o.moveTo(f[0][0], f[0][1]); for (let i = 1; i < f.length; i++) o.lineTo(f[i][0], f[i][1]); o.closePath(); o.fill(); }
+  }
+  function pathOf(o, f) { o.beginPath(); o.moveTo(f[0][0], f[0][1]); for (let i = 1; i < f.length; i++) o.lineTo(f[i][0], f[i][1]); o.closePath(); }
+  function render() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.fillStyle = '#10151b'; ctx.fillRect(0, 0, cv.width, cv.height);
+    const R = S.result; if (!R) return;
+    const vb = viewBox(), byLayer = $('vColor').value === 'layer', order = ['cu2', 'cu1', 'mask'];
+    if ($('vRes').checked) for (const tg of order) {
+      const L = layerOf(tg); if (!L || !V.show[tg]) continue;
+      const o = off.getContext('2d'); o.setTransform(1, 0, 0, 1, 0, 0); o.globalCompositeOperation = 'source-over'; o.clearRect(0, 0, off.width, off.height); world(o);
+      for (const p of L.prims) {
+        if (!bbHit(p.bbox, vb)) continue;
+        o.globalCompositeOperation = p.pol ? 'destination-out' : 'source-over';
+        o.fillStyle = o.strokeStyle = byLayer ? LAYER_COL[tg] : KIND_COL[p.kind === 'region' ? p.sub : p.kind];
+        for (const a of p.atoms) drawAtom(o, a);
+      }
+      ctx.globalAlpha = 0.8; ctx.drawImage(off, 0, 0); ctx.globalAlpha = 1;
+    }
+    world(ctx);
+    const px = V.dpr / V.scale;
+    if ($('vRes').checked && $('vCenter').checked) for (const tg of order) {
+      const L = layerOf(tg); if (!L || !V.show[tg]) continue;
+      ctx.lineWidth = 1 * px; ctx.strokeStyle = ctx.fillStyle = '#06301a';
+      for (const p of L.prims) {
+        if (p.kind !== 'stroke' || !bbHit(p.bbox, vb)) continue;
+        const a = p.atoms[0]; if (a.t !== 'c' || a.r * V.scale < 2.5 * V.dpr) continue;
+        ctx.beginPath(); ctx.moveTo(a.x1, a.y1); ctx.lineTo(a.x2, a.y2); ctx.stroke();
+        for (const q of [[a.x1, a.y1], [a.x2, a.y2]]) { ctx.beginPath(); ctx.arc(q[0], q[1], 2.2 * px, 0, 2 * Math.PI); ctx.fill(); }
+      }
+    }
+    if ($('vOrig').checked) for (const tg of order) {
+      const L = layerOf(tg); if (!L || !V.show[tg]) continue;
+      ctx.lineWidth = 1.1 * px; ctx.strokeStyle = byLayer ? '#ffffff' : (tg === 'mask' ? '#b9f5c8' : tg === 'cu2' ? '#b8ccff' : '#ffffff');
+      for (const s of L.shapes) { if (!bbHit(s.bbox, vb)) continue; ctx.setLineDash(s.isVoid || s.dup ? [4 * px, 3 * px] : []); pathOf(ctx, V.scale < 300 ? s.coarse : s.flat); ctx.stroke(); }
+      ctx.setLineDash([]);
+    }
+    if (V.sel) { const s = findShape(V.sel.target, V.sel.id); if (s) { ctx.lineWidth = 2.5 * px; ctx.strokeStyle = '#ffe600'; pathOf(ctx, s.flat); ctx.stroke(); } }
+    if (V.flash && Date.now() - V.flash.t < 1500) { const b = V.flash.bb, m = 10 * px; ctx.lineWidth = 2 * px; ctx.strokeStyle = '#ff3b3b'; ctx.strokeRect(b[0] - m, b[1] - m, b[2] - b[0] + 2 * m, b[3] - b[1] + 2 * m); }
+  }
+  function renderToolbarLayers() {
+    const box = $('tbLayers'); box.innerHTML = '';
+    if (!S.result) return;
+    for (const L of S.result.layers) {
+      const lb = document.createElement('label'), ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = V.show[L.target]; ck.id = 'show_' + L.target;
+      ck.onchange = () => { V.show[L.target] = ck.checked; draw(); };
+      lb.appendChild(ck); lb.appendChild(document.createTextNode(' ' + L.label + ' ')); lb.style.marginRight = '10px'; box.appendChild(lb);
+    }
+  }
+  function renderLegend() {
+    const byLayer = $('vColor').value === 'layer';
+    const it = byLayer ? [[LAYER_COL.cu1, '동박 1'], [LAYER_COL.cu2, '동박 2'], [LAYER_COL.mask, '솔더마스크']] : [[KIND_COL.stroke, '선(배선, D01)'], [KIND_COL.flash, '플래시(패드, D03)'], [KIND_COL.area, '영역(외곽선 그대로)'], [KIND_COL.fill, '모서리·끝 채움(영역)']];
+    $('legendItems').innerHTML = it.map(v => '<span style="margin-right:14px"><i style="background:' + v[0] + '"></i>' + v[1] + '</span>').join('') + '<span style="margin-right:14px"><i style="background:none;border:1px solid #fff"></i>원본 외곽선</span><span><i style="background:#06301a;height:3px;border:1px solid #6b7785"></i>중심선</span>';
+  }
+  const toWorld = ev => { const r = cv.getBoundingClientRect(); return [((ev.clientX - r.left) * V.dpr - cv.width / 2) / V.scale + V.cx, (cv.height / 2 - (ev.clientY - r.top) * V.dpr) / V.scale + V.cy]; };
+  cv.addEventListener('wheel', ev => { ev.preventDefault(); const p = toWorld(ev), f = Math.pow(1.0015, -ev.deltaY); V.scale *= f; V.cx = p[0] - (p[0] - V.cx) / f; V.cy = p[1] - (p[1] - V.cy) / f; draw(); }, { passive: false });
+  let drag = null;
+  cv.addEventListener('mousedown', ev => { drag = { x: ev.clientX, y: ev.clientY, cx: V.cx, cy: V.cy, moved: false }; });
+  window.addEventListener('mousemove', ev => {
+    if (drag) { const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true; if (drag.moved) { V.cx = drag.cx - dx * V.dpr / V.scale; V.cy = drag.cy + dy * V.dpr / V.scale; draw(); } }
+    if (ev.target === cv) { const p = toWorld(ev); $('coord').textContent = 'X ' + p[0].toFixed(4) + '  Y ' + p[1].toFixed(4) + ' mm'; }
+  });
+  window.addEventListener('mouseup', ev => {
+    if (!drag) return; const d = drag; drag = null;
+    if (d.moved || ev.target !== cv || !S.result) return;
+    const p = toWorld(ev); let best = null, bt = null;
+    for (const L of S.result.layers) { if (!V.show[L.target]) continue; for (const s of L.shapes) if (!s.dup && p[0] >= s.bbox[0] && p[0] <= s.bbox[2] && p[1] >= s.bbox[1] && p[1] <= s.bbox[3] && pip(s.flat, p[0], p[1]) && (!best || s.area < best.area)) { best = s; bt = L.target; } }
+    if (best) { V.sel = { target: bt, id: best.id }; showPop(best, bt, ev); } else { V.sel = null; closePop(); }
+    draw();
+  });
+  function closePop() { $('pop').style.display = 'none'; }
+  function showPop(s, tg, ev) {
+    const pop = $('pop'), L = layerOf(tg);
+    let out;
+    if (s.out === 'flash') out = '플래시 D' + s.apCode; else if (s.out === 'padarea') out = '영역(패드, 매크로 대신)'; else if (s.out === 'line') out = '선 ' + s.strokes.length + '개' + (s.fills.length ? ' + 채움 ' + s.fills.length + '개' : '') + ' (폭 ' + [...new Set(s.strokes.map(k => fmtN(k.w)))].join(', ') + ')'; else out = '영역' + (s.why ? ' — ' + s.why : '');
+    let h = '<b>' + L.label + ' · 객체 #' + s.id + '</b>원본: ' + esc(s.src) + ' / 레이어 ' + esc(s.layer) + '<br>모양: ' + esc(shapeText(s)) + '<br>자동 판정: ' + ROLE_T[s.auto] + (s.autoWhy ? ' <small class="muted">(' + esc(s.autoWhy) + ')</small>' : '') + '<br>현재 출력: ' + esc(out);
+    if (s.diff) h += '<br>형상 차이: 최대 ' + s.diff.maxDev.toFixed(4) + 'mm';
+    h += '<div class="row" id="popRoles"></div>';
+    if (s.parent) h += '<div class="row" id="popVoid"></div>';
+    h += '<div class="row"><button id="popClose">닫기</button></div>';
+    pop.innerHTML = h;
+    const ov = S.overrides[s.id] || 'auto';
+    for (const [v, t, en] of [['auto', '자동', true], ['pad', '패드(플래시)', !!s.pad], ['trace', '배선(선)', s.canTrace && !s.isVoid], ['region', '영역', true]]) {
+      const b = document.createElement('button'); b.textContent = t; b.disabled = !en; b.dataset.role = v; if (ov === v) b.className = 'on';
+      b.onclick = () => { if (v === 'auto') delete S.overrides[s.id]; else S.overrides[s.id] = v; convert(false); };
+      pop.querySelector('#popRoles').appendChild(b);
+    }
+    if (s.parent) for (const [v, t] of [[true, '빈 곳으로'], [false, '동박으로']]) {
+      const b = document.createElement('button'); b.textContent = t; b.dataset.void = v; if (s.isVoid === v) b.className = 'on';
+      b.onclick = () => { S.voids[s.id] = v; convert(false); };
+      pop.querySelector('#popVoid').appendChild(b);
+    }
+    pop.querySelector('#popClose').onclick = () => { V.sel = null; closePop(); draw(); };
+    pop.style.display = 'block';
+    if (ev) { const r = $('cvWrap').getBoundingClientRect(); pop.style.left = Math.min(r.width - 270, Math.max(4, ev.clientX - r.left + 14)) + 'px'; pop.style.top = Math.min(r.height - 220, Math.max(4, ev.clientY - r.top + 14)) + 'px'; }
+    else if (!pop.style.left) { pop.style.left = '12px'; pop.style.top = '12px'; }
+  }
+
+  /* ---------- 이벤트 ---------- */
+  $('file').addEventListener('change', ev => { const f = ev.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => loadBuffer(rd.result, f.name); rd.readAsArrayBuffer(f); ev.target.value = ''; });
+  const dz = $('drop');
+  ['dragenter', 'dragover'].forEach(n => document.addEventListener(n, ev => { ev.preventDefault(); dz.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(n => document.addEventListener(n, ev => { ev.preventDefault(); dz.classList.remove('over'); }));
+  document.addEventListener('drop', ev => { const f = ev.dataTransfer && ev.dataTransfer.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => loadBuffer(rd.result, f.name); rd.readAsArrayBuffer(f); });
+  $('btnExample').onclick = () => loadText(makeExampleDxf(), 'example.dxf');
+  $('oUnit').onchange = () => rebuildBase(false);
+  for (const id of ['oOrigin', 'oRatio', 'oGrid', 'oThr', 'oApTol', 'oEllN', 'oNoMacro', 'oAllVoid']) $(id).addEventListener('change', () => convert(id === 'oOrigin'));
+  for (const id of ['vOrig', 'vRes', 'vCenter']) $(id).onchange = draw;
+  $('vColor').onchange = () => { renderLegend(); draw(); };
+  $('btnFit').onclick = fit;
+  cv.addEventListener('dblclick', fit);
+  $('btnZip').onclick = () => { if (!S.result) return; const stem = S.fileName.replace(/\.[^.]*$/, '') || 'output'; download(stem + '_gerber.zip', [makeZip(S.result.layers.map(L => ({ name: S.files[L.target], text: L.text })))], 'application/zip'); };
+  window.addEventListener('resize', resize);
+  renderLegend(); resize();
+})();
+
+</script>
+</body>
+</html>

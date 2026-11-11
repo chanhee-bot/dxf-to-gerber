@@ -1,0 +1,11 @@
+{
+  "name": "dxf-to-gerber-test",
+  "private": true,
+  "description": "DXF_to_Gerber.html 검증용 스크립트(프로그램 자체는 HTML 파일 하나)",
+  "scripts": {
+    "test": "node test/run_core.js && node test/run_browser.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.50.0"
+  }
+}
