@@ -7,7 +7,7 @@ vm.runInThisContext(m[1], { filename: 'DXF_to_Gerber.js' });
 const verbose = process.argv.includes('-v');
 
 function cfgOf(extra) {
-  return Object.assign({ layers: { L1_TOP: 'cu1', L2_BOT: 'cu2', SM_TOP: 'mask', '치수': 'none', '0': 'none' }, files: { cu1: 'ex_L1.gbr', cu2: 'ex_L2.gbr', mask: 'ex_SM.gbr' }, mirror: {}, origin: 'dxf', ratio: 4, grid: 0.002, thr: 0.005, apTol: 0.0001, noMacro: false, ellN: 48, allVoid: false, overrides: {}, voids: {} }, extra || {});
+  return Object.assign({ layers: { L1_TOP: 'cu1', L2_BOT: 'cu2', SM_TOP: 'mask', SM_BOT: 'mask2', OUTLINE: 'outline', '치수': 'none', '0': 'none' }, files: { cu1: 'ex_L1.gbr', cu2: 'ex_L2.gbr', mask: 'ex_SM1.gbr', mask2: 'ex_SM2.gbr', outline: 'ex_OUTLINE.gbr' }, mirror: {}, origin: 'dxf', ratio: 4, grid: 0.002, thr: 0.005, apTol: 0.0001, noMacro: false, ellN: 48, allVoid: false, overrides: {}, voids: {} }, extra || {});
 }
 let fails = 0;
 function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok   ' : '  FAIL ') + name + (info ? '  ' + info : '')); }
@@ -67,7 +67,19 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
   const types = t => L1.warnings.filter(w => w.type === t).length;
   check('좁은 패드 경고 1건', types('narrow') === 1, String(types('narrow')));
   check('겹침 경고 있음', types('overlap') >= 1, String(types('overlap')));
-  check('안쪽 폴리선 경고 3건', types('nested') === 3, String(types('nested')));
+  check('안쪽 폴리선 경고 5건', types('nested') === 5, String(types('nested')));
+  // 배선과 한 외곽선으로 그린 패드
+  { const a = exp(L1, '합쳐진 패드(위) → 패드', 25.2, 15.3, 'pad'), b = exp(L1, '합쳐진 패드(아래) → 패드', 25.2, 14.1, 'pad');
+    check('  떼어 낸 패드 크기 0.4×0.6 플래시', [a, b].every(q => q && q.out === 'flash' && q.pad.type === 'R' && Math.abs(Math.min(q.pad.w, q.pad.h) - 0.4) < 1e-6 && Math.abs(Math.max(q.pad.w, q.pad.h) - 0.6) < 1e-6), [a, b].map(q => q && q.pad ? q.pad.type + ' ' + q.pad.w.toFixed(3) + '×' + q.pad.h.toFixed(3) + ' ' + q.out : '-').join(', '));
+    exp(L1, '패드 사이 목 → 선', 25.2, 14.7, 'trace', 1); exp(L1, '패드로 들어오는 배선 → 선', 24.3, 15.3, 'trace', 1);
+    check('패드 떼어냄 표시 2건', types('padcut') === 2, String(types('padcut'))); }
+  // 외형, 솔더마스크 2
+  { const OL = R.layers.find(l => l.target === 'outline'), M2L = R.layers.find(l => l.target === 'mask2');
+    check('출력 5개(동박 1·2, 솔더마스크 1·2, 외형)', R.layers.map(l => l.target).join(',') === 'cu1,cu2,mask,mask2,outline', R.layers.map(l => l.target).join(','));
+    check('외형: 선·호 8개를 이은 닫힌 외곽선 1 + 따로 떨어진 선 1', OL && OL.stats.outlines === 1 && OL.stats.paths === 1, OL ? JSON.stringify(OL.stats) : '없음');
+    check('외형: 호는 G03, 선폭 0.1', OL && /G03\*/.test(OL.text) && OL.text.includes('%ADD10C,0.1*%') && !OL.text.includes('G36'), '');
+    check('외형 검사 기준 이내', OL && OL.verify.nBad === 0, OL ? '최대 ' + OL.verify.worst.toFixed(5) : '');
+    check('솔더마스크 2: 개구부 4개', M2L && M2L.stats.pads === 4 && M2L.verify.nBad === 0, M2L ? JSON.stringify(M2L.stats) : '없음'); }
   check('폭 있는 폴리선 경고 1건', types('width') === 1, String(types('width')));
   check('X2 속성 없음', !/%T[FAOD]/.test(L1.text) && !/%SR/.test(L1.text));
   check('형식 선언', L1.text.includes('%FSLAX46Y46*%') && L1.text.includes('%MOMM*%'));
@@ -80,6 +92,11 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
   for (const L of R2.layers) check(L.label + ' 형상 비교 기준 이내', L.verify.nBad === 0, '최대 ' + L.verify.worst.toFixed(5));
   const L1b = R2.layers.find(l => l.target === 'cu1');
   check('LPC 출력', L1b.text.includes('%LPC*%'));
+  { const o = R2.offset, lv = (x, y) => { const q = at(L1b, x - o[0], y - o[1]); return q ? q.level : -1; };
+    const a = [lv(26.7, 6), lv(26.2, 6), lv(25.5, 6)], b = [lv(21, 31), lv(19.6, 32), lv(19, 32), lv(17.5, 30.75)];
+    check('번갈아: 3겹 사각 = 동박·빈 곳·동박', a.join() === '0,1,2', a.join());
+    check('번갈아: 동박면·구멍·섬 = 0·1·2, 구멍(사각) = 1', b.join() === '0,1,2,1', b.join());
+    check('빈 곳 안의 섬은 다시 동박(%LPD 뒤에 다시 %LPD)', /%LPC\*%[\s\S]*%LPD\*%/.test(L1b.text)); }
   check('매크로 없음', !L1b.text.includes('%AM'));
   check('원점 이동', Math.abs(R2.bbox[0]) < 1e-9 && Math.abs(R2.bbox[1]) < 1e-9);
 

@@ -21,8 +21,9 @@ async function one(label, dxfText, layers, extra, expectSteps) {
 (async () => {
   const out = path.join(__dirname, 'out'); fs.mkdirSync(out, { recursive: true });
   if (process.argv[2]) { const r = await one(path.basename(process.argv[2]), fs.readFileSync(process.argv[2], 'utf8'), { COPPER: 'cu1' }, {}, 0); fs.writeFileSync(path.join(out, 'odb_arg.tgz'), zlib.gzipSync(Buffer.from(makeTar(r.odb.files, r.odb.job)))); console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과'); process.exit(fails ? 1 : 0); }
-  const ex = await one('예제 도면', makeExampleDxf(), { L1_TOP: 'cu1', L2_BOT: 'cu2', SM_TOP: 'mask' }, {}, 0);
-  await one('예제 도면(안쪽 폴리선 빈 곳, 매크로 대신 영역)', makeExampleDxf(), { L1_TOP: 'cu1', L2_BOT: 'cu2', SM_TOP: 'mask' }, { allVoid: true, noMacro: true }, 0);
+  const ex = await one('예제 도면', makeExampleDxf(), { L1_TOP: 'cu1', L2_BOT: 'cu2', SM_TOP: 'mask', SM_BOT: 'mask2', OUTLINE: 'outline' }, {}, 0);
+  check('5개 층 + 외형 profile', ex.odb.layers.join() === 'sm,l1,l2,sm2,outline' && /OC /.test(ex.odb.files.get('steps/panel/profile')), ex.odb.layers.join());
+  await one('예제 도면(안쪽 폴리선 번갈아, 매크로 대신 영역)', makeExampleDxf(), { L1_TOP: 'cu1', L2_BOT: 'cu2', SM_TOP: 'mask', SM_BOT: 'mask2', OUTLINE: 'outline' }, { allVoid: true, noMacro: true }, 0);
   // 블록 배열: 패드 2개 + 꺾임 R 배선 + 칸 경계에서 잘린 세로 레일(열린 선)로 된 칸을 6×8 배열
   const o = []; const w = (c, v) => o.push(String(c), String(v)), B = Math.tan(Math.PI / 8);
   const pl = (layer, pts, closed) => { w(0, 'POLYLINE'); w(8, layer); w(66, 1); w(70, closed ? 1 : 0); for (const p of pts) { w(0, 'VERTEX'); w(8, layer); w(10, p[0]); w(20, p[1]); if (p[2]) w(42, p[2]); } w(0, 'SEQEND'); };

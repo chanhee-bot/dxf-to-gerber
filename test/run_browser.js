@@ -21,7 +21,7 @@ const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? ' 
   await done(); await page.waitForTimeout(300);
   const info = await page.evaluate(() => { const R = window.__app.S.result; return { layers: R.layers.map(l => ({ t: l.target, stats: l.stats, bad: l.verify.nBad, worst: l.verify.worst, prims: l.prims.length, warn: l.warnings.length })), ms: R.ms }; });
   console.log(JSON.stringify(info));
-  check('레이어 3개 출력', info.layers.length === 3);
+  check('레이어 5개 출력(동박 1·2, 솔더마스크 1·2, 외형) 자동 지정', info.layers.map(l => l.t).join() === 'cu1,cu2,mask,mask2,outline', info.layers.map(l => l.t).join());
   check('형상 비교 기준 이내', info.layers.every(l => l.bad === 0));
   check('레이어 표 자동 지정', (await page.$$eval('#layerTbl select', a => a.map(s => s.dataset.layer + '=' + s.value).join(' '))).includes('L1_TOP=cu1'), await page.$$eval('#layerTbl select', a => a.map(s => s.dataset.layer + '=' + s.value).join(' ')));
   check('요약에 "모든 객체가 기준 이내"', (await page.textContent('#sumBox')).includes('모든 객체가 기준 이내'));
@@ -85,7 +85,7 @@ const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? ' 
   [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnZip')]);
   f = path.join(out, 'dl_' + dl.suggestedFilename()); await dl.saveAs(f);
   const z = fs.readFileSync(f);
-  check('zip 내려받기', dl.suggestedFilename() === 'example_gerber.zip' && z.readUInt32LE(0) === 0x04034b50 && z.includes('example_SM.gbr'), dl.suggestedFilename() + ' ' + z.length + 'B');
+  check('zip 내려받기', dl.suggestedFilename() === 'example_gerber.zip' && z.readUInt32LE(0) === 0x04034b50 && z.includes('example_SM1.gbr') && z.includes('example_SM2.gbr') && z.includes('example_OUTLINE.gbr'), dl.suggestedFilename() + ' ' + z.length + 'B');
 
   // 예제 버튼, 바이너리 DXF 안내
   await page.click('#btnExample'); await done();
