@@ -8,6 +8,7 @@ let fails = 0; const check = (name, cond, info) => { if (!cond) fails++; console
   const browser = await chromium.launch(), page = await browser.newPage({ viewport: { width: 1680, height: 1050 }, acceptDownloads: true }), errors = [];
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); }); page.on('pageerror', e => errors.push(String(e)));
   await page.goto('file:///' + path.join(root, 'DXF_to_Gerber.html').replace(/\\/g, '/'));
+  await page.check('#oAuto'); // 기존 시험은 '설정을 바꾸면 바로 변환'을 켜고 돌린다
   const done = () => page.waitForFunction(() => window.__app.S.result && !window.__app.S.busy, null, { timeout: 600000 });
   const file = process.argv[2];
   if (file) await page.setInputFiles('#file', file); else await page.click('#btnExample');

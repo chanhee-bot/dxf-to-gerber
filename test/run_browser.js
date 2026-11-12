@@ -13,6 +13,7 @@ const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? ' 
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', e => errors.push(String(e)));
   await page.goto('file:///' + path.join(root, process.env.HTML || 'DXF_to_Gerber.html').replace(/\\/g, '/'));
+  await page.check('#oAuto'); // 기존 시험은 '설정을 바꾸면 바로 변환'을 켜고 돌린다
   check('빌드 표시', /빌드 \d{4}-\d{4}/.test(await page.textContent('#build')), await page.textContent('#build'));
   await page.screenshot({ path: path.join(shots, '0_empty.png') });
 
@@ -124,8 +125,42 @@ const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? ' 
     await page.mouse.move(p0[0], p0[1]); await page.mouse.down(); await page.mouse.move(p0[0] + 80, p0[1], { steps: 3 }); await page.mouse.up();
     check('그냥 끌기는 화면 이동', (await page.evaluate(() => window.__app.V.cx)) < cx0 - 0.1 && (await page.evaluate(() => window.__app.V.sels.length)) === 0);
   }
+  // '변환' 버튼 방식: 설정을 바꿔도 바로 변환하지 않고, 누르면 바뀐 층만 다시 변환
+  {
+    await page.uncheck('#oAuto');
+    const stamp = () => page.evaluate(() => { const R = window.__app.S.result; return R ? R.layers.map(l => l.target + ':' + (l.reused ? 'keep' : 'new')).join(' ') : 'none'; });
+    const gb = () => page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'mask').text.length);
+    const before = await gb();
+    await page.fill('#oOutW', '0.2'); await page.dispatchEvent('#oOutW', 'change'); await page.waitForTimeout(300);
+    check('옵션을 바꿔도 바로 변환하지 않음(안내 표시, 내려받기 잠금)', (await page.isVisible('#dirtyBar')) && (await page.isDisabled('#dl_cu1')) && (await page.isDisabled('#btnZip')) && (await page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'outline').text.includes('C,0.1*'))), await page.textContent('#applyMsg'));
+    await page.selectOption('#layerTbl select[data-layer="SM_BOT"]', 'none'); await page.waitForTimeout(200);
+    check('레이어 지정을 바꿔도 바로 변환하지 않음', (await page.evaluate(() => window.__app.S.result.layers.length)) === 5);
+    await page.screenshot({ path: path.join(shots, '11_apply_pending.png') });
+    await page.click('#btnConvert'); await done(); await page.waitForTimeout(200);
+    const st = await stamp();
+    check('변환을 누르면 한 번에 반영, 바뀐 층만 다시 변환', st === 'cu1:keep cu2:keep mask:keep outline:new' && !(await page.isVisible('#dirtyBar')) && !(await page.isDisabled('#dl_cu1')) && (await page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'outline').text.includes('C,0.2*'))), st + ' | ' + (await page.textContent('#applyMsg')).slice(0, 90));
+    check('그대로 쓴 층의 결과는 같음', (await gb()) === before);
+    await page.screenshot({ path: path.join(shots, '12_apply_done.png') });
+    // 미리보기에서 눌러 바꾸기: 바로 반영, 그 층만
+    await zoom([0, 0, 14, 4]); await page.waitForTimeout(200);
+    const a = await toScreen(2, 2); await page.mouse.click(a[0], a[1]); await page.waitForSelector('#pop button[data-role=trace]');
+    await page.click('#pop button[data-role=trace]'); await done(); await page.waitForTimeout(200);
+    check('눌러 바꾸기는 바로 반영, 그 층만 다시 변환', (await stamp()) === 'cu1:new cu2:keep mask:keep outline:keep', await stamp());
+    await page.click('#pop button[data-role=auto]'); await done(); await page.keyboard.press('Escape');
+    // 설정이 바뀐 채로 눌러 바꾸면 바뀐 설정은 아직 반영되지 않는다
+    await page.fill('#oOutW', '0.1'); await page.dispatchEvent('#oOutW', 'change'); await page.waitForTimeout(200);
+    await page.mouse.click(a[0], a[1]); await page.waitForSelector('#pop button[data-role=trace]'); await page.click('#pop button[data-role=trace]'); await done(); await page.waitForTimeout(200);
+    check('설정이 바뀐 상태에서 눌러 바꿔도 미적용 설정은 그대로 대기', (await page.isVisible('#dirtyBar')) && (await page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'outline').text.includes('C,0.2*'))));
+    await page.click('#pop button[data-role=auto]'); await done(); await page.keyboard.press('Escape');
+    await page.click('#dirtyBar'); await done(); await page.waitForTimeout(200);
+    check('안내 띠를 눌러도 변환', !(await page.isVisible('#dirtyBar')) && (await page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'outline').text.includes('C,0.1*'))));
+    await page.check('#oAuto');
+  }
   // 예제 버튼, 바이너리 DXF 안내
   await page.click('#btnExample'); await done();
+  await page.uncheck('#oAuto'); await page.click('#btnExample'); await page.waitForTimeout(500);
+  check('도면을 열어도 자동으로 변환하지 않음', (await page.evaluate(() => window.__app.S.result === null)) && (await page.isVisible('#dirtyBar')) && (await page.textContent('#sumBox')).includes('아직 변환하지 않았습니다'));
+  await page.check('#oAuto'); await done();
   check('예제 도면 열기 버튼', (await page.textContent('#fileInfo')).includes('example.dxf'));
   fs.writeFileSync(path.join(out, 'binary.dxf'), Buffer.concat([Buffer.from('AutoCAD Binary DXF\r\n\x1a\0'), Buffer.alloc(40)]));
   await page.setInputFiles('#file', path.join(out, 'binary.dxf')); await page.waitForTimeout(300);

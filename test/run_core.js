@@ -110,6 +110,15 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
   check('강제 변경 반영', at(R3.layers[0], 2, 2).role === 'trace' && at(R3.layers[0], 7, 2).role === 'region');
   for (const L of R3.layers) check(L.label + ' 형상 비교 기준 이내', L.verify.nBad === 0, '최대 ' + L.verify.worst.toFixed(5));
 
+  // 층별 재사용: 직전 결과를 주면 입력이 같은 층은 그대로 쓴다
+  { const c0 = cfgOf(), Ra = await convertAll(base, c0), Rb = await convertAll(base, cfgOf({ layers: Object.assign({}, c0.layers, { SM_BOT: 'none' }) }), null, Ra);
+    const same = t => Ra.layers.find(l => l.target === t) === Rb.layers.find(l => l.target === t);
+    check('솔더마스크 2만 뺐을 때 나머지 층은 그대로', same('cu1') && same('cu2') && same('mask') && same('outline') && !Rb.layers.find(l => l.target === 'mask2'));
+    const idp = at(Ra.layers[0], 2, 2).id, Rc = await convertAll(base, cfgOf({ overrides: { [idp]: 'trace' } }), null, Ra), sc = t => Ra.layers.find(l => l.target === t) === Rc.layers.find(l => l.target === t);
+    check('동박 1의 객체를 바꾸면 동박 1만 다시 변환', !sc('cu1') && sc('cu2') && sc('mask') && sc('mask2') && sc('outline') && at(Rc.layers[0], 2, 2).role === 'trace');
+    const Rd = await convertAll(base, cfgOf({ ratio: 3 }), null, Ra); check('패드 판정 비율을 바꾸면 외형만 빼고 다시 변환', Rd.layers.map(l => l.target + (l.reused ? '=' : '!')).join(' ') === 'cu1! cu2! mask! mask2! outline=', Rd.layers.map(l => l.target + (l.reused ? '=' : '!')).join(' '));
+    const pid = L1.shapes.find(q => q.padCut).id, pid2 = (await convertAll(base, cfgOf({ layers: Object.assign({}, c0.layers, { L2_BOT: 'none' }) }))).layers[0].shapes.find(q => q.padCut).id;
+    check('다른 층을 빼도 토막 번호는 그대로', pid === pid2, pid + ' ' + pid2); }
   // 일부러 틀린 결과를 넣었을 때 비교가 잡아내는지
   const bad = compareRegion([-0.5, 0, 3.5, 1],[mkPoly([[0, 0.4], [3, 0.4], [3, 0.6], [0, 0.6]])], [mkCap(0, 0.5, 3, 0.5, 0.1)], 0.002);
   check('비교가 둥근 끝 돌출을 잡음', bad.maxDev > 0.02, 'maxDev ' + bad.maxDev.toFixed(4));

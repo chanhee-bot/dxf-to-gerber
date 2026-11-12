@@ -57,6 +57,8 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 .ok{color:#2e7d32;font-weight:700}.bad{color:#c62828;font-weight:700}
 #busy{position:fixed;inset:0;background:rgba(16,21,27,.55);display:none;align-items:center;justify-content:center;z-index:50}
 #busy div{background:#fff;padding:18px 28px;border-radius:8px;font-size:14px}
+#dirtyBar{position:absolute;display:none;z-index:15;top:10px;left:50%;transform:translateX(-50%);background:#d9822b;color:#fff;padding:6px 14px;border-radius:16px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+#btnConvert.need{box-shadow:0 0 0 3px rgba(217,130,43,.55)}
 #pop{position:absolute;display:none;z-index:20;background:#fff;border:1px solid #6b7785;border-radius:6px;padding:8px 10px;box-shadow:0 4px 14px rgba(0,0,0,.35);min-width:230px;line-height:1.6}
 #pop b{display:block;margin-bottom:2px}
 #pop .row{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
@@ -104,6 +106,11 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
     <h2>3. 레이어</h2>
     <table id="layerTbl"><thead><tr><th>DXF 레이어</th><th class="num">객체</th><th>출력 대상</th></tr></thead><tbody><tr><td colspan="3" class="muted">도면을 열면 표시됩니다.</td></tr></tbody></table>
   </div>
+  <div class="card" id="applyCard">
+    <button id="btnConvert" class="primary" disabled>변환</button>
+    <label style="margin-left:10px" title="켜면 레이어 지정이나 옵션을 바꿀 때마다 바로 변환합니다. 작은 도면에서 편합니다."><input type="checkbox" id="oAuto"> 설정을 바꾸면 바로 변환</label>
+    <div id="applyMsg" class="muted" style="margin-top:6px;line-height:1.5">도면을 열고 레이어의 출력 대상과 옵션을 정한 뒤 "변환"을 누르세요.</div>
+  </div>
   <div class="card">
     <h2>4. 출력 파일</h2>
     <div class="opts" style="margin-bottom:8px">
@@ -134,7 +141,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
     <label title="켜면 왼쪽 버튼으로 끌어 여러 객체를 고릅니다(화면 이동은 가운데·오른쪽 버튼으로 끌기). 꺼져 있어도 Shift를 누르고 끌면 영역 선택입니다. 왼쪽→오른쪽: 상자 안에 다 들어온 것만, 오른쪽→왼쪽: 걸친 것도 포함."><input type="checkbox" id="vBox"> 영역 선택</label>
     <button id="btnFit">전체 보기</button>
   </div>
-  <div id="cvWrap"><canvas id="cv"></canvas><div id="hint">도면을 열면 변환 결과가 여기에 표시됩니다.<br>휠: 확대·축소 / 끌기: 이동 / 클릭: 객체 선택(패드↔배선 바꾸기)<br>Ctrl·Shift+클릭: 여러 개 선택 / Shift+끌기 또는 "영역 선택": 상자로 선택 / Esc: 선택 해제</div><div id="pop"></div></div>
+  <div id="cvWrap"><canvas id="cv"></canvas><div id="hint">도면을 열면 변환 결과가 여기에 표시됩니다.<br>휠: 확대·축소 / 끌기: 이동 / 클릭: 객체 선택(패드↔배선 바꾸기)<br>Ctrl·Shift+클릭: 여러 개 선택 / Shift+끌기 또는 "영역 선택": 상자로 선택 / Esc: 선택 해제</div><div id="pop"></div><div id="dirtyBar" title="눌러서 변환">설정이 바뀌었습니다 — 눌러서 <b>변환</b></div></div>
   <div id="legend"><span id="legendItems"></span><span id="coord"></span></div>
 </section>
 <section id="right">
@@ -148,7 +155,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1112-1300';
+const BUILD = '1112-1430';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1716,19 +1723,29 @@ async function convertOutline(L, cfg, tick) {
   L.verify = { worst, nBad, checked: objs.length };
 }
 // cfg: { layers:{이름:'cu1'|'cu2'|'mask'|'mask2'|'outline'|'none'}, files:{cu1,..}, mirror:{cu1,..}, origin, ratio, grid, thr, apTol, noMacro, ellN, allVoid, overrides:{id:role}, voids:{id:bool} }
-async function convertAll(base, cfg, prog) {
+// prev: 직전 결과. 그 층에 영향을 주는 입력(레이어 지정, 옵션, 원점·반전, 눌러서 바꾼 것)이 같으면 그 층 결과를 그대로 쓴다.
+const ID_SPAN = 50000000; // 토막·떼어 낸 패드의 번호는 출력 대상마다 따로 매긴다(다른 층을 다시 변환해도 번호가 바뀌지 않게)
+async function convertAll(base, cfg, prog, prev) {
   let last = Date.now();
   const tick = async msg => { if (prog && Date.now() - last > 120) { await prog(msg); last = Date.now(); } };
   const gb = [Infinity, Infinity, -Infinity, -Infinity];
   for (const s of base.shapes.concat((base.paths || []).filter(q => cfg.layers[q.layer] === 'outline'))) if (TARGETS[cfg.layers[s.layer]]) { gb[0] = Math.min(gb[0], s.bbox[0]); gb[1] = Math.min(gb[1], s.bbox[1]); gb[2] = Math.max(gb[2], s.bbox[2]); gb[3] = Math.max(gb[3], s.bbox[3]); }
   const ox = cfg.origin === 'll' && isFinite(gb[0]) ? gb[0] : 0, oy = cfg.origin === 'll' && isFinite(gb[1]) ? gb[1] : 0, out = [];
-  let nid = base.shapes.length;
-  for (const tg of Object.keys(TARGETS)) {
+  const nBase = base.shapes.length, tgs = Object.keys(TARGETS);
+  // 층 종류마다 결과에 영향을 주는 옵션만 본다(외형 선폭을 바꿔도 동박은 다시 변환하지 않도록)
+  const optKeyOf = tg => tg === 'outline' ? JSON.stringify([cfg.thr, cfg.apTol, cfg.ellN, cfg.outW, cfg.textOn !== false]) : JSON.stringify([cfg.ratio, cfg.grid, cfg.thr, cfg.apTol, !!cfg.noMacro, cfg.ellN, !!cfg.allVoid, cfg.padCut !== false, cfg.textOn !== false, cfg.textPct, cfg.openOn !== false, cfg.openW, !!cfg.fillPoly]);
+  for (const tg of tgs) {
+    const idx = tgs.indexOf(tg); let nid = nBase + idx * ID_SPAN;
+    const mine = id => id < nBase ? !!base.shapes[id] && cfg.layers[base.shapes[id].layer] === tg : Math.floor((id - nBase) / ID_SPAN) === idx;
+    const pick = o => Object.keys(o || {}).filter(k => mine(+k)).sort().map(k => k + ':' + o[k]).join(',');
     const src = base.shapes.filter(s => cfg.layers[s.layer] === tg), srcP = tg === 'outline' || cfg.openOn !== false ? (base.paths || []).filter(q => cfg.layers[q.layer] === tg) : [];
     const srcT = cfg.textOn !== false ? (base.texts || []).filter(q => cfg.layers[q.layer] === tg) : [];
     if (!src.length && !srcP.length && !srcT.length) continue;
-    const L = { target: tg, label: TARGETS[tg].label, file: cfg.files[tg], mirror: !!cfg.mirror[tg], shapes: [], warnings: [] };
     const mir = cfg.mirror[tg] ? gb[0] + gb[2] - 2 * ox : null;
+    const key = JSON.stringify([Object.keys(cfg.layers).filter(n => cfg.layers[n] === tg).sort(), ox, oy, mir, optKeyOf(tg), pick(cfg.overrides), pick(cfg.voids)]);
+    const old = prev && prev.base === base ? prev.layers.find(l => l.target === tg && l.key === key) : null;
+    if (old) { old.file = cfg.files[tg]; old.reused = true; out.push(old); continue; }
+    const L = { target: tg, label: TARGETS[tg].label, file: cfg.files[tg], mirror: !!cfg.mirror[tg], shapes: [], warnings: [], key, reused: false };
     if (tg === 'outline') {
       for (const s of src) { const w = workShape(s, ox, oy, mir); if (w) L.shapes.push(w); }
       for (const t of srcT) for (const pl of t.strokes) srcP.push({ layer: t.layer, type: t.type, pts: pl });
@@ -1753,7 +1770,7 @@ async function convertAll(base, cfg, prog) {
     await convertLayer(L, cfg, tick);
     out.push(L);
   }
-  return { layers: out, bbox: isFinite(gb[0]) ? [gb[0] - ox, gb[1] - oy, gb[2] - ox, gb[3] - oy] : null, offset: [ox, oy] };
+  return { layers: out, bbox: isFinite(gb[0]) ? [gb[0] - ox, gb[1] - oy, gb[2] - ox, gb[3] - oy] : null, offset: [ox, oy], base };
 }
 
 /* ================================================================
@@ -2232,7 +2249,7 @@ if (typeof document !== 'undefined') (function () {
     setMsg(msg, false);
     if (!b.shapes.length) setMsg('닫힌 도형(폴리선·원 등)을 찾지 못했습니다. 무시한 객체 목록을 확인해 주세요.', true);
     renderLayerTable(); renderOutTable(); renderIgnored();
-    convert(true);
+    clearResult(); S.dirty = true; S.dirtyFit = true; updateApply(); if ($('oAuto').checked) convert();
   }
   function renderLayerTable() {
     const tb = $('layerTbl').tBodies[0]; tb.innerHTML = '';
@@ -2243,7 +2260,7 @@ if (typeof document !== 'undefined') (function () {
       const sel = document.createElement('select');
       for (const [v, t] of [['cu1', '동박 1'], ['cu2', '동박 2'], ['mask', '솔더마스크 1'], ['mask2', '솔더마스크 2'], ['outline', '외형'], ['none', '출력 안 함']]) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); }
       sel.value = S.layerTarget[name] || 'none'; sel.dataset.layer = name;
-      sel.onchange = () => { S.layerTarget[name] = sel.value; renderIgnored(); convert(true); };
+      sel.onchange = () => { S.layerTarget[name] = sel.value; renderIgnored(); markDirty(true); };
       tr.insertCell().appendChild(sel);
     }
   }
@@ -2255,7 +2272,7 @@ if (typeof document !== 'undefined') (function () {
       inp.onchange = () => { S.files[tg] = inp.value.trim() || S.files[tg]; inp.value = S.files[tg]; };
       tr.insertCell().appendChild(inp);
       const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = !!S.mirror[tg]; ck.id = 'mir_' + tg;
-      ck.onchange = () => { S.mirror[tg] = ck.checked; convert(false); };
+      ck.onchange = () => { S.mirror[tg] = ck.checked; markDirty(false); };
       const c = tr.insertCell(); c.style.textAlign = 'center'; c.appendChild(ck);
       const bt = document.createElement('button'); bt.textContent = '내려받기'; bt.id = 'dl_' + tg; bt.disabled = true;
       bt.onclick = () => { const L = layerOf(tg); if (L) download(S.files[tg], [L.text], 'text/plain'); };
@@ -2270,25 +2287,42 @@ if (typeof document !== 'undefined') (function () {
     const num = (id, d) => { const v = parseFloat($(id).value); return isFinite(v) && v > 0 ? v : d; };
     return { layers: Object.assign({}, S.layerTarget), files: Object.assign({}, S.files), mirror: Object.assign({}, S.mirror), origin: $('oOrigin').value, ratio: num('oRatio', 4), grid: num('oGrid', 0.002), thr: num('oThr', 0.005), apTol: num('oApTol', 0.0001), noMacro: $('oNoMacro').checked, ellN: Math.max(12, Math.round(num('oEllN', 48))), allVoid: $('oAllVoid').checked, padCut: $('oPadCut').checked, outW: num('oOutW', 0.1), textOn: $('oTextOn').checked, textPct: num('oTextPct', 10), openOn: $('oOpenOn').checked, openW: num('oOpenW', 0.1), fillPoly: $('oFillPoly').checked, overrides: S.overrides, voids: S.voids };
   }
-  async function convert(refit) {
+  // 설정(레이어 지정·옵션·반전)은 바꿔도 바로 변환하지 않고 '변환'을 눌렀을 때 한 번에 반영한다.
+  function updateApply(info) {
+    const has = !!S.base, dirty = has && S.dirty, ok = !!(S.result && S.result.layers.length) && !dirty;
+    $('btnConvert').disabled = !has || S.busy; $('btnConvert').classList.toggle('need', !!dirty);
+    $('dirtyBar').style.display = dirty && !S.busy ? 'block' : 'none';
+    $('dirtyBar').innerHTML = S.result ? '설정이 바뀌었습니다 — 눌러서 <b>변환</b>' : '출력 대상을 확인하고 눌러서 <b>변환</b>';
+    $('applyMsg').innerHTML = !has ? '도면을 열고 레이어의 출력 대상과 옵션을 정한 뒤 "변환"을 누르세요.' : dirty ? (S.result ? '<span class="bad">설정이 바뀌었습니다.</span> "변환"을 눌러야 결과와 내려받기에 반영됩니다(지금 보이는 것은 이전 설정의 결과).' : '레이어의 출력 대상과 옵션을 확인한 뒤 "변환"을 누르세요.') : (info || '변환 결과가 현재 설정과 같습니다.');
+    for (const tg in TARGETS) { const b = $('dl_' + tg); if (b) b.disabled = !ok || !layerOf(tg); }
+    $('btnZip').disabled = $('btnOdbTgz').disabled = $('btnOdbZip').disabled = !ok;
+  }
+  function markDirty(refit) { if (!S.base) return; S.dirty = true; S.dirtyFit = S.dirtyFit || !!refit; updateApply(); if ($('oAuto').checked) convert(); }
+  function clearResult() { S.result = null; S.cfgApplied = null; V.sels = []; closePop(); $('hint').style.display = ''; renderToolbarLayers(); renderSummary(); renderLegend(); draw(); }
+  // applied=true: 미리보기에서 눌러 바꾼 것만 바로 반영(다른 설정은 마지막으로 변환한 것 그대로). 바뀐 층만 다시 변환된다.
+  async function convert(refit, applied) {
     if (!S.base) return;
-    if (S.busy) { S.pending = true; S.pendingFit = S.pendingFit || refit; return; }
-    S.busy = true; $('busy').style.display = 'flex'; $('busyMsg').textContent = '변환 중…';
+    applied = !!applied && !!S.cfgApplied;
+    if (S.busy) { S.pending = { refit: (S.pending && S.pending.refit) || refit, applied: S.pending ? S.pending.applied && applied : applied }; return; }
+    S.busy = true; $('busy').style.display = 'flex'; $('busyMsg').textContent = '변환 중…'; updateApply();
     await new Promise(r => setTimeout(r, 20));
-    const t0 = performance.now();
+    const t0 = performance.now(), cfg = applied ? Object.assign({}, S.cfgApplied, { files: Object.assign({}, S.files), overrides: S.overrides, voids: S.voids }) : cfgNow();
+    if (!applied && S.dirtyFit) refit = true;
+    let info = '';
     try {
-      S.result = await convertAll(S.base, cfgNow(), async msg => { $('busyMsg').textContent = msg; await new Promise(r => setTimeout(r, 0)); });
+      S.result = await convertAll(S.base, cfg, async msg => { $('busyMsg').textContent = msg; await new Promise(r => setTimeout(r, 0)); }, S.result);
       S.result.ms = performance.now() - t0;
+      if (!applied) { S.dirty = false; S.dirtyFit = false; S.cfgApplied = cfg; }
+      const re = S.result.layers.filter(l => !l.reused).map(l => l.label), keep = S.result.layers.filter(l => l.reused).map(l => l.label);
+      info = '변환 완료(' + (S.result.ms / 1000).toFixed(1) + '초)' + (re.length ? ' · 변환한 층: ' + re.join(', ') : '') + (keep.length ? ' · 그대로 쓴 층: ' + keep.join(', ') : '') + (S.result.layers.length ? '' : ' · 출력 대상 레이어가 없습니다');
     } catch (e) { console.error(e); S.result = null; setMsg('변환 중 오류: ' + esc(e.message), true); }
     S.busy = false; $('busy').style.display = 'none';
     $('hint').style.display = S.result && S.result.layers.length ? 'none' : '';
-    for (const tg in TARGETS) { const b = $('dl_' + tg); if (b) b.disabled = !layerOf(tg); }
-    $('btnZip').disabled = !(S.result && S.result.layers.length);
-    $('btnOdbTgz').disabled = $('btnOdbZip').disabled = $('btnZip').disabled;
+    updateApply(info);
     renderToolbarLayers(); renderSummary(); renderLegend();
     if (refit) fit(); else draw();
     refreshPop(null);
-    if (S.pending) { S.pending = false; const f = S.pendingFit; S.pendingFit = false; convert(f); }
+    if (S.pending) { const q = S.pending; S.pending = null; convert(q.refit, q.applied); }
   }
   function findShape(tg, id) { const L = layerOf(tg); return L ? L.shapes.find(s => s.id === id) : null; }
 
@@ -2304,7 +2338,7 @@ if (typeof document !== 'undefined') (function () {
   const ROLE_T = { outline: '외형(선)', pad: '패드(플래시)', trace: '배선(선)', region: '영역', dup: '중복(출력 안 함)' };
   function renderSummary() {
     const R = S.result;
-    if (!R || !R.layers.length) { $('sumBox').innerHTML = '<span class="muted">출력 대상 레이어가 없습니다. 레이어 표에서 출력 대상을 고르세요.</span>'; $('warnBox').textContent = '없음'; $('apBox').textContent = '없음'; renderOverrides(); return; }
+    if (!R || !R.layers.length) { $('sumBox').innerHTML = '<span class="muted">' + (R ? '출력 대상 레이어가 없습니다. 레이어 표에서 출력 대상을 고르세요.' : '아직 변환하지 않았습니다. 레이어의 출력 대상과 옵션을 정하고 "변환"을 누르세요.') + '</span>'; $('warnBox').textContent = '없음'; $('apBox').textContent = '없음'; renderOverrides(); return; }
     let h = '<table><thead><tr><th>출력</th><th class="num">패드<br>(플래시)</th><th class="num">배선<br>(객체/선분)</th><th class="num">영역<br>(대체)</th><th class="num">모서리<br>채움</th><th class="num">최대 차이<br>(mm)</th></tr></thead><tbody>';
     let allOk = true;
     for (const L of R.layers) {
@@ -2359,7 +2393,7 @@ if (typeof document !== 'undefined') (function () {
     for (const r of rows) {
       const it = document.createElement('div'); it.className = 'item';
       it.innerHTML = '<small>' + r.L.label + ' #' + r.s.id + ' · ' + esc(shapeText(r.s)) + '</small><br>' + r.text + ' ';
-      const b = document.createElement('button'); b.textContent = '되돌리기'; b.onclick = ev => { ev.stopPropagation(); r.undo(); convert(false); };
+      const b = document.createElement('button'); b.textContent = '되돌리기'; b.onclick = ev => { ev.stopPropagation(); r.undo(); convert(false, true); };
       it.appendChild(b); it.onclick = () => zoomTo(r.s.bbox);
       list.appendChild(it);
     }
@@ -2526,13 +2560,13 @@ if (typeof document !== 'undefined') (function () {
     const can = { auto: it => true, pad: it => !!it.s.pad, trace: it => it.s.canTrace && !it.s.isVoid, region: it => true };
     for (const [v, t] of [['auto', '자동'], ['pad', '패드(플래시)'], ['trace', '배선(선)'], ['region', '영역']]) {
       const ok = items.filter(can[v]), b = document.createElement('button'); b.textContent = t + ' (' + ok.length + ')'; b.disabled = !ok.length; b.dataset.role = v;
-      b.onclick = () => { for (const it of ok) { if (v === 'auto') delete S.overrides[it.s.id]; else S.overrides[it.s.id] = v; } convert(false); };
+      b.onclick = () => { for (const it of ok) { if (v === 'auto') delete S.overrides[it.s.id]; else S.overrides[it.s.id] = v; } convert(false, true); };
       pop.querySelector('#popRoles').appendChild(b);
     }
     const nest = items.filter(it => it.s.parent);
     if (nest.length) for (const [v, t] of [[true, '빈 곳으로'], [false, '동박으로']]) {
       const b = document.createElement('button'); b.textContent = t + ' (' + nest.length + ')'; b.dataset.void = v;
-      b.onclick = () => { for (const it of nest) S.voids[it.s.id] = v; convert(false); };
+      b.onclick = () => { for (const it of nest) S.voids[it.s.id] = v; convert(false, true); };
       pop.querySelector('#popVoid').appendChild(b);
     }
     pop.querySelector('#popClose').onclick = () => { V.sels = []; closePop(); draw(); };
@@ -2555,12 +2589,12 @@ if (typeof document !== 'undefined') (function () {
     const ov = S.overrides[s.id] || 'auto';
     if (s.role !== 'outline') for (const [v, t, en] of [['auto', '자동', true], ['pad', '패드(플래시)', !!s.pad], ['trace', '배선(선)', s.canTrace && !s.isVoid], ['region', '영역', true]]) {
       const b = document.createElement('button'); b.textContent = t; b.disabled = !en; b.dataset.role = v; if (ov === v) b.className = 'on';
-      b.onclick = () => { if (v === 'auto') delete S.overrides[s.id]; else S.overrides[s.id] = v; convert(false); };
+      b.onclick = () => { if (v === 'auto') delete S.overrides[s.id]; else S.overrides[s.id] = v; convert(false, true); };
       pop.querySelector('#popRoles').appendChild(b);
     }
     if (s.parent) for (const [v, t] of [[true, '빈 곳으로'], [false, '동박으로']]) {
       const b = document.createElement('button'); b.textContent = t; b.dataset.void = v; if (s.isVoid === v) b.className = 'on';
-      b.onclick = () => { S.voids[s.id] = v; convert(false); };
+      b.onclick = () => { S.voids[s.id] = v; convert(false, true); };
       pop.querySelector('#popVoid').appendChild(b);
     }
     pop.querySelector('#popClose').onclick = () => { V.sels = []; closePop(); draw(); };
@@ -2582,7 +2616,9 @@ if (typeof document !== 'undefined') (function () {
   const reformat = () => { applyFormat(); if (S.dxf) { S.overrides = {}; S.voids = {}; rebuildBase(false); } };
   $('oFormat').onchange = reformat; $('oOdbStep').onchange = () => { if ($('oFormat').value === 'odb') reformat(); };
   applyFormat();
-  for (const id of ['oOrigin', 'oRatio', 'oGrid', 'oThr', 'oApTol', 'oEllN', 'oNoMacro', 'oFillPoly', 'oAllVoid', 'oPadCut', 'oOutW', 'oTextOn', 'oTextPct', 'oOpenOn', 'oOpenW']) $(id).addEventListener('change', () => { if (id === 'oTextOn' || id === 'oOpenOn') renderIgnored(); convert(id === 'oOrigin'); });
+  for (const id of ['oOrigin', 'oRatio', 'oGrid', 'oThr', 'oApTol', 'oEllN', 'oNoMacro', 'oFillPoly', 'oAllVoid', 'oPadCut', 'oOutW', 'oTextOn', 'oTextPct', 'oOpenOn', 'oOpenW']) $(id).addEventListener('change', () => { if (id === 'oTextOn' || id === 'oOpenOn') renderIgnored(); markDirty(id === 'oOrigin'); });
+  $('btnConvert').onclick = () => convert(); $('dirtyBar').onclick = () => convert();
+  $('oAuto').onchange = () => { if ($('oAuto').checked && S.dirty) convert(); };
   for (const id of ['vOrig', 'vRes', 'vCenter']) $(id).onchange = draw;
   $('vMaskLine').onchange = () => { renderLegend(); draw(); };
   $('vColor').onchange = () => { renderLegend(); draw(); };
