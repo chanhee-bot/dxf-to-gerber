@@ -115,10 +115,22 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
     const same = t => Ra.layers.find(l => l.target === t) === Rb.layers.find(l => l.target === t);
     check('솔더마스크 2만 뺐을 때 나머지 층은 그대로', same('cu1') && same('cu2') && same('mask') && same('outline') && !Rb.layers.find(l => l.target === 'mask2'));
     const idp = at(Ra.layers[0], 2, 2).id, Rc = await convertAll(base, cfgOf({ overrides: { [idp]: 'trace' } }), null, Ra), sc = t => Ra.layers.find(l => l.target === t) === Rc.layers.find(l => l.target === t);
-    check('동박 1의 객체를 바꾸면 동박 1만 다시 변환', !sc('cu1') && sc('cu2') && sc('mask') && sc('mask2') && sc('outline') && at(Rc.layers[0], 2, 2).role === 'trace');
+    check('동박 1의 객체를 바꾸면 동박 1만, 그것도 바뀐 객체 주변만 다시', Rc.layers[0].partial && Rc.layers[0].partial.changed === 1 && Rc.layers[0].partial.compared < 10 && !Rc.layers[0].reused && sc('cu2') && sc('mask') && sc('mask2') && sc('outline') && at(Rc.layers[0], 2, 2).role === 'trace', JSON.stringify(Rc.layers[0].partial));
     const Rd = await convertAll(base, cfgOf({ ratio: 3 }), null, Ra); check('패드 판정 비율을 바꾸면 외형만 빼고 다시 변환', Rd.layers.map(l => l.target + (l.reused ? '=' : '!')).join(' ') === 'cu1! cu2! mask! mask2! outline=', Rd.layers.map(l => l.target + (l.reused ? '=' : '!')).join(' '));
     const pid = L1.shapes.find(q => q.padCut).id, pid2 = (await convertAll(base, cfgOf({ layers: Object.assign({}, c0.layers, { L2_BOT: 'none' }) }))).layers[0].shapes.find(q => q.padCut).id;
     check('다른 층을 빼도 토막 번호는 그대로', pid === pid2, pid + ' ' + pid2); }
+  // 부분 다시 변환 = 처음부터 변환: 눌러 바꾼 것을 차례로 쌓아 가며, 매번 처음부터 한 결과와 같은지
+  { const strip = t => t.replace(/G04 DXF_to_Gerber build [^*]*\*/, ''), R0 = await convertAll(base, cfgOf()), L0 = R0.layers[0], idAt = (x, y) => at(L0, x, y).id;
+    const steps = [['패드 → 배선', { overrides: { [idAt(2, 2)]: 'trace' } }], ['배선 → 영역 추가', { overrides: { [idAt(2, 2)]: 'trace', [idAt(5, 6)]: 'region' } }], ['패드 → 배선 되돌림 + 배선 → 패드 불가(무시)', { overrides: { [idAt(5, 6)]: 'region', [idAt(16, 6)]: 'pad' } }],
+      ['안쪽 원을 빈 곳으로', { overrides: { [idAt(5, 6)]: 'region' }, voids: { [idAt(19.6, 32)]: true } }], ['그 안의 섬은 동박, 사각 구멍도 빈 곳', { overrides: {}, voids: { [idAt(19.6, 32)]: true, [idAt(19, 32)]: false, [idAt(17.5, 30.75)]: true } }], ['모두 되돌림', {}]];
+    let cur = R0, allOk = true, info = '';
+    for (const [nm, extra] of steps) {
+      cur = await convertAll(base, cfgOf(extra), null, cur); const full = await convertAll(base, cfgOf(extra));
+      const sig = L => L.shapes.map(q => q.id + ':' + q.role + ':' + q.level + ':' + (q.isVoid ? 1 : 0) + ':' + (q.diff ? q.diff.maxDev.toFixed(9) : '-') + ':' + (q.why || '')).join('|'), wsig = L => L.warnings.map(w => w.type + ':' + w.id + ':' + w.msg).sort().join('|');
+      const ok = cur.layers.every((l, i) => strip(l.text) === strip(full.layers[i].text) && sig(l) === sig(full.layers[i]) && wsig(l) === wsig(full.layers[i]) && l.verify.nBad === full.layers[i].verify.nBad && Math.abs(l.verify.worst - full.layers[i].verify.worst) < 1e-12);
+      const part = cur.layers[0].partial; if (!ok || !part) { allOk = false; info += ' [' + nm + ': ' + (ok ? '부분 변환 아님' : '다름') + ']'; } else info += ' ' + part.changed + '/' + part.compared;
+    }
+    check('부분 다시 변환 = 처음부터 변환 (6단계: Gerber·판정·비교 값·경고 모두 같음)', allOk, '바뀐/비교 객체 수:' + info); }
   // 여러 코어 경로: 워커가 하는 일(workerHandle)을 복제된 값으로 불러, 한 코어 결과와 같은지
   { let calls = 0; const fake = { n: 3, force: true, run: async (count, make, onP) => { const out = []; for (let k = 0; k < count; k++) { out.push(structuredClone(workerHandle(structuredClone(make(k))))); calls++; if (onP) onP(k + 1, count); } return out; } };
     for (const [nm, extra] of [['기본', {}], ['번갈아·매크로 대신 영역·반전', { allVoid: true, noMacro: true, origin: 'll', mirror: { cu2: true } }]]) {

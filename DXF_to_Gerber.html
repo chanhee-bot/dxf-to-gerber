@@ -156,7 +156,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1112-1730';
+const BUILD = '1112-1900';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1672,6 +1672,80 @@ function makePool(src, n) {
     }
   };
 }
+// 객체 하나의 판정(자동 판정 + 눌러서 바꾼 것)
+function decideRole(s, target, cfg, warn) {
+  const au = autoRole(s, target, cfg.ratio); s.auto = au.role; s.autoWhy = au.why || '';
+  let role = au.role, why = au.why || '', quiet = !!au.quiet; const ov = cfg.overrides[s.id];
+  const canTrace = !s.ell;
+  if (ov === 'pad' && s.pad) role = 'pad'; else if (ov === 'trace' && canTrace) role = 'trace'; else if (ov === 'region') { role = 'region'; why = '사용자 지정'; quiet = true; }
+  if (s.isVoid && role === 'trace') { role = 'region'; why = '빈 곳'; quiet = true; }
+  if (s.hasChild && role === 'trace' && ov !== 'trace') { role = 'region'; why = '안에 다른 객체가 있는 면'; quiet = false; }
+  s.canTrace = canTrace; s.role = role; s.why = role === 'region' ? why : ''; s.overridden = role !== au.role;
+  if (role === 'region' && !quiet && !s.isVoid) warn('fallback', s, '영역으로 출력: ' + why);
+}
+// 눌러서 바꾼 객체만 다시: 바뀐 객체(와 빈 곳 지정이 바뀌면 그 안쪽·맞닿은 배선)의 판정·복원을 다시 하고, Gerber를 다시 쓴 뒤 그 주변 객체만 다시 비교한다.
+// chg: { roles: 판정이 바뀐 id들, voids: 빈 곳 지정이 바뀐 id들 }
+async function convertLayerInc(L, cfg, chg, tick) {
+  const T0 = Date.now(), W = L.warnings, act = L.shapes.filter(s => !s.dup), byId = new Map(act.map(s => [s.id, s])), cs = L.cs || 1;
+  const warn = (type, s, msg, pt) => W.push({ type, target: L.target, id: s ? s.id : null, msg, bbox: pt ? [pt[0], pt[1], pt[0], pt[1]] : (s ? s.bbox : null) });
+  const margin = Math.max(4 * cfg.grid, 2 * cfg.thr), snap = v => Math.round(Math.round(v / cfg.apTol) * cfg.apTol * 1e6) / 1e6;
+  const grid = new Grid(cs); for (const s of act) grid.add(s.bbox, s);
+  const A = new Set(), touched = new Set();
+  const contactsOf = s => { s.lines = s.lines || shapeLines(s); s.contacts = []; touched.add(s); for (const o of grid.query(s.bbox, CT)) { if (o === s) continue; o.lines = o.lines || shapeLines(o); if (!o.contacts) o.contacts = []; touched.add(o); findContacts(s, o); } };
+  for (const id of chg.roles) { const s = byId.get(id); if (s) A.add(s); }
+  if (chg.voids.size) { // 빈 곳 지정: 안쪽 폴리선의 상태·깊이를 다시 매기고, 바뀐 것과 거기 맞닿은 배선을 다시 한다
+    const vch = [];
+    for (const s of act.filter(q => q.parent).sort((a, b) => a.depth - b.depth)) {
+      const v = cfg.voids[s.id], parentVoid = s.parent.level % 2 === 1, nv = v === undefined ? (cfg.allVoid ? !parentVoid : false) : !!v, nl = s.parent.level + (parentVoid !== nv ? 1 : 0);
+      if (nv === s.isVoid && nl === s.level && !chg.voids.has(s.id)) continue;
+      s.isVoid = nv; s.level = nl; A.add(s); vch.push(s);
+      for (let i = W.length - 1; i >= 0; i--) if (W[i].type === 'nested' && W[i].id === s.id) W.splice(i, 1);
+      warn('nested', s, '다른 객체 안의 폴리선(' + s.depth + '겹째): ' + (s.level % 2 ? '빈 곳' : '동박') + (cfg.allVoid || v !== undefined ? '으로 처리' : '으로 처리(빈 곳이면 눌러서 바꾸세요)'));
+    }
+    for (const s of vch) { contactsOf(s); for (const c of s.contacts) if (c.o.canTrace && (c.o.role === 'trace' || c.o.fallback)) A.add(c.o); }
+  }
+  const ids = new Set([...A].map(s => s.id)), boxes = [];
+  for (let i = W.length - 1; i >= 0; i--) if (ids.has(W[i].id) && (W[i].type === 'fallback' || W[i].type === 'narrow' || W[i].type === 'diff')) W.splice(i, 1);
+  const grow = s => { let w = 0; for (const k of (s.strokes || [])) if (k.w > w) w = k.w; return w; };
+  for (const s of A) {
+    const w0 = grow(s);
+    contactsOf(s); s.strokes = s.fills = s.narrow = null; s.fallback = false;
+    decideRole(s, L.target, cfg, warn);
+    if (s.role === 'trace') {
+      const nb = [...new Set(s.contacts.map(c => c.o))].filter(o => !o.isVoid && o.parent !== s && s.parent !== o), r = traceCore(s, nb, cfg.fillPoly);
+      if (!r.ok) { s.role = 'region'; s.why = r.why; s.fallback = true; warn('fallback', s, '영역으로 대체: ' + r.why); }
+      else { for (const k of r.strokes) k.w = snap(k.w); s.strokes = r.strokes; s.fills = r.fills; s.narrow = r.warns; }
+    }
+    const e = margin + Math.max(w0, grow(s)), b = s.bbox; boxes.push([b[0] - e, b[1] - e, b[2] + e, b[3] + e]);
+  }
+  const tTrace = Date.now() - T0; let tWrite = 0, tCmp = 0;
+  // 다시 비교할 객체: 바뀐 객체 둘레(선이 이웃 안으로 들어가는 만큼 넓혀서)에 걸친 것
+  const D = new Set(); for (const b of boxes) for (const o of grid.query(b)) D.add(o);
+  for (let i = W.length - 1; i >= 0; i--) if (W[i].type === 'diff' && W[i].id != null && byId.has(W[i].id) && D.has(byId.get(W[i].id))) W.splice(i, 1);
+  const tcap = new Grid(cs); for (const t of (L.tpaths || [])) for (const P of t.strokes) { const f = flattenPath(P, FLAT_TOL); for (let i = 0; i + 1 < f.length; i++) { const c = mkCap(f[i][0], f[i][1], f[i + 1][0], f[i + 1][1], t.w / 2); c.bbox = c.bb; tcap.add(c.bb, c); } }
+  const atomL = mkAtomL();
+  for (let pass = 0; pass < 3; pass++) {
+    await tick(L.label + ': Gerber 다시 쓰기');
+    let T1 = Date.now();
+    const g = buildGerber(L, cfg); L.text = g.text; L.apertures = g.aps; L.stats = g.stats; L.prims = parseGerber(L.text);
+    const U = [Infinity, Infinity, -Infinity, -Infinity]; for (const s of D) { U[0] = Math.min(U[0], s.bbox[0]); U[1] = Math.min(U[1], s.bbox[1]); U[2] = Math.max(U[2], s.bbox[2]); U[3] = Math.max(U[3], s.bbox[3]); }
+    const pg = new Grid(cs), M = margin * 3 + 2.5; for (const p of L.prims) if (bbHit(p.bbox, U, M)) pg.add(p.bbox, p);
+    tWrite += Date.now() - T1; T1 = Date.now();
+    await tick(L.label + ': 바뀐 곳 주변 ' + D.size + '개 비교');
+    const bad = []; for (const s of D) { s.diff = compareOne(s, grid, pg, tcap, margin, cfg.grid, atomL); if (s.diff.maxDev > cfg.thr) bad.push(s); }
+    tCmp += Date.now() - T1;
+    const redo = pass < 2 ? bad.filter(s => s.role === 'trace' && s.strokes) : [];
+    if (!redo.length) { for (const s of bad) warn('diff', s, '출력과 원본의 차이 ' + s.diff.maxDev.toFixed(4) + 'mm (기준 ' + cfg.thr + 'mm 초과)', s.diff.at); break; }
+    for (const s of redo) { const why = '복원 결과와 원본의 차이 ' + s.diff.maxDev.toFixed(4) + 'mm (기준 초과)'; s.role = 'region'; s.why = why; s.fallback = true; s.strokes = s.fills = s.narrow = null; warn('fallback', s, '영역으로 대체: ' + why, s.diff.at); }
+  }
+  for (const s of A) if (s.narrow) for (const w of s.narrow) warn('narrow', s, w.msg, [w.x, w.y]);
+  for (let i = W.length - 1; i >= 0; i--) if (W[i].type === 'ellipse') W.splice(i, 1);
+  for (const a of L.apertures) if (a.err > cfg.thr) W.push({ type: 'ellipse', target: L.target, id: null, msg: 'D' + a.code + ' 타원 근사 오차 ' + a.err.toFixed(4) + 'mm (기준 초과) → 분할 수를 늘리세요', bbox: null });
+  let worst = L.xWorst || 0, nBad = L.xBad || 0; for (const s of act) if (s.diff) { if (s.diff.maxDev > worst) worst = s.diff.maxDev; if (s.diff.maxDev > cfg.thr) nBad++; }
+  L.verify = { worst, nBad, checked: act.length };
+  for (const s of touched) { s.lines = s.contacts = null; }
+  L.times = { prep: 0, contact: 0, trace: tTrace, write: tWrite, compare: tCmp, cores: 1 }; L.partial = { changed: A.size, compared: D.size };
+}
 async function convertLayer(L, cfg, tick, pool) {
   const T0 = Date.now(), times = L.times = { prep: L.prepMs || 0, contact: 0, trace: 0, write: 0, compare: 0, cores: 1 };
   const W = L.warnings, S = L.shapes;
@@ -1712,16 +1786,8 @@ async function convertLayer(L, cfg, tick, pool) {
     const state = s.level % 2 ? '빈 곳' : '동박';
     warn('nested', s, '다른 객체 안의 폴리선(' + s.depth + '겹째): ' + state + (cfg.allVoid || v !== undefined ? '으로 처리' : '으로 처리(빈 곳이면 눌러서 바꾸세요)'));
   }
-  for (const s of act) {
-    const au = autoRole(s, L.target, cfg.ratio); s.auto = au.role; s.autoWhy = au.why || '';
-    let role = au.role, why = au.why || '', quiet = !!au.quiet; const ov = cfg.overrides[s.id];
-    const canTrace = !s.ell;
-    if (ov === 'pad' && s.pad) role = 'pad'; else if (ov === 'trace' && canTrace) role = 'trace'; else if (ov === 'region') { role = 'region'; why = '사용자 지정'; quiet = true; }
-    if (s.isVoid && role === 'trace') { role = 'region'; why = '빈 곳'; quiet = true; }
-    if (s.hasChild && role === 'trace' && ov !== 'trace') { role = 'region'; why = '안에 다른 객체가 있는 면'; quiet = false; }
-    s.canTrace = canTrace; s.role = role; s.why = role === 'region' ? why : ''; s.overridden = role !== au.role;
-    if (role === 'region' && !quiet && !s.isVoid) warn('fallback', s, '영역으로 출력: ' + why);
-  }
+  for (const s of act) decideRole(s, L.target, cfg, warn);
+  L.cs = cs;
   const margin = Math.max(4 * cfg.grid, 2 * cfg.thr), snap = v => Math.round(Math.round(v / cfg.apTol) * cfg.apTol * 1e6) / 1e6;
   times.contact = Date.now() - T0; let T1 = Date.now();
   const traces = act.filter(s => s.role === 'trace'); cnt = 0;
@@ -1791,6 +1857,7 @@ async function convertLayer(L, cfg, tick, pool) {
     if (!redo.length) { for (const s of bad) warn('diff', s, '출력과 원본의 차이 ' + s.diff.maxDev.toFixed(4) + 'mm (기준 ' + cfg.thr + 'mm 초과)', s.diff.at); break; }
     for (const s of redo) { const why = '복원 결과와 원본의 차이 ' + s.diff.maxDev.toFixed(4) + 'mm (기준 초과)'; s.role = 'region'; s.why = why; s.fallback = true; s.strokes = s.fills = s.narrow = null; warn('fallback', s, '영역으로 대체: ' + why, s.diff.at); }
   }
+  L.xWorst = 0; L.xBad = 0; L.partial = null;
   if (tlist.length) { // 글자·열린 선: 원본 획 위의 점 ↔ 출력 선 중심선
     const pgT = new Grid(cs), dev = new Map(); for (const p of L.prims) if (p.sub === 'text') pgT.add(p.bbox, p);
     for (const { c, t } of tlist) for (const fr of [0, 0.5, 1]) {
@@ -1798,7 +1865,7 @@ async function convertLayer(L, cfg, tick, pool) {
       let d = Infinity; for (const p of pgT.query([x - R, y - R, x + R, y + R])) for (const a of p.atoms) { const e = (a.t === 'c' ? dSeg(x, y, a.x1, a.y1, a.x2, a.y2) : hyp(x - a.cx, y - a.cy)) + Math.abs(a.r - c.r); if (e < d) d = e; }
       if (!(dev.get(t) >= d)) dev.set(t, d);
     }
-    for (const [t, d] of dev) { if (d > worst) worst = d; if (d > cfg.thr) { nBad++; warn('diff', null, (t.kind === 'text' ? '글자' : '열린 선') + ' 출력이 원본과 다름 ' + (isFinite(d) ? d.toFixed(4) + 'mm' : '(선 없음)'), [(t.bbox[0] + t.bbox[2]) / 2, (t.bbox[1] + t.bbox[3]) / 2]); } }
+    for (const [t, d] of dev) { if (d > worst) worst = d; if (d > L.xWorst) L.xWorst = d; if (d > cfg.thr) L.xBad++; if (d > cfg.thr) { nBad++; warn('diff', null, (t.kind === 'text' ? '글자' : '열린 선') + ' 출력이 원본과 다름 ' + (isFinite(d) ? d.toFixed(4) + 'mm' : '(선 없음)'), [(t.bbox[0] + t.bbox[2]) / 2, (t.bbox[1] + t.bbox[3]) / 2]); } }
   }
   for (const s of act) if (s.narrow) for (const w of s.narrow) warn('narrow', s, w.msg, [w.x, w.y]);
   for (const a of L.apertures) if (a.err > cfg.thr) W.push({ type: 'ellipse', target: L.target, id: null, msg: 'D' + a.code + ' 타원 근사 오차 ' + a.err.toFixed(4) + 'mm (기준 초과) → 분할 수를 늘리세요', bbox: null });
@@ -1872,15 +1939,24 @@ async function convertAll(base, cfg, prog, prev, pool) {
   for (const tg of tgs) {
     const idx = tgs.indexOf(tg); let nid = nBase + idx * ID_SPAN;
     const mine = id => id < nBase ? !!base.shapes[id] && cfg.layers[base.shapes[id].layer] === tg : Math.floor((id - nBase) / ID_SPAN) === idx;
-    const pick = o => Object.keys(o || {}).filter(k => mine(+k)).sort().map(k => k + ':' + o[k]).join(',');
+    const pick = o => { const r = {}; for (const k of Object.keys(o || {}).filter(k => mine(+k)).sort()) r[k] = o[k]; return r; };
     const src = base.shapes.filter(s => cfg.layers[s.layer] === tg), srcP = tg === 'outline' || cfg.openOn !== false ? (base.paths || []).filter(q => cfg.layers[q.layer] === tg) : [];
     const srcT = cfg.textOn !== false ? (base.texts || []).filter(q => cfg.layers[q.layer] === tg) : [];
     if (!src.length && !srcP.length && !srcT.length) continue;
     const mir = cfg.mirror[tg] ? gb[0] + gb[2] - 2 * ox : null;
-    const key = JSON.stringify([Object.keys(cfg.layers).filter(n => cfg.layers[n] === tg).sort(), ox, oy, mir, optKeyOf(tg), pick(cfg.overrides), pick(cfg.voids)]);
-    const old = prev && prev.base === base ? prev.layers.find(l => l.target === tg && l.key === key) : null;
-    if (old) { old.file = cfg.files[tg]; old.reused = true; out.push(old); continue; }
-    const L = { target: tg, label: TARGETS[tg].label, file: cfg.files[tg], mirror: !!cfg.mirror[tg], shapes: [], warnings: [], key, reused: false };
+    const baseKey = JSON.stringify([Object.keys(cfg.layers).filter(n => cfg.layers[n] === tg).sort(), ox, oy, mir, optKeyOf(tg)]), ovM = pick(cfg.overrides), vdM = pick(cfg.voids), key = baseKey + JSON.stringify([ovM, vdM]);
+    const cand = prev && prev.base === base ? prev.layers.find(l => l.target === tg && l.baseKey === baseKey) : null;
+    if (cand && cand.key === key) { cand.file = cfg.files[tg]; cand.reused = true; cand.partial = null; out.push(cand); continue; }
+    if (cand && tg !== 'outline' && cfg.partial !== false) { // 눌러서 바꾼 것만 다르다 → 바뀐 객체와 그 주변만 다시
+      const diffIds = (a, b) => { const o = new Set(); for (const k in a) if (a[k] !== b[k]) o.add(+k); for (const k in b) if (a[k] !== b[k]) o.add(+k); return o; };
+      const chg = { roles: diffIds(cand.ovM || {}, ovM), voids: diffIds(cand.vdM || {}, vdM) };
+      if (chg.roles.size + chg.voids.size <= Math.max(200, cand.shapes.length * 0.3)) {
+        cand.file = cfg.files[tg]; cand.reused = false;
+        await convertLayerInc(cand, cfg, chg, tick);
+        cand.key = key; cand.ovM = ovM; cand.vdM = vdM; out.push(cand); continue;
+      }
+    }
+    const L = { target: tg, label: TARGETS[tg].label, file: cfg.files[tg], mirror: !!cfg.mirror[tg], shapes: [], warnings: [], key, baseKey, ovM, vdM, reused: false };
     if (tg === 'outline') {
       for (const s of src) { const w = workShape(s, ox, oy, mir); if (w) L.shapes.push(w); }
       for (const t of srcT) for (const pl of t.strokes) srcP.push({ layer: t.layer, type: t.type, pts: pl });
@@ -2453,7 +2529,7 @@ if (typeof document !== 'undefined') (function () {
       S.result = await convertAll(S.base, cfg, async msg => { $('busyMsg').textContent = msg; await new Promise(r => setTimeout(r, 0)); }, S.result, pool);
       S.result.ms = performance.now() - t0;
       if (!applied) { S.dirty = false; S.dirtyFit = false; S.cfgApplied = cfg; }
-      const re = S.result.layers.filter(l => !l.reused).map(l => l.label), keep = S.result.layers.filter(l => l.reused).map(l => l.label);
+      const re = S.result.layers.filter(l => !l.reused).map(l => l.label + (l.partial ? '(바꾼 객체 ' + l.partial.changed + '개와 주변 ' + l.partial.compared + '개만)' : '')), keep = S.result.layers.filter(l => l.reused).map(l => l.label);
       const tm = { prep: 0, contact: 0, trace: 0, write: 0, compare: 0 }; let cores = 1; for (const l of S.result.layers) if (!l.reused && l.times) { for (const k in tm) tm[k] += l.times[k] || 0; cores = Math.max(cores, l.times.cores || 1); }
       const sec = v => (v / 1000).toFixed(1) + '초';
       S.result.stage = '<br><small>단계별: 패드 떼기·토막 ' + sec(tm.prep) + ' · 맞닿음·겹침 ' + sec(tm.contact) + ' · 배선 복원 ' + sec(tm.trace) + ' · Gerber 쓰기·읽기 ' + sec(tm.write) + ' · 형상 비교 ' + sec(tm.compare) + ' · 코어 ' + cores + '개 사용</small>';
