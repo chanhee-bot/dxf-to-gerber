@@ -156,7 +156,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1113-1340';
+const BUILD = '1113-1620';
 
 /* ================================================================
  * 1. 기하 기본
@@ -2059,7 +2059,12 @@ function odbNum(v, dec) { let s = v.toFixed(dec); if (s.indexOf('.') >= 0) s = s
 function odbName(t) { return (String(t).toLowerCase().replace(/[^a-z0-9_+\-.]/g, '_').replace(/^[^a-z0-9]+/, '') || 'x').slice(0, 40); }
 // 다각형([{x,y,b}], 닫힘)을 ODB++ 윤곽 줄로. 섬은 시계 방향이어야 하므로 반시계면 뒤집어 적는다.
 function odbContour(P, dx, dy, C) {
-  let a = 0; const n = P.length; for (let i = 0; i < n; i++) { const p = P[i], q = P[(i + 1) % n]; a += p.x * q.y - q.x * p.y; }
+  let a = 0; const n = P.length;
+  for (let i = 0; i < n; i++) {
+    const p = P[i], q = P[(i + 1) % n]; a += p.x * q.y - q.x * p.y;
+    // 호 구간은 현과 호 사이(활꼴) 넓이도 더한다. 빼면 반원처럼 호가 대부분인 도형의 방향을 거꾸로 판단한다
+    if (p.b) { const c = Math.hypot(q.x - p.x, q.y - p.y), b = Math.abs(p.b), r = c * (1 + b * b) / (4 * b), th = 4 * Math.atan(b); a += (p.b > 0 ? 1 : -1) * r * r * (th - Math.sin(th)); }
+  }
   const o = [];
   if (a > 0) { // 반시계 → 뒤에서부터
     o.push('OB ' + C(P[0].x - dx) + ' ' + C(P[0].y - dy) + ' I');
@@ -2317,7 +2322,7 @@ function readOdb(files, emit) {
       else if (a[0] === 'S') { surf = { t: 'S', pol: a[1], conts: [] }; recs.push(surf); }
       else if (a[0] === 'OB') { cont = [[+a[1], +a[2]]]; surf.conts.push(cont); px = +a[1]; py = +a[2]; }
       else if (a[0] === 'OS') { cont.push([+a[1], +a[2]]); px = +a[1]; py = +a[2]; }
-      else if (a[0] === 'OC') { const ex = +a[1], ey = +a[2], cx = +a[3], cy = +a[4], r = hyp(px - cx, py - cy), ccw = a[5] === 'N'; if (r > 0) { let a1 = Math.atan2(py - cy, px - cx), a2 = Math.atan2(ey - cy, ex - cx), sw = ccw ? a2 - a1 : a1 - a2; while (sw <= 1e-12) sw += 2 * Math.PI; if (!ccw) sw = -sw; const n = Math.max(2, Math.ceil(Math.abs(sw) / 0.05)); for (let j = 1; j < n; j++) { const t = a1 + sw * j / n; cont.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]); } } cont.push([ex, ey]); px = ex; py = ey; }
+      else if (a[0] === 'OC') { const ex = +a[1], ey = +a[2], cx = +a[3], cy = +a[4], r = hyp(px - cx, py - cy), ccw = a[5] === 'N'; if (r > 0) { let a1 = Math.atan2(py - cy, px - cx), a2 = Math.atan2(ey - cy, ex - cx), sw = ccw ? a2 - a1 : a1 - a2; while (sw <= 1e-12) sw += 2 * Math.PI; if (!ccw) sw = -sw; const st = Math.min(0.05, 2 * Math.acos(Math.max(0, 1 - 2e-5 / r))) || 0.05, n = Math.max(2, Math.ceil(Math.abs(sw) / st)); /* 활꼴 높이 0.00002mm 이하로 편다(큰 호도 둘레 상자·넓이가 맞게) */ for (let j = 1; j < n; j++) { const t = a1 + sw * j / n; cont.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]); } } cont.push([ex, ey]); px = ex; py = ey; }
     }
     return { u: mm ? 1 : 25.4, su: mm ? 0.001 : 0.0254, syms, recs };
   }

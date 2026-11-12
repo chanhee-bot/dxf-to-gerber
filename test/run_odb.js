@@ -82,6 +82,20 @@ async function one(label, dxfText, layers, extra, expectSteps) {
     const f6 = odb6.steps.length ? odb6.files.get('steps/' + odb6.steps[0].name + '/layers/l1/features').split('\n').filter(l => /^[LPS] /.test(l)).map(l => / N /.test(l) ? 'N' : 'P').join('') : '';
     check('  칸 108개가 스텝 하나, 빈 곳은 바깥 동박 뒤·섬 앞', odb6.steps.length && odb6.steps[0].count === 108 && /^P+NP+$/.test(f6) && f6.indexOf('N') > 0, f6);
   }
+  // 큰 호가 있는 영역(P20급 도면): 반원(꼭짓점 2개, 호가 대부분)과 큰 호 면. 윤곽 방향(섬 = 시계 방향)과 다시 읽기 대조가 맞아야 한다
+  {
+    const o8 = []; const w8 = (c, v) => o8.push(String(c), String(v));
+    const pl8 = pts => { w8(0, 'POLYLINE'); w8(8, 'COPPER'); w8(66, 1); w8(70, 1); for (const p of pts) { w8(0, 'VERTEX'); w8(8, 'COPPER'); w8(10, p[0]); w8(20, p[1]); if (p[2]) w8(42, p[2]); } w8(0, 'SEQEND'); };
+    w8(0, 'SECTION'); w8(2, 'ENTITIES');
+    for (let c = 0; c < 6; c++) for (let r = 0; r < 4; r++) { const X = 10 + c * 20, Y = 10 + r * 20;
+      pl8([[X, Y], [X + 1, Y], [X + 1, Y + 1], [X, Y + 1]]); pl8([[X + 3, Y], [X + 4, Y], [X + 4, Y + 1], [X + 3, Y + 1]]);
+      pl8([[X + 6, Y + 2], [X + 12, Y + 2, 1]]); pl8([[X + 12, Y + 6], [X + 6, Y + 6, 1]]); pl8([[X + 2, Y + 8], [X + 12, Y + 8, 0.3], [X + 12, Y + 12], [X + 2, Y + 12, 0.2]]); }
+    w8(0, 'ENDSEC'); w8(0, 'EOF');
+    const base8 = buildBase(parseDxf(o8.join('\n')), 'auto', true), R8 = await convertAll(base8, cfg({ COPPER: 'cu1' }, {}));
+    console.log('\n== 큰 호가 있는 영역 6×4');
+    for (const steps of [false, true]) { const odb = buildOdb(R8, base8, { job: 'test', units: 'mm', steps, apTol: 0.0001, ellN: 48 }), c = checkOdb(odb, R8);
+      check('ODB++ ' + (steps ? '스텝' : '평면') + ' 다시 읽기 대조(윤곽 방향 포함)', c.ok && c.errors === 0, '요소 ' + c.total + ' 빠짐 ' + c.miss + ' 남음 ' + c.extra + ' 오류 ' + c.errors + ' | ' + odb.steps.map(s => s.name + '×' + s.count).join(' ')); }
+  }
   // tar.gz 묶음을 실제로 풀어 본다
   for (const [nm, r] of [['odb_example', ex], ['odb_cells', r2]]) {
     const tgz = path.join(out, nm + '.tgz'); fs.writeFileSync(tgz, zlib.gzipSync(Buffer.from(makeTar(r.odb.files, r.odb.job))));
