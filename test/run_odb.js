@@ -68,6 +68,19 @@ async function one(label, dxfText, layers, extra, expectSteps) {
       check('  피치 4.2 × 3.9, 칸 108개가 스텝 하나(레일 끝 칸은 따로)', odb.mode === 'cell' && odb.cell && Math.abs(odb.cell.px - 4.2) < 1e-9 && Math.abs(odb.cell.py - 3.9) < 1e-9 && odb.steps.length <= 3 && odb.steps[0].count === 108 && odb.nSr <= 3, JSON.stringify(odb.cell) + ' ' + odb.steps.map(s => s.name + '×' + s.count).join(' ') + ' 반복 줄 ' + odb.nSr);
     }
     const flat = buildOdb(R5, base5, { job: 'test', units: 'mm', steps: false, apTol: 0.0001, ellN: 48 }); check('  스텝 끄면 평면', flat.steps.length === 0 && checkOdb(flat, R5).ok);
+    { const o7 = buildOdb(R5, base5, { job: 'test', units: 'mm', steps: true, apTol: 0.0001, ellN: 48, pitchAll: true }), c7 = checkOdb(o7, R5);
+      check('  패드 없이 선·영역 중심만으로도 같은 피치', c7.ok && o7.pitchInfo.all && Math.abs(o7.cell.px - 4.2) < 1e-9 && Math.abs(o7.cell.py - 3.9) < 1e-9 && o7.steps[0].count === 108, JSON.stringify(o7.pitchInfo)); }
+    // 빈 곳(음각)이 있는 층: 칸마다 큰 사각 안에 빈 곳, 그 안에 섬. "번갈아" 옵션을 켜도 스텝으로 묶이고 그리는 순서(동박 → 빈 곳 → 섬)가 지켜져야 한다
+    const o3 = o2.slice(0, o2.length - 4); { const sv = o2.length; o2.length = 0; for (const q of o3) o2.push(q);
+      for (let c = 0; c < 12; c++) for (let r = 0; r < 9; r++) { const X = 7.3 + c * 4.2, Y = 11.7 + r * 3.9; for (const [a, b] of [[0, 1.2], [0.3, 0.9], [0.5, 0.7]]) pl2([[X + 1.9 + a, Y + 0.05 + a * 0.5], [X + 1.9 + b, Y + 0.05 + a * 0.5], [X + 1.9 + b, Y + 0.95 - a * 0.5], [X + 1.9 + a, Y + 0.95 - a * 0.5]]); }
+      w2(0, 'ENDSEC'); w2(0, 'EOF'); }
+    const base6 = buildBase(parseDxf(o2.join('\n')), 'auto', true), R6 = await convertAll(base6, cfg({ COPPER: 'cu1' }, { allVoid: true }));
+    console.log('\n== 블록 없는 반복 무늬 + 빈 곳(번갈아)');
+    check('동박 1 형상 비교 기준 이내', R6.layers[0].verify.nBad === 0, '최대 ' + R6.layers[0].verify.worst.toFixed(5) + ' 빈 곳 ' + R6.layers[0].shapes.filter(s => s.level === 1).length);
+    const odb6 = buildOdb(R6, base6, { job: 'test', units: 'mm', steps: true, apTol: 0.0001, ellN: 48 }), c6 = checkOdb(odb6, R6);
+    check('ODB++ 반복 칸 자동(빈 곳 있는 층) 다시 읽기 대조', c6.ok, '요소 ' + c6.total + ' 빠짐 ' + c6.miss + ' 남음 ' + c6.extra + ' | ' + odb6.steps.map(s => s.name + '×' + s.count).join(' '));
+    const f6 = odb6.steps.length ? odb6.files.get('steps/' + odb6.steps[0].name + '/layers/l1/features').split('\n').filter(l => /^[LPS] /.test(l)).map(l => / N /.test(l) ? 'N' : 'P').join('') : '';
+    check('  칸 108개가 스텝 하나, 빈 곳은 바깥 동박 뒤·섬 앞', odb6.steps.length && odb6.steps[0].count === 108 && /^P+NP+$/.test(f6) && f6.indexOf('N') > 0, f6);
   }
   // tar.gz 묶음을 실제로 풀어 본다
   for (const [nm, r] of [['odb_example', ex], ['odb_cells', r2]]) {

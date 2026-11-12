@@ -156,7 +156,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1113-1010';
+const BUILD = '1113-1340';
 
 /* ================================================================
  * 1. 기하 기본
@@ -2087,25 +2087,28 @@ function buildOdb(R, base, opt) {
 }
 // 값들(패드 중심의 x 또는 y)에서 반복 간격을 찾는다. { p: 피치, at: 기준 값 } 또는 null
 function odbPitch(vals) {
-  if (vals.length < 8) return null;
+  const info = { n: vals.length, kinds: 0, best: 0, share: 0 }, fail = () => ({ p: 0, info });
+  if (vals.length < 8) return fail();
   const v = Float64Array.from(vals).sort(), X = [], W = [];
   for (let i = 0; i < v.length; i++) { if (X.length && v[i] - X[X.length - 1] <= 2e-5) W[W.length - 1]++; else { X.push(v[i]); W.push(1); } }
-  const n = X.length; if (n < 4) return null;
+  const n = X.length; info.kinds = n; if (n < 4) return fail();
   const has = x => { let lo = 0, hi = n - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (X[m] < x - 1e-4) lo = m + 1; else hi = m; } return Math.abs(X[lo] - x) <= 1e-4 ? lo : -1; };
-  // 가까운 값끼리의 간격마다 "그 간격만큼 떨어진 짝의 무게"를 모은다. 반복 피치는 칸 안의 모든 패드가 짝을 이루므로 가장 무겁다
-  const acc = new Map(); let top = 0, tw = 0;
-  for (let i = 0; i < n; i++) { tw += W[i]; for (let j = i + 1; j < n && j <= i + 80; j++) { const d = X[j] - X[i]; if (d < 0.05) continue; const k = Math.round(d * 1e4), w = (acc.get(k) || 0) + Math.min(W[i], W[j]); acc.set(k, w); } }
-  for (const [k, w] of acc) { const s = w + (acc.get(k - 1) || 0) + (acc.get(k + 1) || 0); if (s > top) top = s; }
-  if (top < tw * 0.3) return null;
-  let p = 0, kb = Infinity;
-  for (const [k, w] of acc) { if (k >= kb) continue; const a = acc.get(k - 1) || 0, b = acc.get(k + 1) || 0; if (w >= a && w >= b && w + a + b >= top * 0.85) kb = k; }
-  if (!isFinite(kb)) return null;
-  { let s = 0, c = 0; for (let i = 0; i < n; i++) { const k = has(X[i] + kb / 1e4); if (k >= 0) { s += X[k] - X[i]; c++; } } if (!c) return null; p = s / c; }
-  let h = 0; for (let i = 0; i < n; i++) if (has(X[i] + p) >= 0 && W[i] > W[h]) h = i;
+  // 가까운 값끼리의 간격마다 "그 간격만큼 떨어진 짝의 무게"를 모은다. 반복 피치는 칸 안의 모든 요소가 짝을 이루므로 가장 무겁다
+  const DMAX = 60, acc = new Float64Array(DMAX * 1e4 + 3); let top = 0, tk = 0, tw = 0;
+  for (let i = 0; i < n; i++) { tw += W[i]; for (let j = i + 1; j < n && j <= i + 3000; j++) { const d = X[j] - X[i]; if (d > DMAX) break; if (d < 0.05) continue; acc[Math.round(d * 1e4) + 1] += Math.min(W[i], W[j]); } }
+  for (let k = 1; k < acc.length - 1; k++) { const s = acc[k] + acc[k - 1] + acc[k + 1]; if (s > top) { top = s; tk = k; } }
+  { let m = tk; for (const k of [tk - 1, tk + 1]) if (acc[k] > acc[m]) m = k; info.best = (m - 1) / 1e4; } info.share = tw ? top / tw : 0;
+  if (top < tw * 0.3) return fail();
+  let p = 0, kb = 0;
+  for (let k = 1; k < acc.length - 1; k++) { const w = acc[k]; if (w > 0 && w >= acc[k - 1] && w >= acc[k + 1] && w + acc[k - 1] + acc[k + 1] >= top * 0.85) { kb = k - 1; break; } }
+  if (!kb) return fail();
+  { let s = 0, c = 0; for (let i = 0; i < n; i++) { const k = has(X[i] + kb / 1e4); if (k >= 0) { s += X[k] - X[i]; c++; } } if (!c) return fail(); p = s / c; }
+  let h = -1; for (let i = 0; i < n; i++) if (has(X[i] + p) >= 0 && (h < 0 || W[i] > W[h])) h = i;
+  if (h < 0) return fail();
   // 멀리 떨어진 짝으로 피치를 다듬는다
   let a = 0; while (a < h && (W[a] * 2 < W[h] || has(X[a] + p) < 0)) a++;
   for (let j = n - 1; j > a; j--) { if (W[j] * 2 < W[h]) continue; const m = Math.round((X[j] - X[a]) / p); if (m >= 1 && Math.abs(X[j] - X[a] - m * p) < 1e-3) { p = (X[j] - X[a]) / m; break; } }
-  return { p, at: X[a] };
+  return { p, at: X[a], info };
 }
 function buildOdb1(R, base, opt) {
   const inch = opt.units !== 'mm', tol = opt.apTol || 1e-4;
@@ -2160,18 +2163,23 @@ function buildOdb1(R, base, opt) {
     }
   });
   // 반복 칸 자동 찾기: 패드(플래시) 중심의 가로·세로 간격에서 피치를 찾고, 요소의 둘레 상자 가운데가 놓인 칸에 요소를 넣는다
-  let cell = null, cellOf = null;
+  let cell = null, cellOf = null, pitchInfo = null;
   if (cellMode) {
-    const xs = [], ys = [];
-    for (const ly of layers) if (ly.L.target !== 'outline' && !ly.flat) for (const s of ly.L.shapes) if (!s.dup && s.out === 'flash') { xs.push(s.pad.cx); ys.push(s.pad.cy); }
-    const px = odbPitch(xs), py = odbPitch(ys);
-    if (px && py) {
+    // 플래시(패드) 중심으로 먼저 찾고, 안 되면 작은 요소 전부(선·영역 포함)의 중심으로 다시 찾는다
+    let px = null, py = null;
+    for (const all of opt.pitchAll ? [true] : [false, true]) {
+      const xs = [], ys = [];
+      each((li, ly, s, kind, x0, y0, x1, y1) => { if ((all || kind === 'pads') && x1 - x0 <= 30 && y1 - y0 <= 30) { xs.push((x0 + x1) / 2); ys.push((y0 + y1) / 2); } });
+      px = odbPitch(xs); py = odbPitch(ys); pitchInfo = { all, x: px.info, y: py.info, px: px.p, py: py.p };
+      if (px.p && py.p) break;
+    }
+    if (px.p && py.p) {
       // 칸 경계는 요소가 가장 드문 자리에 둔다(경계에 걸쳐 칸이 오락가락하지 않게)
       const NB = 64, hx = new Int32Array(NB), hy = new Int32Array(NB), mn = [Infinity, Infinity];
       const ph = (v, q) => { const r = (v - q.at) / q.p, f = r - Math.floor(r); return Math.min(NB - 1, Math.floor(f * NB)); };
-      each((li, ly, s, kind, x0, y0, x1, y1) => { if (ly.flat) return; hx[ph((x0 + x1) / 2, px)]++; hy[ph((y0 + y1) / 2, py)]++; if (x0 < mn[0]) mn[0] = x0; if (y0 < mn[1]) mn[1] = y0; });
+      each((li, ly, s, kind, x0, y0, x1, y1) => { hx[ph((x0 + x1) / 2, px)]++; hy[ph((y0 + y1) / 2, py)]++; if (x0 < mn[0]) mn[0] = x0; if (y0 < mn[1]) mn[1] = y0; });
       const gap = h => { let lo = Infinity; for (const v of h) if (v < lo) lo = v; let best = 0, bl = -1; for (let i = 0; i < NB; i++) { if (h[i] !== lo) continue; let l = 1; while (l < NB && h[(i + l) % NB] === lo) l++; if (l > bl) { bl = l; best = i; } i += l - 1; } return ((best + bl / 2) % NB) / NB; };
-      const org = (q, h, m) => { const g = q.at + Math.round(gap(h) * q.p * 1000) / 1000; /* 0.001mm 단위로 맞춰 칸 안 좌표가 반올림 경계에 걸리지 않게 */ return g - (Math.ceil((g - m) / q.p) + 1) * q.p; };
+      const org = (q, h, m) => { const g = Math.round((q.at + gap(h) * q.p) * 1000) / 1000; /* 0.001mm 단위로 맞춰 칸 안 좌표가 반올림 경계에 걸리지 않게 */ return g - (Math.ceil((g - m) / q.p) + 1) * q.p; };
       const gx = org(px, hx, mn[0]), gy = org(py, hy, mn[1]), ids = new Map();
       cell = { px: px.p, py: py.p, n: 0 };
       cellOf = (x0, y0, x1, y1) => {
@@ -2193,10 +2201,16 @@ function buildOdb1(R, base, opt) {
   });
   each((li, ly, s, kind, x0, y0, x1, y1, fmt) => {
     stat[kind]++;
-    const own = !useSteps || ly.flat ? -1 : cellOf ? cellOf(x0, y0, x1, y1) : (s.inst >= 0 && s.inst < nI ? s.inst : -1);
+    let own = -1;
+    if (useSteps && cellOf) {
+      // 빈 곳이 있는 층: 안팎으로 겹친 객체들(맨 바깥 객체와 그 안의 것)은 그리는 순서가 지켜지도록 맨 바깥 객체의 칸에 통째로 넣는다
+      let r = s; if (ly.flat) while (r.parent) r = r.parent;
+      own = ly.flat && (r !== s || s.hasChild) ? cellOf(r.bbox[0], r.bbox[1], r.bbox[2], r.bbox[3]) : cellOf(x0, y0, x1, y1);
+    } else if (useSteps && !ly.flat) own = s.inst >= 0 && s.inst < nI ? s.inst : -1;
     if (own < 0) { panel[li].push(fmt(0, 0)); return; }
-    let il = instLines[own]; if (!il) il = instLines[own] = layers.map(() => []);
+    let il = instLines[own]; if (!il) { il = instLines[own] = layers.map(() => []); il.lv = layers.map(() => null); }
     il[li].push(fmt(instX[own], instY[own]));
+    if (ly.flat) (il.lv[li] || (il.lv[li] = [])).push(s.level);
   });
   // 글자(내장 글꼴)·열린 선: 다시 읽은 선 그대로 패널 스텝에
   layers.forEach((ly, li) => { if (ly.L.target !== 'outline') for (const p of ly.L.prims) if (p.kind === 'stroke' && p.sub === 'text') { const d = p.d; panel[li].push(fLine(d[0], d[1], d[2], d[3], 2 * d[4], p.pol ? 'N' : 'P', 0, 0)); stat.lines++; } });
@@ -2205,7 +2219,8 @@ function buildOdb1(R, base, opt) {
   const groups = new Map();
   for (let i = 0; i < nIn; i++) {
     const il = instLines[i]; if (!il) continue;
-    for (const a of il) a.sort();
+    // 같은 깊이(극성 단계) 안에서만 줄을 정렬한다(빈 곳은 바깥 동박 뒤에 그려야 하므로 깊이 순서는 지킨다)
+    il.forEach((a, li) => { const lv = il.lv && il.lv[li]; if (!lv) { a.sort(); return; } const ix = a.map((_, k) => k).sort((p, q) => lv[p] - lv[q] || (a[p] < a[q] ? -1 : a[p] > a[q] ? 1 : 0)); const b = ix.map(k => a[k]); for (let k = 0; k < b.length; k++) a[k] = b[k]; });
     const key = il.map(a => a.join('\n')).join('\n' + ODB_SEP + ODB_SEP + '\n');
     let g = groups.get(key); if (!g) groups.set(key, g = { lines: il, insts: [], blk: instName[i] });
     g.insts.push(i); instLines[i] = null;
@@ -2272,7 +2287,7 @@ function buildOdb1(R, base, opt) {
   }
   for (const u of usr.values()) put('symbols/' + u.name + '/features', head.concat(['#', '#Layer features', '#', 'S P 0'], odbContour(u.pts, 0, 0, C), ['SE']));
   let bytes = 0; for (const t of files.values()) bytes += t.length;
-  return { job, files, bytes, units: inch ? 'inch' : 'mm', steps: steps.map(g => ({ name: g.name, count: g.insts.length })), nSr, nInst: steps.reduce((a, g) => a + g.insts.length, 0), stat, layers: layers.map(l => l.name), mode: cellMode ? 'cell' : 'block', cell, diag: { stat: base.instStat, cand: base.insts.length, filled: nFilled, single: nSingle, featIn: nFeatIn, featOut: nFeatOut, featStep }, noStepWhy: useSteps ? '' : cellMode ? '패드 간격에서 반복 피치를 찾지 못함' : (!opt.steps ? '스텝 묶기 꺼짐' : base.insts.length < 2 ? '블록 삽입이 없음' : '좌우 반전을 쓴 층이 있음') };
+  return { job, files, bytes, units: inch ? 'inch' : 'mm', steps: steps.map(g => ({ name: g.name, count: g.insts.length })), nSr, nInst: steps.reduce((a, g) => a + g.insts.length, 0), stat, layers: layers.map(l => l.name), mode: cellMode ? 'cell' : 'block', cell, pitchInfo, diag: { stat: base.instStat, cand: base.insts.length, filled: nFilled, single: nSingle, featIn: nFeatIn, featOut: nFeatOut, featStep }, noStepWhy: useSteps ? '' : cellMode ? '패드 간격에서 반복 피치를 찾지 못함' : (!opt.steps ? '스텝 묶기 꺼짐' : base.insts.length < 2 ? '블록 삽입이 없음' : '좌우 반전을 쓴 층이 있음') };
 }
 // 스텝 좌표로 적은 줄을 패널 좌표로 옮긴다(한 번만 나오는 삽입을 패널에 풀어 넣을 때)
 function odbShift(t, dx, dy, inch) {
@@ -2945,6 +2960,10 @@ if (typeof document !== 'undefined') (function () {
       if (odb.mode === 'cell' && odb.cell) h += '스텝 기준: <b>반복 칸 자동</b>(동박이 블록 안에 없어 패드 간격으로 찾음) — 칸 ' + odb.cell.px.toFixed(4) + ' × ' + odb.cell.py.toFixed(4) + 'mm, 내용이 있는 칸 ' + odb.cell.n + '개, 요소의 ' + (100 * odb.diag.featStep / Math.max(1, odb.diag.featIn + odb.diag.featOut)).toFixed(1) + '%가 스텝 안<br>';
       else if (odb.steps.length) h += '스텝 기준: <b>DXF 블록 삽입</b><br>';
       h += odb.steps.length ? '스텝 ' + odb.steps.length + '종을 ' + odb.nInst + '곳에 반복(반복 줄 ' + odb.nSr + '개): ' + esc(odb.steps.slice(0, 6).map(q => q.name + '×' + q.count).join(', ')) + (odb.steps.length > 6 ? ' …' : '') : '스텝 묶음 없음' + (odb.noStepWhy ? ' (' + odb.noStepWhy + ')' : ' (똑같이 반복되는 블록 삽입이 없음)') + ' — 전부 panel 스텝에 적음';
+      if (odb.mode === 'cell' && odb.pitchInfo) {
+        const q = odb.pitchInfo, one = (nm, a, p) => nm + ' ' + (p ? p.toFixed(4) + 'mm' : '못 찾음') + '(값 ' + a.n + '개, 서로 다른 값 ' + a.kinds + '개, 가장 흔한 간격 ' + a.best.toFixed(4) + 'mm가 ' + (100 * a.share).toFixed(0) + '%)';
+        h += '<br><span class="muted">피치 진단(' + (q.all ? '작은 요소 전부' : '패드') + ' 기준): ' + one('가로', q.x, q.px) + ' / ' + one('세로', q.y, q.py) + (odb.steps.length ? ' · 한 번뿐이라 패널에 둔 칸 ' + odb.diag.single + '개' : '') + '</span>';
+      }
       if ($('oOdbStep').checked && (odb.blockTry ? odb.blockTry.diag : odb.diag).stat) {
         const d = odb.blockTry ? odb.blockTry.diag : odb.diag, q = d.stat;
         h += '<br><span class="muted">블록 진단: 도면의 블록 삽입 ' + q.n + '개(블록 ' + q.kinds + '종, 맨 위 ' + q.top + '개 / 블록 안 ' + (q.n - q.top) + '개, 회전·반전·배율 있는 것 ' + q.nonTr + '개)' + (q.names.length ? ' — 많이 쓴 블록: ' + esc(q.names.map(a => a[0] + '×' + a[1]).join(', ')) : '') +
