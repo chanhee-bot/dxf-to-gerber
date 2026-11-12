@@ -87,6 +87,43 @@ const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? ' 
   const z = fs.readFileSync(f);
   check('zip 내려받기', dl.suggestedFilename() === 'example_gerber.zip' && z.readUInt32LE(0) === 0x04034b50 && z.includes('example_SM1.gbr') && z.includes('example_SM2.gbr') && z.includes('example_OUTLINE.gbr'), dl.suggestedFilename() + ' ' + z.length + 'B');
 
+  // 여러 객체 선택: Ctrl+클릭, 상자 끌기, 한꺼번에 바꾸기
+  {
+    const role = (x, y) => page.evaluate(([x, y]) => { const L = window.__app.S.result.layers.find(l => l.target === 'cu1'); let b = null; for (const s of L.shapes) if (!s.dup && x >= s.bbox[0] && x <= s.bbox[2] && y >= s.bbox[1] && y <= s.bbox[3] && (!b || s.area < b.area)) b = s; return b ? b.role : null; }, [x, y]);
+    await page.selectOption('#oOrigin', 'dxf'); await done(); await page.selectOption('#vColor', 'kind'); await page.waitForTimeout(100);
+    for (const id of ['show_cu2', 'show_mask', 'show_mask2', 'show_outline']) if (await page.$('#' + id)) await page.uncheck('#' + id);
+    await zoom([0, 0, 14, 4]); await page.waitForTimeout(200);
+    let a = await toScreen(2, 2), b = await toScreen(12, 2);
+    await page.mouse.click(a[0], a[1]);
+    await page.keyboard.down('Control'); await page.mouse.click(b[0], b[1]); await page.keyboard.up('Control');
+    check('Ctrl+클릭으로 2개 선택', (await page.textContent('#pop')).includes('객체 2개 선택'), (await page.textContent('#pop')).slice(0, 60));
+    await page.screenshot({ path: path.join(shots, '9_multi_select.png') });
+    await page.click('#pop button[data-role=trace]'); await done(); await page.waitForTimeout(200);
+    check('한꺼번에 배선으로', (await role(2, 2)) === 'trace' && (await role(12, 2)) === 'trace', (await role(2, 2)) + ',' + (await role(12, 2)));
+    check('바꾼 뒤에도 선택 유지', (await page.textContent('#pop')).includes('객체 2개 선택'));
+    await page.click('#pop button[data-role=auto]'); await done(); await page.waitForTimeout(200);
+    check('한꺼번에 자동으로 되돌림', (await role(2, 2)) === 'pad' && (await role(12, 2)) === 'pad');
+    await page.keyboard.press('Escape');
+    check('Esc로 선택 해제', !(await page.isVisible('#pop')) && (await page.evaluate(() => window.__app.V.sels.length)) === 0);
+    // 상자 선택: 왼쪽→오른쪽(다 들어온 것만), 오른쪽→왼쪽(걸친 것도)
+    await page.check('#vBox');
+    let p0 = await toScreen(1, 0.8), p1 = await toScreen(13, 3.2);
+    await page.mouse.move(p0[0], p0[1]); await page.mouse.down(); await page.mouse.move((p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2); await page.screenshot({ path: path.join(shots, '10_box_select.png') }); await page.mouse.move(p1[0], p1[1]); await page.mouse.up();
+    check('상자 선택(왼→오): 패드 2 + 배선 1', (await page.textContent('#pop')).includes('객체 3개 선택'), (await page.textContent('#pop')).slice(0, 80));
+    await page.keyboard.press('Escape');
+    p0 = await toScreen(3, 2.6); p1 = await toScreen(1.8, 1.6);
+    await page.mouse.move(p0[0], p0[1]); await page.mouse.down(); await page.mouse.move(p1[0], p1[1], { steps: 3 }); await page.mouse.up();
+    check('상자 선택(오→왼): 걸친 것 2개(패드 + 배선)', (await page.textContent('#pop')).includes('객체 2개 선택'), (await page.textContent('#pop')).slice(0, 80));
+    await page.keyboard.press('Escape'); await page.uncheck('#vBox');
+    // Shift+끌기는 '영역 선택'이 꺼져 있어도 상자 선택, 그냥 끌기는 화면 이동
+    p0 = await toScreen(1, 0.8); p1 = await toScreen(13, 3.2);
+    await page.keyboard.down('Shift'); await page.mouse.move(p0[0], p0[1]); await page.mouse.down(); await page.mouse.move(p1[0], p1[1], { steps: 3 }); await page.mouse.up(); await page.keyboard.up('Shift');
+    check('Shift+끌기 상자 선택', (await page.textContent('#pop')).includes('객체 3개 선택'));
+    await page.keyboard.press('Escape');
+    const cx0 = await page.evaluate(() => window.__app.V.cx);
+    await page.mouse.move(p0[0], p0[1]); await page.mouse.down(); await page.mouse.move(p0[0] + 80, p0[1], { steps: 3 }); await page.mouse.up();
+    check('그냥 끌기는 화면 이동', (await page.evaluate(() => window.__app.V.cx)) < cx0 - 0.1 && (await page.evaluate(() => window.__app.V.sels.length)) === 0);
+  }
   // 예제 버튼, 바이너리 DXF 안내
   await page.click('#btnExample'); await done();
   check('예제 도면 열기 버튼', (await page.textContent('#fileInfo')).includes('example.dxf'));

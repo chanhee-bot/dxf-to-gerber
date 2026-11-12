@@ -131,9 +131,10 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
     <label><input type="checkbox" id="vCenter" checked> 중심선</label>
     <label title="솔더마스크를 속을 채우지 않고 테두리 선으로만 보입니다(화면 표시만, 출력 파일은 그대로 면)"><input type="checkbox" id="vMaskLine" checked> 마스크 선으로 보기</label>
     <label>색 <select id="vColor"><option value="kind">종류별</option><option value="layer">레이어별</option></select></label>
+    <label title="켜면 왼쪽 버튼으로 끌어 여러 객체를 고릅니다(화면 이동은 가운데·오른쪽 버튼으로 끌기). 꺼져 있어도 Shift를 누르고 끌면 영역 선택입니다. 왼쪽→오른쪽: 상자 안에 다 들어온 것만, 오른쪽→왼쪽: 걸친 것도 포함."><input type="checkbox" id="vBox"> 영역 선택</label>
     <button id="btnFit">전체 보기</button>
   </div>
-  <div id="cvWrap"><canvas id="cv"></canvas><div id="hint">도면을 열면 변환 결과가 여기에 표시됩니다.<br>휠: 확대·축소 / 끌기: 이동 / 클릭: 객체 선택(패드↔배선 바꾸기)</div><div id="pop"></div></div>
+  <div id="cvWrap"><canvas id="cv"></canvas><div id="hint">도면을 열면 변환 결과가 여기에 표시됩니다.<br>휠: 확대·축소 / 끌기: 이동 / 클릭: 객체 선택(패드↔배선 바꾸기)<br>Ctrl·Shift+클릭: 여러 개 선택 / Shift+끌기 또는 "영역 선택": 상자로 선택 / Esc: 선택 해제</div><div id="pop"></div></div>
   <div id="legend"><span id="legendItems"></span><span id="coord"></span></div>
 </section>
 <section id="right">
@@ -147,7 +148,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1112-1130';
+const BUILD = '1112-1300';
 
 /* ================================================================
  * 1. 기하 기본
@@ -2181,7 +2182,7 @@ if (typeof document !== 'undefined') (function () {
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   $('build').textContent = '빌드 ' + BUILD;
   const S = { dxf: null, base: null, fileName: '', layerTarget: {}, files: {}, filesEdited: {}, mirror: {}, overrides: {}, voids: {}, result: null, busy: false, pending: false };
-  const V = { scale: 20, cx: 0, cy: 0, show: { cu1: true, cu2: true, mask: true, mask2: true, outline: true }, sel: null, flash: null, dpr: 1 };
+  const V = { scale: 20, cx: 0, cy: 0, show: { cu1: true, cu2: true, mask: true, mask2: true, outline: true }, sels: [], box: null, flash: null, dpr: 1 };
   window.__app = { S, V };
   const KIND_COL = { stroke: '#34d17a', flash: '#ffb224', area: '#ff5aa8', fill: '#3fc1ff', text: '#f7e463' };
   // 종류별 색에서도 층을 구분한다: 동박 1 = 밝은 색, 동박 2 = 같은 색의 어두운 톤, 솔더마스크 = 옅은 톤
@@ -2196,7 +2197,7 @@ if (typeof document !== 'undefined') (function () {
   function loadText(text, name) {
     let dxf;
     try { dxf = parseDxf(text); } catch (e) { setMsg('DXF를 읽지 못했습니다: ' + esc(e.message), true); return; }
-    S.dxf = dxf; S.fileName = name; S.overrides = {}; S.voids = {}; S.layerTarget = {}; S.filesEdited = {}; S.mirror = {}; S.result = null; V.sel = null; closePop();
+    S.dxf = dxf; S.fileName = name; S.overrides = {}; S.voids = {}; S.layerTarget = {}; S.filesEdited = {}; S.mirror = {}; S.result = null; V.sels = []; closePop();
     rebuildBase(true);
   }
   function loadBuffer(buf, name) {
@@ -2286,7 +2287,7 @@ if (typeof document !== 'undefined') (function () {
     $('btnOdbTgz').disabled = $('btnOdbZip').disabled = $('btnZip').disabled;
     renderToolbarLayers(); renderSummary(); renderLegend();
     if (refit) fit(); else draw();
-    if (V.sel) { const s = findShape(V.sel.target, V.sel.id); if (s) showPop(s, V.sel.target, null); else closePop(); }
+    refreshPop(null);
     if (S.pending) { S.pending = false; const f = S.pendingFit; S.pendingFit = false; convert(f); }
   }
   function findShape(tg, id) { const L = layerOf(tg); return L ? L.shapes.find(s => s.id === id) : null; }
@@ -2329,7 +2330,7 @@ if (typeof document !== 'undefined') (function () {
       groups[k].slice(0, 400).forEach(w => {
         const it = document.createElement('div'); it.className = 'item'; it.dataset.wtype = k;
         it.innerHTML = '<small>' + TARGETS[w.target].label + (w.id != null ? ' #' + w.id : '') + (w.bbox ? ' (' + ((w.bbox[0] + w.bbox[2]) / 2).toFixed(3) + ', ' + ((w.bbox[1] + w.bbox[3]) / 2).toFixed(3) + ')' : '') + '</small><br>' + esc(w.msg);
-        if (w.bbox) it.onclick = () => { V.show[w.target] = true; renderToolbarLayers(); zoomTo(w.bbox); const s = w.id != null ? findShape(w.target, w.id) : null; if (s) { V.sel = { target: w.target, id: s.id }; showPop(s, w.target, null); } };
+        if (w.bbox) it.onclick = () => { V.show[w.target] = true; renderToolbarLayers(); zoomTo(w.bbox); const s = w.id != null ? findShape(w.target, w.id) : null; if (s) { V.sels = [{ target: w.target, id: s.id }]; refreshPop(null); } };
         list.appendChild(it);
       });
       if (groups[k].length > 400) { const m = document.createElement('div'); m.className = 'item muted'; m.textContent = '… 외 ' + (groups[k].length - 400) + '개'; list.appendChild(m); }
@@ -2459,7 +2460,8 @@ if (typeof document !== 'undefined') (function () {
       for (const s of L.shapes) { if (!bbHit(s.bbox, vb) || (s.bbox[2] - s.bbox[0] < 3 * px && s.bbox[3] - s.bbox[1] < 3 * px)) continue; ctx.setLineDash(s.isVoid || s.dup ? [4 * px, 3 * px] : []); pathOf(ctx, V.scale < 300 ? s.coarse : s.flat); ctx.stroke(); }
       ctx.setLineDash([]);
     }
-    if (V.sel) { const s = findShape(V.sel.target, V.sel.id); if (s) { ctx.lineWidth = 2.5 * px; ctx.strokeStyle = '#ffe600'; pathOf(ctx, s.flat); ctx.stroke(); } }
+    if (V.sels.length) { ctx.lineWidth = 2.5 * px; ctx.strokeStyle = '#ffe600'; for (const q of V.sels) { const s = findShape(q.target, q.id); if (s && bbHit(s.bbox, vb)) { pathOf(ctx, s.flat); ctx.stroke(); } } }
+    if (V.box) { const b = V.box, cross = b.x1 < b.x0; ctx.lineWidth = 1.2 * px; ctx.setLineDash(cross ? [5 * px, 4 * px] : []); ctx.strokeStyle = cross ? '#6dff9a' : '#6db3ff'; ctx.fillStyle = cross ? 'rgba(109,255,154,.12)' : 'rgba(109,179,255,.12)'; const x = Math.min(b.x0, b.x1), y = Math.min(b.y0, b.y1), w = Math.abs(b.x1 - b.x0), h = Math.abs(b.y1 - b.y0); ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h); ctx.setLineDash([]); }
     if (V.flash && Date.now() - V.flash.t < 1500) { const b = V.flash.bb, m = 10 * px; ctx.lineWidth = 2 * px; ctx.strokeStyle = '#ff3b3b'; ctx.strokeRect(b[0] - m, b[1] - m, b[2] - b[0] + 2 * m, b[3] - b[1] + 2 * m); }
   }
   function renderToolbarLayers() {
@@ -2479,20 +2481,65 @@ if (typeof document !== 'undefined') (function () {
   }
   const toWorld = ev => { const r = cv.getBoundingClientRect(); return [((ev.clientX - r.left) * V.dpr - cv.width / 2) / V.scale + V.cx, (cv.height / 2 - (ev.clientY - r.top) * V.dpr) / V.scale + V.cy]; };
   cv.addEventListener('wheel', ev => { ev.preventDefault(); const p = toWorld(ev), f = Math.pow(1.0015, -ev.deltaY); V.scale *= f; V.cx = p[0] - (p[0] - V.cx) / f; V.cy = p[1] - (p[1] - V.cy) / f; draw(); }, { passive: false });
+  // 클릭: 하나 선택 / Ctrl·Shift+클릭: 선택에 더하거나 빼기 / Shift+끌기(또는 '영역 선택' 켜고 끌기): 상자로 여러 개 선택
   let drag = null;
-  cv.addEventListener('mousedown', ev => { drag = { x: ev.clientX, y: ev.clientY, cx: V.cx, cy: V.cy, moved: false }; });
+  const selectable = s => !s.dup && s.role !== 'outline';
+  cv.addEventListener('contextmenu', ev => ev.preventDefault());
+  cv.addEventListener('mousedown', ev => { const box = ev.button === 0 && (ev.shiftKey || $('vBox').checked); drag = { x: ev.clientX, y: ev.clientY, cx: V.cx, cy: V.cy, moved: false, box, w0: box ? toWorld(ev) : null, add: ev.shiftKey || ev.ctrlKey || ev.metaKey }; if (ev.button !== 0) ev.preventDefault(); });
   window.addEventListener('mousemove', ev => {
-    if (drag) { const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true; if (drag.moved) { V.cx = drag.cx - dx * V.dpr / V.scale; V.cy = drag.cy + dy * V.dpr / V.scale; draw(); } }
+    if (drag) {
+      const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+      if (drag.moved && drag.box) { const r = cv.getBoundingClientRect(), p = [((Math.min(Math.max(ev.clientX, r.left), r.right) - r.left) * V.dpr - cv.width / 2) / V.scale + V.cx, (cv.height / 2 - (Math.min(Math.max(ev.clientY, r.top), r.bottom) - r.top) * V.dpr) / V.scale + V.cy]; V.box = { x0: drag.w0[0], y0: drag.w0[1], x1: p[0], y1: p[1] }; draw(); }
+      else if (drag.moved) { V.cx = drag.cx - dx * V.dpr / V.scale; V.cy = drag.cy + dy * V.dpr / V.scale; draw(); }
+    }
     if (ev.target === cv) { const p = toWorld(ev); $('coord').textContent = 'X ' + p[0].toFixed(4) + '  Y ' + p[1].toFixed(4) + ' mm'; }
   });
   window.addEventListener('mouseup', ev => {
     if (!drag) return; const d = drag; drag = null;
-    if (d.moved || ev.target !== cv || !S.result) return;
+    if (!S.result) { V.box = null; return; }
+    const has = (tg, id) => V.sels.findIndex(q => q.target === tg && q.id === id);
+    if (d.box && d.moved && V.box) { // 상자 선택
+      const b = V.box, cross = b.x1 < b.x0, x0 = Math.min(b.x0, b.x1), x1 = Math.max(b.x0, b.x1), y0 = Math.min(b.y0, b.y1), y1 = Math.max(b.y0, b.y1); V.box = null;
+      if (!d.add) V.sels = [];
+      for (const L of S.result.layers) { if (!V.show[L.target]) continue; for (const s of L.shapes) { if (!selectable(s)) continue; const q = s.bbox, inside = q[0] >= x0 && q[2] <= x1 && q[1] >= y0 && q[3] <= y1, touch = q[0] <= x1 && q[2] >= x0 && q[1] <= y1 && q[3] >= y0; if ((cross ? touch : inside) && has(L.target, s.id) < 0) V.sels.push({ target: L.target, id: s.id }); } }
+      refreshPop(ev); draw(); return;
+    }
+    V.box = null;
+    if (d.moved || ev.target !== cv || ev.button !== 0) { draw(); return; }
     const p = toWorld(ev); let best = null, bt = null;
     for (const L of S.result.layers) { if (!V.show[L.target]) continue; for (const s of L.shapes) if (!s.dup && p[0] >= s.bbox[0] && p[0] <= s.bbox[2] && p[1] >= s.bbox[1] && p[1] <= s.bbox[3] && pip(s.flat, p[0], p[1]) && (!best || s.area < best.area)) { best = s; bt = L.target; } }
-    if (best) { V.sel = { target: bt, id: best.id }; showPop(best, bt, ev); } else { V.sel = null; closePop(); }
-    draw();
+    if (d.add) { if (best && selectable(best)) { const k = has(bt, best.id); if (k >= 0) V.sels.splice(k, 1); else V.sels.push({ target: bt, id: best.id }); } }
+    else V.sels = best ? [{ target: bt, id: best.id }] : [];
+    refreshPop(ev); draw();
   });
+  window.addEventListener('keydown', ev => { if (ev.key === 'Escape' && V.sels.length) { V.sels = []; V.box = null; closePop(); draw(); } });
+  // 선택 상태에 맞는 창: 하나면 객체 정보, 여러 개면 한꺼번에 바꾸기
+  function refreshPop(ev) {
+    V.sels = V.sels.filter(q => findShape(q.target, q.id));
+    if (!V.sels.length) { closePop(); return; }
+    if (V.sels.length === 1) { showPop(findShape(V.sels[0].target, V.sels[0].id), V.sels[0].target, ev); return; }
+    const pop = $('pop'), items = V.sels.map(q => ({ tg: q.target, s: findShape(q.target, q.id) })), cnt = {}, byL = {};
+    for (const it of items) { cnt[it.s.role] = (cnt[it.s.role] || 0) + 1; byL[it.tg] = (byL[it.tg] || 0) + 1; }
+    let h = '<b>객체 ' + items.length + '개 선택</b>' + Object.keys(byL).map(t => TARGETS[t].label + ' ' + byL[t]).join(', ') + '<br>현재: ' + Object.keys(cnt).map(r => ROLE_T[r] + ' ' + cnt[r]).join(', ');
+    h += '<div style="margin-top:4px">한꺼번에 바꾸기 <small class="muted">(괄호 = 바꿀 수 있는 개수)</small></div><div class="row" id="popRoles"></div><div class="row" id="popVoid"></div><div class="row"><button id="popClose">선택 해제</button></div>';
+    pop.innerHTML = h;
+    const can = { auto: it => true, pad: it => !!it.s.pad, trace: it => it.s.canTrace && !it.s.isVoid, region: it => true };
+    for (const [v, t] of [['auto', '자동'], ['pad', '패드(플래시)'], ['trace', '배선(선)'], ['region', '영역']]) {
+      const ok = items.filter(can[v]), b = document.createElement('button'); b.textContent = t + ' (' + ok.length + ')'; b.disabled = !ok.length; b.dataset.role = v;
+      b.onclick = () => { for (const it of ok) { if (v === 'auto') delete S.overrides[it.s.id]; else S.overrides[it.s.id] = v; } convert(false); };
+      pop.querySelector('#popRoles').appendChild(b);
+    }
+    const nest = items.filter(it => it.s.parent);
+    if (nest.length) for (const [v, t] of [[true, '빈 곳으로'], [false, '동박으로']]) {
+      const b = document.createElement('button'); b.textContent = t + ' (' + nest.length + ')'; b.dataset.void = v;
+      b.onclick = () => { for (const it of nest) S.voids[it.s.id] = v; convert(false); };
+      pop.querySelector('#popVoid').appendChild(b);
+    }
+    pop.querySelector('#popClose').onclick = () => { V.sels = []; closePop(); draw(); };
+    pop.style.display = 'block';
+    if (ev) { const r = $('cvWrap').getBoundingClientRect(); pop.style.left = Math.min(r.width - 300, Math.max(4, ev.clientX - r.left + 14)) + 'px'; pop.style.top = Math.min(r.height - 220, Math.max(4, ev.clientY - r.top + 14)) + 'px'; }
+    else if (!pop.style.left) { pop.style.left = '12px'; pop.style.top = '12px'; }
+  }
   function closePop() { $('pop').style.display = 'none'; }
   function showPop(s, tg, ev) {
     const pop = $('pop'), L = layerOf(tg);
@@ -2516,7 +2563,7 @@ if (typeof document !== 'undefined') (function () {
       b.onclick = () => { S.voids[s.id] = v; convert(false); };
       pop.querySelector('#popVoid').appendChild(b);
     }
-    pop.querySelector('#popClose').onclick = () => { V.sel = null; closePop(); draw(); };
+    pop.querySelector('#popClose').onclick = () => { V.sels = []; closePop(); draw(); };
     pop.style.display = 'block';
     if (ev) { const r = $('cvWrap').getBoundingClientRect(); pop.style.left = Math.min(r.width - 270, Math.max(4, ev.clientX - r.left + 14)) + 'px'; pop.style.top = Math.min(r.height - 220, Math.max(4, ev.clientY - r.top + 14)) + 'px'; }
     else if (!pop.style.left) { pop.style.left = '12px'; pop.style.top = '12px'; }
