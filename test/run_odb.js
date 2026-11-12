@@ -49,6 +49,26 @@ async function one(label, dxfText, layers, extra, expectSteps) {
     check('  안쪽 삽입 48개가 스텝 후보', b4.insts.length === 48 && b4.instStat.n === 50 && b4.instStat.top === 2 && b4.instStat.deep === 48, JSON.stringify(b4.instStat));
     check('  스텝 3종(가운데·아래 줄·위 줄)', r3.odb.steps.map(s => s.count).join() === '36,6,6', r3.odb.steps.map(s => s.name + '×' + s.count).join(' '));
   }
+  // 블록 없이 그린 반복 무늬: 패드 간격에서 반복 칸을 찾아 스텝으로 묶는다(사용자 실도면: 동박이 블록 밖)
+  {
+    const o2 = []; const w2 = (c, v) => o2.push(String(c), String(v));
+    const pl2 = pts => { w2(0, 'POLYLINE'); w2(8, 'COPPER'); w2(66, 1); w2(70, 1); for (const p of pts) { w2(0, 'VERTEX'); w2(8, 'COPPER'); w2(10, p[0]); w2(20, p[1]); if (p[2]) w2(42, p[2]); } w2(0, 'SEQEND'); };
+    w2(0, 'SECTION'); w2(2, 'ENTITIES');
+    for (let c = 0; c < 12; c++) for (let r = 0; r < 9; r++) { const X = 7.3 + c * 4.2, Y = 11.7 + r * 3.9, m = pts => pl2(pts.map(p => [X + p[0], Y + p[1], p[2]]));
+      m([[1, 1], [1.6, 1], [1.6, 1.6], [1, 1.6]]); m([[3, 2.4], [3.6, 2.4], [3.6, 3], [3, 3]]);
+      m([[1.6, 1.2], [3.35, 1.2, B], [3.4, 1.25], [3.4, 2.4], [3.2, 2.4], [3.2, 1.45, -B], [3.15, 1.4], [1.6, 1.4]]); }
+    for (let c = 0; c < 12; c++) { const X = 7.3 + c * 4.2; pl2([[X + 0.2, 11], [X + 0.5, 11], [X + 0.5, 48], [X + 0.2, 48]]); } // 기판 길이 레일(칸보다 훨씬 큼 → 패널에)
+    pl2([[2, 2], [5, 2], [5, 5], [2, 5]]);
+    w2(0, 'ENDSEC'); w2(0, 'EOF');
+    const base5 = buildBase(parseDxf(o2.join('\n')), 'auto', true), R5 = await convertAll(base5, cfg({ COPPER: 'cu1' }, {}));
+    console.log('\n== 블록 없는 반복 무늬 12×9');
+    for (const units of ['inch', 'mm']) {
+      const odb = buildOdb(R5, base5, { job: 'test', units, steps: true, apTol: 0.0001, ellN: 48 }), c = checkOdb(odb, R5);
+      check('ODB++ ' + units + ' 반복 칸 자동 다시 읽기 대조', c.ok, '요소 ' + c.total + ' 빠짐 ' + c.miss + ' 남음 ' + c.extra + ' | ' + (odb.bytes / 1e6).toFixed(3) + 'MB');
+      check('  피치 4.2 × 3.9, 칸 108개가 스텝 하나(레일 끝 칸은 따로)', odb.mode === 'cell' && odb.cell && Math.abs(odb.cell.px - 4.2) < 1e-9 && Math.abs(odb.cell.py - 3.9) < 1e-9 && odb.steps.length <= 3 && odb.steps[0].count === 108 && odb.nSr <= 3, JSON.stringify(odb.cell) + ' ' + odb.steps.map(s => s.name + '×' + s.count).join(' ') + ' 반복 줄 ' + odb.nSr);
+    }
+    const flat = buildOdb(R5, base5, { job: 'test', units: 'mm', steps: false, apTol: 0.0001, ellN: 48 }); check('  스텝 끄면 평면', flat.steps.length === 0 && checkOdb(flat, R5).ok);
+  }
   // tar.gz 묶음을 실제로 풀어 본다
   for (const [nm, r] of [['odb_example', ex], ['odb_cells', r2]]) {
     const tgz = path.join(out, nm + '.tgz'); fs.writeFileSync(tgz, zlib.gzipSync(Buffer.from(makeTar(r.odb.files, r.odb.job))));
