@@ -156,7 +156,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1112-1600';
+const BUILD = '1112-1730';
 
 /* ================================================================
  * 1. 기하 기본
@@ -806,15 +806,20 @@ function cutChord(s, P, Q) {
   const at = pt => pts.findIndex(q => Math.abs(q.x - pt[0]) < E && Math.abs(q.y - pt[1]) < E), i = at(P), j = at(Q), n = pts.length;
   if (i < 0 || j < 0 || i === j) return null;
   const loop = (a, b) => { const o = []; for (let k = a; ; k = (k + 1) % n) { o.push(Object.assign({}, pts[k])); if (k === b) break; } o[o.length - 1].b = 0; return o; };
-  const meta = { layer: s.layer, src: s.src, handle: s.handle, hasW: s.hasW, arcFlat: s.arcFlat, inst: s.inst, part: s.part, cuts: (s.cuts || []).concat([[[P[0], P[1]], [Q[0], Q[1]]]]) };
+  const meta = { layer: s.layer, src: s.src, handle: s.handle, hasW: s.hasW, arcFlat: s.arcFlat, inst: s.inst, part: s.part };
   const A = makeShape(loop(i, j), Object.assign({}, meta)), B = makeShape(loop(j, i), Object.assign({}, meta));
-  return A && B ? [A, B] : null;
+  if (!A || !B) return null;
+  // 잘라 낸 자리는 그 조각의 둘레 상자에 닿는 것만 넘겨준다(패드를 수백 개 떼는 긴 외곽선에서 목록이 조각마다 통째로 복사되지 않게)
+  const all = (s.cuts || []).concat([[[P[0], P[1]], [Q[0], Q[1]]]]);
+  for (const z of [A, B]) { const b = z.bbox, e = 1e-6; z.cuts = all.filter(c => Math.max(c[0][0], c[1][0]) >= b[0] - e && Math.min(c[0][0], c[1][0]) <= b[2] + e && Math.max(c[0][1], c[1][1]) >= b[1] - e && Math.min(c[0][1], c[1][1]) <= b[3] + e); }
+  return [A, B];
 }
 // 배선과 한 외곽선으로 그려진 사각 패드(0/90°) 찾기: 네 모서리가 모두 외곽선의 볼록한 직각 꼭짓점이고,
 // 네 변이 대부분 외곽선 위에 있으며 끊긴 자리(배선이 붙는 입구)는 변보다 좁고, 안쪽을 지나는 외곽선이 없는 사각형
-function findPadRect(s, ratio) {
+function findPadRect(s, ratio, all) {
   const P = s.pts, n = P.length, E = 1e-7, K = v => Math.round(v * 1e6);
-  if (n <= 4 || s.ell) return null;
+  const found = [];
+  if (n <= 4 || s.ell) return all ? found : null;
   const BL = [], BR = new Map(), TL = new Map(), TR = new Set();
   for (let i = 0; i < n; i++) {
     const a = P[(i + n - 1) % n], c = P[i], d = P[(i + 1) % n];
@@ -824,18 +829,26 @@ function findPadRect(s, ratio) {
     if (ix * oy - iy * ox <= 0) continue; // 볼록(반시계 외곽선에서 왼쪽으로 꺾임)만
     if (ox > E) BL.push(c); else if (oy > E) { const k = K(c.y); if (!BR.has(k)) BR.set(k, []); BR.get(k).push(c); } else if (ox < -E) TR.add(K(c.x) + ',' + K(c.y)); else { const k = K(c.x); if (!TL.has(k)) TL.set(k, []); TL.get(k).push(c); }
   }
-  if (!BL.length) return null;
+  if (!BL.length) return all ? found : null;
   const cuts = s.cuts || [], fl = s.flat;
-  for (const v of BL) for (const b of (BR.get(K(v.y)) || [])) {
+  // 긴 외곽선: 변을 칸에 담아 두고 후보 사각형 둘레의 변만 본다(후보마다 전부 훑지 않게)
+  const big = fl.length > 400, gF = big ? new Grid(1) : null, gP = big ? new Grid(1) : null;
+  if (big) {
+    for (let i = 0, j = fl.length - 1; i < fl.length; j = i++) gF.add([Math.min(fl[j][0], fl[i][0]), Math.min(fl[j][1], fl[i][1]), Math.max(fl[j][0], fl[i][0]), Math.max(fl[j][1], fl[i][1])], { i, bbox: [Math.min(fl[j][0], fl[i][0]), Math.min(fl[j][1], fl[i][1]), Math.max(fl[j][0], fl[i][0]), Math.max(fl[j][1], fl[i][1])] });
+    for (let i = 0; i < n; i++) { const p = P[i], q = P[(i + 1) % n]; if (p.b) continue; const bb = [Math.min(p.x, q.x), Math.min(p.y, q.y), Math.max(p.x, q.x), Math.max(p.y, q.y)]; gP.add(bb, { i, bbox: bb }); }
+  }
+  const allF = big ? null : [...fl.keys()], allP = big ? null : [...P.keys()];
+  nextBL: for (const v of BL) for (const b of (BR.get(K(v.y)) || [])) {
     if (b.x <= v.x + E) continue;
     for (const t of (TL.get(K(v.x)) || [])) {
       if (t.y <= v.y + E || !TR.has(K(b.x) + ',' + K(t.y))) continue;
       const x0 = v.x, x1 = b.x, y0 = v.y, y1 = t.y, w = x1 - x0, h = y1 - y0;
       if (Math.max(w, h) / Math.min(w, h) > ratio + 1e-9) continue;
       // 안쪽을 지나는 외곽선이 없어야 한다
-      const m = 1e-6; let bad = false;
-      for (let i = 0, j = fl.length - 1; i < fl.length && !bad; j = i++) {
-        const p = fl[j], q = fl[i]; let t0 = 0, t1 = 1; const dx = q[0] - p[0], dy = q[1] - p[1];
+      const m = 1e-6; let bad = false; const rb = [x0, y0, x1, y1];
+      for (const i of (big ? gF.query(rb, 1e-6).map(q => q.i) : allF)) {
+        if (bad) break;
+        const p = fl[i ? i - 1 : fl.length - 1], q = fl[i]; let t0 = 0, t1 = 1; const dx = q[0] - p[0], dy = q[1] - p[1];
         for (const [dd, lo, hi, o] of [[dx, x0 + m, x1 - m, p[0]], [dy, y0 + m, y1 - m, p[1]]]) { if (Math.abs(dd) < 1e-15) { if (o <= lo || o >= hi) t1 = -1; } else { let ta = (lo - o) / dd, tb = (hi - o) / dd; if (ta > tb) { const z = ta; ta = tb; tb = z; } t0 = Math.max(t0, ta); t1 = Math.min(t1, tb); } }
         if (t1 - t0 > 1e-9) bad = true;
       }
@@ -844,7 +857,7 @@ function findPadRect(s, ratio) {
       const sides = [[x0, y0, x1, y0], [x1, y0, x1, y1], [x1, y1, x0, y1], [x0, y1, x0, y0]], gaps = []; let cov = 0;
       for (const [ax, ay, bx, by] of sides) {
         const L = hyp(bx - ax, by - ay), ux = (bx - ax) / L, uy = (by - ay) / L, iv = [];
-        for (let i = 0; i < n; i++) { const p = P[i], q = P[(i + 1) % n]; if (p.b) continue; if (Math.abs((p.x - ax) * uy - (p.y - ay) * ux) > E || Math.abs((q.x - ax) * uy - (q.y - ay) * ux) > E) continue; const s0 = (p.x - ax) * ux + (p.y - ay) * uy, s1 = (q.x - ax) * ux + (q.y - ay) * uy; if (s1 <= s0) continue; const a = Math.max(0, s0), c = Math.min(L, s1); if (c > a) iv.push([a, c]); }
+        for (const i of (big ? gP.query(rb, 1e-6).map(q => q.i) : allP)) { const p = P[i], q = P[(i + 1) % n]; if (p.b) continue; if (Math.abs((p.x - ax) * uy - (p.y - ay) * ux) > E || Math.abs((q.x - ax) * uy - (q.y - ay) * ux) > E) continue; const s0 = (p.x - ax) * ux + (p.y - ay) * uy, s1 = (q.x - ax) * ux + (q.y - ay) * uy; if (s1 <= s0) continue; const a = Math.max(0, s0), c = Math.min(L, s1); if (c > a) iv.push([a, c]); }
         let got = ivUnion(iv);
         for (const c of cuts) { const s0 = (c[0][0] - ax) * ux + (c[0][1] - ay) * uy, s1 = (c[1][0] - ax) * ux + (c[1][1] - ay) * uy; if (Math.abs((c[0][0] - ax) * uy - (c[0][1] - ay) * ux) > E || Math.abs((c[1][0] - ax) * uy - (c[1][1] - ay) * ux) > E) continue; got = ivSub(got, [[Math.min(s0, s1), Math.max(s0, s1)]]); }
         let sum = 0; for (const g of got) sum += g[1] - g[0]; cov += sum;
@@ -853,31 +866,62 @@ function findPadRect(s, ratio) {
         if (bad) break;
       }
       if (bad || cov < (w + h)) continue; // 둘레의 절반 이상이 외곽선 위
-      return { x0, y0, x1, y1, gaps };
+      if (!all) return { x0, y0, x1, y1, gaps };
+      found.push({ x0, y0, x1, y1, gaps }); continue nextBL;
     }
   }
-  return null;
+  return all ? found : null;
+}
+// 한 외곽선에서 패드를 모두 떼어 낸다 → { shapes: 남은 조각 + 패드, pads }
+// 외곽선을 서로 엇갈리지 않는 현 여러 개로 한 번에 자른다(현의 두 끝은 외곽선 위). 실패하면 null
+function cutChords(s, chords) {
+  const E = 1e-7, P = s.pts, n = P.length, nodes = P.map(p => ({ x: p.x, y: p.y, b: p.b || 0, next: null, used: false })), all = nodes.slice(), at = new Map();
+  for (let i = 0; i < n; i++) { nodes[i].next = nodes[(i + 1) % n]; at.set(ptKey([P[i].x, P[i].y]), nodes[i]); }
+  const nodeAt = pt => {
+    let nd = at.get(ptKey(pt)); if (nd) return nd;
+    for (const a of all) { const c = a.next; if (!a.b && dSeg(pt[0], pt[1], a.x, a.y, c.x, c.y) < E && hyp(pt[0] - a.x, pt[1] - a.y) > E && hyp(pt[0] - c.x, pt[1] - c.y) > E) { nd = { x: pt[0], y: pt[1], b: 0, next: c, used: false }; a.next = nd; all.push(nd); at.set(ptKey(pt), nd); return nd; } }
+    return null;
+  };
+  const ends = []; for (const [A, B] of chords) { const a = nodeAt(A), b = nodeAt(B); if (!a || !b || a === b || a.used || b.used) return null; a.used = b.used = true; ends.push([a, b]); }
+  for (const [a, b] of ends) { const a2 = { x: a.x, y: a.y, b: a.b, next: a.next }, b2 = { x: b.x, y: b.y, b: b.b, next: b.next }; a.b = 0; b.b = 0; a.next = b2; b.next = a2; all.push(a2, b2); }
+  const parts = [], meta = { layer: s.layer, src: s.src, handle: s.handle, hasW: s.hasW, arcFlat: s.arcFlat, inst: s.inst, part: s.part }, cuts = (s.cuts || []).concat(chords.map(c => [[c[0][0], c[0][1]], [c[1][0], c[1][1]]]));
+  for (const st of all) {
+    if (st.seen) continue;
+    const pts = []; let nd = st, guard = 0;
+    do { nd.seen = true; pts.push({ x: nd.x, y: nd.y, b: nd.b }); nd = nd.next; } while (nd !== st && ++guard < all.length + 5);
+    const sh = makeShape(pts, Object.assign({}, meta)); if (!sh) return null;
+    parts.push(sh);
+  }
+  if (parts.length < 2) return null;
+  // 잘라 낸 자리는 그 조각의 둘레 상자에 닿는 것만(칸에 담아 찾는다)
+  const g = new Grid(2); for (const c of cuts) { c.bbox = [Math.min(c[0][0], c[1][0]), Math.min(c[0][1], c[1][1]), Math.max(c[0][0], c[1][0]), Math.max(c[0][1], c[1][1])]; g.add(c.bbox, c); }
+  for (const z of parts) z.cuts = g.query(z.bbox, 1e-6);
+  return parts;
 }
 // 한 외곽선에서 패드를 모두 떼어 낸다 → { shapes: 남은 조각 + 패드, pads }
 function extractPads(s, ratio) {
-  const out = [], pads = [], todo = [s]; let guard = 0;
-  while (todo.length && ++guard < 5000) {
-    const q = todo.pop(), r = q.noPad ? null : findPadRect(q, ratio);
-    if (!r) { out.push(q); continue; }
-    const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
-    let pieces = [q], ok = true;
-    for (const [A, B] of r.gaps) {
-      const k = pieces.findIndex(pc => pip(pc.flat, cx, cy) && dBoundary(pc.flat, A[0], A[1]) < 1e-7 && dBoundary(pc.flat, B[0], B[1]) < 1e-7);
-      const sp = k >= 0 ? cutChord(pieces[k], A, B) : null;
-      if (!sp) { ok = false; break; }
-      pieces.splice(k, 1, sp[0], sp[1]);
+  // 패드 사각형을 한 번에 모두 찾아(서로 겹치지 않는다) 입구를 한꺼번에 자른다. 남은 조각에서 한 번 더 찾아본다.
+  let pieces = [s]; const pads = [];
+  for (let round = 0; round < 3; round++) {
+    let got = 0; const next = [];
+    for (const q of pieces) {
+      const rects = q.noPad ? [] : findPadRect(q, ratio, true);
+      q.noPad = true;
+      if (!rects.length) { next.push(q); continue; }
+      const chords = []; for (const r of rects) for (const g of r.gaps) chords.push(g);
+      let parts = cutChords(q, chords);
+      if (!parts) { // 한꺼번에 못 자르면(현 끝이 겹치는 등) 하나씩
+        parts = [q];
+        for (const r of rects) { const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2; let ok = true, loc = null, k0 = parts.findIndex(pc => pip(pc.flat, cx, cy)); if (k0 < 0) continue; loc = [parts[k0]];
+          for (const [A, B] of r.gaps) { const k = loc.findIndex(pc => pip(pc.flat, cx, cy)), sp = k >= 0 ? cutChord(loc[k], A, B) : null; if (!sp) { ok = false; break; } loc.splice(k, 1, sp[0], sp[1]); }
+          if (ok) parts.splice(k0, 1, ...loc); }
+      }
+      const key = b => Math.round(b[0] * 1e5) + ',' + Math.round(b[1] * 1e5) + ',' + Math.round(b[2] * 1e5) + ',' + Math.round(b[3] * 1e5), want = new Set(rects.map(r => key([r.x0, r.y0, r.x1, r.y1])));
+      for (const z of parts) { const rp = z.pts.length === 4 && want.has(key(z.bbox)) ? recognizePad(z) : null; if (rp && rp.type === 'R') { z.cuts = null; z.noPad = true; pads.push(z); got++; } else { z.noPad = false; next.push(z); } }
     }
-    const pk = ok ? pieces.findIndex(pc => pip(pc.flat, cx, cy)) : -1, pd = pk >= 0 ? pieces[pk] : null, rp = pd ? recognizePad(pd) : null;
-    if (!rp || rp.type !== 'R' || Math.abs(pd.bbox[0] - r.x0) > 1e-6 || Math.abs(pd.bbox[2] - r.x1) > 1e-6 || Math.abs(pd.bbox[1] - r.y0) > 1e-6 || Math.abs(pd.bbox[3] - r.y1) > 1e-6) { q.noPad = true; todo.push(q); continue; }
-    pads.push(pd); pieces.splice(pk, 1); for (const pc of pieces) todo.push(pc);
+    pieces = next; if (!got) break;
   }
-  for (const q of todo) out.push(q);
-  return { shapes: out.concat(pads), pads };
+  return { shapes: pieces.concat(pads), pads };
 }
 
 /* ================================================================
@@ -1593,6 +1637,7 @@ function compareOne(s, grid, pg, tcap, margin, g, atomL) {
 function mkAtomL() { const C = new Map(); return o => { let a = C.get(o); if (!a) { if (C.size > 40000) C.clear(); a = mkPoly(o.flat, o.level % 2); C.set(o, a); } return a; }; }
 const cleanAtom = a => a.t === 'd' ? { t: 'd', cx: a.cx, cy: a.cy, r: a.r, pol: a.pol, bb: a.bb } : a.t === 'c' ? { t: 'c', x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2, r: a.r, pol: a.pol, q: a.q, bb: a.bb } : { t: 'p', pts: a.pts, pol: a.pol, bb: a.bb };
 function workerHandle(m) {
+  FLAT_C.clear(); COARSE_C.clear(); FLAT_N = COARSE_N = 0; PRIM_C.clear(); // 워커마다 기억이 쌓이지 않게(메모리)
   if (m.cmd === 'trace') return m.tasks.map(t => { const r = traceCore(shapeFrom(t.P), t.nb.map(d => shapeFrom(d)), m.fillPoly); r.id = t.id; return r; });
   if (m.cmd === 'cmp') {
     const grid = new Grid(m.cs), pg = new Grid(m.cs), tcap = new Grid(m.cs), byId = new Map(), atomL = mkAtomL();
@@ -1628,7 +1673,7 @@ function makePool(src, n) {
   };
 }
 async function convertLayer(L, cfg, tick, pool) {
-  const T0 = Date.now(), times = L.times = { contact: 0, trace: 0, write: 0, compare: 0, cores: 1 };
+  const T0 = Date.now(), times = L.times = { prep: L.prepMs || 0, contact: 0, trace: 0, write: 0, compare: 0, cores: 1 };
   const W = L.warnings, S = L.shapes;
   const warn = (type, s, msg, pt) => W.push({ type, target: L.target, id: s ? s.id : null, msg, bbox: pt ? [pt[0], pt[1], pt[0], pt[1]] : (s ? s.bbox : null) });
   const seen = new Map();
@@ -1718,17 +1763,17 @@ async function convertLayer(L, cfg, tick, pool) {
       try {
         const lb = [Infinity, Infinity, -Infinity, -Infinity]; for (const s of act) { lb[0] = Math.min(lb[0], s.bbox[0]); lb[1] = Math.min(lb[1], s.bbox[1]); lb[2] = Math.max(lb[2], s.bbox[2]); lb[3] = Math.max(lb[3], s.bbox[3]); }
         const ax = (lb[3] - lb[1]) > (lb[2] - lb[0]) ? 1 : 0, ord = act.slice().sort((a, b) => (a.bbox[ax] + a.bbox[ax + 2]) - (b.bbox[ax] + b.bbox[ax + 2]) || a.id - b.id);
-        const CH = Math.max(400, Math.ceil(ord.length / (pool.n * 6))), nCh = Math.ceil(ord.length / CH), kOf = { stroke: 0, flash: 1, region: 2 };
+        const CH = Math.min(800, Math.max(300, Math.ceil(ord.length / (pool.n * 6)))), nCh = Math.ceil(ord.length / CH), kOf = { stroke: 0, flash: 1, region: 2 };
         const aps = {}; for (const p of L.prims) if (p.kind === 'flash' && !aps[p.ap]) aps[p.ap] = p.apDef.atoms.map(cleanAtom);
         await tick(L.label + ': 형상 비교 (코어 ' + pool.n + '개)');
         const res = await pool.run(nCh, k => {
-          const part = ord.slice(k * CH, (k + 1) * CH), ub = [Infinity, Infinity, -Infinity, -Infinity];
-          for (const s of part) { ub[0] = Math.min(ub[0], s.bbox[0]); ub[1] = Math.min(ub[1], s.bbox[1]); ub[2] = Math.max(ub[2], s.bbox[2]); ub[3] = Math.max(ub[3], s.bbox[3]); }
-          const M = margin * 3 + 2.5; // 타일(2mm)이 띠 밖으로 조금 나가는 것까지
-          const tc = tcap.query(ub, M), td = new Float64Array(tc.length * 5); tc.forEach((c, i) => { const o = 5 * i; if (c.t === 'd') { td[o] = td[o + 2] = c.cx; td[o + 1] = td[o + 3] = c.cy; } else { td[o] = c.x1; td[o + 1] = c.y1; td[o + 2] = c.x2; td[o + 3] = c.y2; } td[o + 4] = c.r; });
+          // 이 묶음의 객체가 실제로 지나는 타일에 걸친 도형·요소·글자 획만 추려 보낸다(긴 배선이 있어도 도면 전체를 보내지 않게)
+          const part = ord.slice(k * CH, (k + 1) * CH), sh = new Set(), pr = new Set(), tc = new Set();
+          for (const s of part) { const b = s.bbox; for (const tb of tilesOf(s, [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin], margin)) { for (const o of grid.query(tb)) sh.add(o); for (const o of pg.query(tb)) pr.add(o); for (const o of tcap.query(tb)) tc.add(o); } sh.add(s); }
+          const td = new Float64Array(tc.size * 5); let i = 0; for (const c of tc) { const o = 5 * i++; if (c.t === 'd') { td[o] = td[o + 2] = c.cx; td[o + 1] = td[o + 3] = c.cy; } else { td[o] = c.x1; td[o + 1] = c.y1; td[o + 2] = c.x2; td[o + 3] = c.y2; } td[o + 4] = c.r; }
           return { cmd: 'cmp', cs, margin, grid: cfg.grid, targets: part.map(s => s.id), tcaps: td, aps,
-            shapes: grid.query(ub, M).map(s => ({ id: s.id, level: s.level, P: packPts(s.pts) })),
-            prims: pg.query(ub, M).map(p => ({ k: kOf[p.kind], pol: p.pol, seq: p.seq, d: p.d, bb: p.bbox, ap: p.ap })) };
+            shapes: [...sh].map(s => ({ id: s.id, level: s.level, P: packPts(s.pts) })),
+            prims: [...pr].map(p => ({ k: kOf[p.kind], pol: p.pol, seq: p.seq, d: p.d, bb: p.bbox, ap: p.ap })) };
         }, (d, n) => { tick(L.label + ': 형상 비교 ' + Math.min(act.length, d * CH) + '/' + act.length + ' (코어 ' + pool.n + '개)'); });
         const byId = new Map(act.map(s => [s.id, s]));
         for (const part of res) for (const c of part) byId.get(c.id).diff = c;
@@ -1847,8 +1892,9 @@ async function convertAll(base, cfg, prog, prev, pool) {
     L.tpaths = [];
     for (const t of srcT) { const st = t.strokes.map(tf), w = snapW(t.h * (cfg.textPct > 0 ? cfg.textPct : 10) / 100); L.tpaths.push({ kind: 'text', w, strokes: st, bbox: tbb(st) }); L.warnings.push({ type: 'text', target: tg, id: null, msg: t.type + ' "' + t.str.replace(/\n/g, ' ').slice(0, 40) + '" → 내장 획 글꼴로 근사(높이 ' + fmtN(t.h) + ', 선폭 ' + fmtN(w) + 'mm)' + (t.unknown ? ', 글꼴에 없는 글자 ' + t.unknown + '개는 네모로' : ''), bbox: tbb(st) }); }
     for (const q of srcP) { const st = [tf(q.pts)], w = snapW(cfg.openW > 0 ? cfg.openW : 0.1); L.tpaths.push({ kind: 'open', w, strokes: st, bbox: tbb(st) }); L.warnings.push({ type: 'open', target: tg, id: null, msg: q.type + ' 열린 선 → 선폭 ' + fmtN(w) + 'mm 선으로 냄', bbox: tbb(st) }); }
-    const cu = tg === 'cu1' || tg === 'cu2';
+    const cu = tg === 'cu1' || tg === 'cu2', Tp = Date.now(); let nDone = 0;
     for (const s of src) {
+      if (++nDone % 500 === 0) await tick(L.label + ': 패드 떼어내기·토막 내기 ' + nDone + '/' + src.length);
       const w = workShape(s, ox, oy, mir); if (!w) continue;
       let ws = [w], pads = [];
       if (cu && cfg.padCut !== false) { const r = extractPads(w, cfg.ratio || 4); if (r.pads.length) { ws = r.shapes; pads = r.pads; } }
@@ -1857,6 +1903,7 @@ async function convertAll(base, cfg, prog, prev, pool) {
       if (all.length > ws.length) L.split = (L.split || 0) + 1;
       for (const q of all) { q.id = nid++; q.partOf = s.id; L.shapes.push(q); if (pads.indexOf(q) >= 0) { q.padCut = true; L.warnings.push({ type: 'padcut', target: tg, id: q.id, msg: '배선과 한 외곽선이던 사각 패드를 떼어 플래시로 냄', bbox: q.bbox }); } }
     }
+    L.prepMs = Date.now() - Tp;
     await convertLayer(L, cfg, tick, pool);
     out.push(L);
   }
@@ -2286,7 +2333,7 @@ function makeExampleDxf() {
  * ================================================================ */
 if (typeof document !== 'undefined') (function () {
   const $ = id => document.getElementById(id);
-  const SRC = document.currentScript ? document.currentScript.textContent : '', CORES = Math.min(8, Math.max(1, navigator.hardwareConcurrency || 1));
+  const SRC = document.currentScript ? document.currentScript.textContent : '', CORES = Math.min(4, Math.max(1, navigator.hardwareConcurrency || 1), navigator.deviceMemory ? Math.max(2, Math.floor(navigator.deviceMemory / 2)) : 4); // 워커마다 메모리를 쓰므로 PC 메모리에 맞춰 제한
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   $('build').textContent = '빌드 ' + BUILD;
   const S = { dxf: null, base: null, fileName: '', layerTarget: {}, files: {}, filesEdited: {}, mirror: {}, overrides: {}, voids: {}, result: null, busy: false, pending: false };
@@ -2407,9 +2454,9 @@ if (typeof document !== 'undefined') (function () {
       S.result.ms = performance.now() - t0;
       if (!applied) { S.dirty = false; S.dirtyFit = false; S.cfgApplied = cfg; }
       const re = S.result.layers.filter(l => !l.reused).map(l => l.label), keep = S.result.layers.filter(l => l.reused).map(l => l.label);
-      const tm = { contact: 0, trace: 0, write: 0, compare: 0 }; let cores = 1; for (const l of S.result.layers) if (!l.reused && l.times) { for (const k in tm) tm[k] += l.times[k] || 0; cores = Math.max(cores, l.times.cores || 1); }
+      const tm = { prep: 0, contact: 0, trace: 0, write: 0, compare: 0 }; let cores = 1; for (const l of S.result.layers) if (!l.reused && l.times) { for (const k in tm) tm[k] += l.times[k] || 0; cores = Math.max(cores, l.times.cores || 1); }
       const sec = v => (v / 1000).toFixed(1) + '초';
-      S.result.stage = '<br><small>단계별: 맞닿음·겹침 ' + sec(tm.contact) + ' · 배선 복원 ' + sec(tm.trace) + ' · Gerber 쓰기·읽기 ' + sec(tm.write) + ' · 형상 비교 ' + sec(tm.compare) + ' · 코어 ' + cores + '개 사용</small>';
+      S.result.stage = '<br><small>단계별: 패드 떼기·토막 ' + sec(tm.prep) + ' · 맞닿음·겹침 ' + sec(tm.contact) + ' · 배선 복원 ' + sec(tm.trace) + ' · Gerber 쓰기·읽기 ' + sec(tm.write) + ' · 형상 비교 ' + sec(tm.compare) + ' · 코어 ' + cores + '개 사용</small>';
       info = '변환 완료(' + (S.result.ms / 1000).toFixed(1) + '초)' + (re.length ? ' · 변환한 층: ' + re.join(', ') : '') + (keep.length ? ' · 그대로 쓴 층: ' + keep.join(', ') : '') + (S.result.layers.length ? '' : ' · 출력 대상 레이어가 없습니다') + (re.length ? S.result.stage : '');
     } catch (e) { console.error(e); S.result = null; setMsg('변환 중 오류: ' + esc(e.message), true); }
     S.busy = false; $('busy').style.display = 'none';
