@@ -93,6 +93,10 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
       <label for="oAllVoid" title="동박 안의 폴리선은 빈 곳, 그 안은 다시 동박… 처럼 바깥 객체와 반대로 번갈아 처리합니다. 객체마다 눌러서 바꿀 수 있습니다.">안쪽 폴리선을 빈 곳·동박 번갈아</label><input type="checkbox" id="oAllVoid">
       <label for="oPadCut" title="패드와 배선이 한 닫힌 폴리선으로 그려져 있으면, 네 모서리가 직각인 사각 패드(0/90°)를 떼어 내 플래시로 냅니다. 남은 부분은 배선으로 복원합니다.">배선과 합쳐진 사각 패드 떼어내기</label><input type="checkbox" id="oPadCut" checked>
       <label for="oOutW">외형 선폭 (mm)</label><input type="number" id="oOutW" value="0.1" min="0.001" step="0.05">
+      <label for="oTextOn" title="TEXT·MTEXT·속성을 변환기 안의 단순한 획 글꼴(영문·숫자·기호)로 그려 선으로 냅니다. 위치·높이·회전·맞춤은 도면을 따르지만 글자 모양은 오토캐드 글꼴과 다릅니다. 똑같아야 하면 오토캐드에서 TXTEXP/EXPLODE로 분해해서 넣으세요.">TEXT·MTEXT를 내장 획 글꼴로 내기(근사)</label><input type="checkbox" id="oTextOn" checked>
+      <label for="oTextPct">글자 선폭 (글자 높이의 %)</label><input type="number" id="oTextPct" value="10" min="1" max="50" step="1">
+      <label for="oOpenOn" title="오토캐드에서 분해한 글자처럼, 동박·솔더마스크 층의 열린 선(선·호·열린 폴리선)을 둥근 조리개 선으로 냅니다. 끄면 무시 목록에 남습니다.">동박·마스크 층의 열린 선을 선으로 내기</label><input type="checkbox" id="oOpenOn" checked>
+      <label for="oOpenW">열린 선 선폭 (mm)</label><input type="number" id="oOpenW" value="0.1" min="0.001" step="0.05">
     </div>
   </div>
   <div class="card">
@@ -129,7 +133,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1112-0935';
+const BUILD = '1112-1030';
 
 /* ================================================================
  * 1. 기하 기본
@@ -373,6 +377,18 @@ function entGeom(e) {
       }
       g.t = 'poly'; g.pts = pts; g.closed = !!(flags & 1); g.hasW = hasW; break;
     }
+    case 'TEXT': case 'ATTRIB': {
+      g.t = 'text'; let s1 = ''; for (const q of e.p) if (q[0] === 1) s1 = q[1];
+      g.str = s1; g.x = num(10, 0); g.y = num(20, 0); g.x2 = num(11, NaN); g.y2 = num(21, NaN); g.h = num(40, 0); g.wf = num(41, 1); g.rot = num(50, 0); g.obl = num(51, 0);
+      g.gen = num(71, 0) | 0; g.hal = num(72, 0) | 0; g.val = num(e.type === 'ATTRIB' ? 74 : 73, 0) | 0;
+      if (e.type === 'ATTRIB' && (num(70, 0) & 1)) g.t = 'other'; // 숨긴 속성
+      break;
+    }
+    case 'MTEXT': {
+      g.t = 'mtext'; let s1 = '', s3 = ''; for (const q of e.p) { if (q[0] === 1) s1 = q[1]; else if (q[0] === 3) s3 += q[1]; }
+      g.str = s3 + s1; g.x = num(10, 0); g.y = num(20, 0); g.dx = num(11, NaN); g.dy = num(21, 0); g.h = num(40, 0); g.lsf = num(44, 1); g.rot = num(50, 0); g.att = num(71, 1) | 0;
+      break;
+    }
     case 'LINE': g.t = 'line'; g.x = num(10, 0); g.y = num(20, 0); g.x2 = num(11, 0); g.y2 = num(21, 0); break;
     case 'ARC': g.t = 'arc'; g.cx = num(10, 0); g.cy = num(20, 0); g.r = num(40, 0); g.a0 = num(50, 0); g.a1 = num(51, 360); g.x = g.cx; g.y = g.cy; break;
     case 'CIRCLE': g.t = 'circle'; g.cx = num(10, 0); g.cy = num(20, 0); g.r = num(40, 0); break;
@@ -389,6 +405,106 @@ function entGeom(e) {
     default: g.t = 'other'; g.x = num(10, NaN); g.y = num(20, NaN);
   }
   return g;
+}
+
+/* ================================================================
+ * 2-1. 내장 획 글꼴 (TEXT·MTEXT 근사용, 영문·숫자·기호)
+ *   칸: 글자 폭 4, 대문자 높이 6(= 글자 높이), 소문자 높이 4, 내림 -2, 글자 간격 6
+ * ================================================================ */
+const STROKE_FONT_SRC = {
+  ' ': '', '0': '1,0 0,1 0,5 1,6 3,6 4,5 4,1 3,0 1,0;0.6,1 3.4,5', '1': '1,5 2,6 2,0;1,0 3,0', '2': '0,5 1,6 3,6 4,5 4,4 0,0 4,0',
+  '3': '0,5 1,6 3,6 4,5 4,4 3,3 1,3;3,3 4,2 4,1 3,0 1,0 0,1', '4': '3,0 3,6 0,2 4,2', '5': '4,6 0,6 0,3 3,3 4,2 4,1 3,0 1,0 0,1',
+  '6': '4,5 3,6 1,6 0,5 0,1 1,0 3,0 4,1 4,2 3,3 0,3', '7': '0,6 4,6 1,0', '8': '1,3 0,4 0,5 1,6 3,6 4,5 4,4 3,3 1,3 0,2 0,1 1,0 3,0 4,1 4,2 3,3',
+  '9': '0,1 1,0 3,0 4,1 4,5 3,6 1,6 0,5 0,4 1,3 4,3',
+  'A': '0,0 2,6 4,0;0.67,2 3.33,2', 'B': '0,0 0,6 3,6 4,5 4,4 3,3 0,3;3,3 4,2 4,1 3,0 0,0', 'C': '4,5 3,6 1,6 0,5 0,1 1,0 3,0 4,1',
+  'D': '0,0 0,6 2,6 4,4 4,2 2,0 0,0', 'E': '4,6 0,6 0,0 4,0;0,3 3,3', 'F': '4,6 0,6 0,0;0,3 3,3', 'G': '4,5 3,6 1,6 0,5 0,1 1,0 3,0 4,1 4,3 2,3',
+  'H': '0,0 0,6;4,0 4,6;0,3 4,3', 'I': '1,6 3,6;2,6 2,0;1,0 3,0', 'J': '4,6 4,1 3,0 1,0 0,1', 'K': '0,0 0,6;4,6 0,2;1.33,3.33 4,0',
+  'L': '0,6 0,0 4,0', 'M': '0,0 0,6 2,3 4,6 4,0', 'N': '0,0 0,6 4,0 4,6', 'O': '1,0 0,1 0,5 1,6 3,6 4,5 4,1 3,0 1,0',
+  'P': '0,0 0,6 3,6 4,5 4,4 3,3 0,3', 'Q': '1,0 0,1 0,5 1,6 3,6 4,5 4,1 3,0 1,0;2.5,1.5 4,0', 'R': '0,0 0,6 3,6 4,5 4,4 3,3 0,3;2,3 4,0',
+  'S': '4,5 3,6 1,6 0,5 0,4 1,3 3,3 4,2 4,1 3,0 1,0 0,1', 'T': '0,6 4,6;2,6 2,0', 'U': '0,6 0,1 1,0 3,0 4,1 4,6', 'V': '0,6 2,0 4,6',
+  'W': '0,6 1,0 2,3 3,0 4,6', 'X': '0,0 4,6;0,6 4,0', 'Y': '0,6 2,3 4,6;2,3 2,0', 'Z': '0,6 4,6 0,0 4,0',
+  'a': '1,4 3,4 4,3 4,0;4,1 3,0 1,0 0,1 1,2 4,2', 'b': '0,6 0,0;0,3 1,4 3,4 4,3 4,1 3,0 1,0 0,1', 'c': '4,3 3,4 1,4 0,3 0,1 1,0 3,0 4,1',
+  'd': '4,6 4,0;4,3 3,4 1,4 0,3 0,1 1,0 3,0 4,1', 'e': '0,2 4,2 4,3 3,4 1,4 0,3 0,1 1,0 3,0 4,1', 'f': '4,5 3,6 2,6 1,5 1,0;0,4 3,4',
+  'g': '4,4 4,-1 3,-2 1,-2 0,-1;4,3 3,4 1,4 0,3 0,1 1,0 3,0 4,1', 'h': '0,6 0,0;0,3 1,4 3,4 4,3 4,0', 'i': '2,4 2,0;2,5.6 2,6',
+  'j': '3,4 3,-1 2,-2 1,-2;3,5.6 3,6', 'k': '0,6 0,0;4,4 0,1.5;1.33,2.33 4,0', 'l': '1,6 2,6 2,0;1,0 3,0',
+  'm': '0,4 0,0;0,3 1,4 2,3 2,0;2,3 3,4 4,3 4,0', 'n': '0,4 0,0;0,3 1,4 3,4 4,3 4,0', 'o': '1,0 0,1 0,3 1,4 3,4 4,3 4,1 3,0 1,0',
+  'p': '0,4 0,-2;0,3 1,4 3,4 4,3 4,1 3,0 1,0 0,1', 'q': '4,4 4,-2;4,3 3,4 1,4 0,3 0,1 1,0 3,0 4,1', 'r': '0,4 0,0;0,2 2,4 4,4',
+  's': '4,3 3,4 1,4 0,3 1,2 3,2 4,1 3,0 1,0 0,1', 't': '1,6 1,1 2,0 3,0;0,4 3,4', 'u': '0,4 0,1 1,0 3,0 4,1;4,4 4,0',
+  'v': '0,4 2,0 4,4', 'w': '0,4 1,0 2,2 3,0 4,4', 'x': '0,4 4,0;0,0 4,4', 'y': '0,4 2,0;4,4 1,-2', 'z': '0,4 4,4 0,0 4,0',
+  '-': '1,3 3,3', '+': '0,3 4,3;2,1 2,5', '.': '2,0 2,0.4', ',': '2,0.4 2,0 1.5,-1', ':': '2,1 2,1.4;2,4 2,4.4', ';': '2,4 2,4.4;2,1 2,0.4 1.5,-0.6',
+  '/': '0,0 4,6', '\\': '0,6 4,0', '(': '3,7 1,5 1,1 3,-1', ')': '1,7 3,5 3,1 1,-1', '[': '3,7 1,7 1,-1 3,-1', ']': '1,7 3,7 3,-1 1,-1',
+  '{': '3,7 2,6 2,4 1,3 2,2 2,0 3,-1', '}': '1,7 2,6 2,4 3,3 2,2 2,0 1,-1', '=': '0,2 4,2;0,4 4,4', '_': '0,-1 4,-1', '|': '2,7 2,-1',
+  '#': '1,0 1,6;3,0 3,6;0,2 4,2;0,4 4,4', '*': '2,1 2,5;0.3,2 3.7,4;0.3,4 3.7,2', '%': '0,0 4,6;0,6 1,6 1,5 0,5 0,6;3,1 4,1 4,0 3,0 3,1',
+  '!': '2,6 2,2;2,0 2,0.4', '?': '0,5 1,6 3,6 4,5 4,4 2,3 2,2;2,0 2,0.4', '"': '1,6 1,4.5;3,6 3,4.5', "'": '2,6 2,4.5', '`': '1,6 2,5',
+  '<': '4,5 0,3 4,1', '>': '0,5 4,3 0,1', '^': '0,4 2,6 4,4', '~': '0,3 1,4 3,2 4,3', '@': '3,2 1,2 1,4 3,4 3,1 4,1 4,5 3,6 1,6 0,5 0,1 1,0 3,0',
+  '&': '4,0 1,4 1,5 2,6 3,5 3,4 0,2 0,1 1,0 2,0 4,2', '$': '4,5 3,6 1,6 0,5 0,4 1,3 3,3 4,2 4,1 3,0 1,0 0,1;2,7 2,-1',
+  '°': '1,6 2,6 2,5 1,5 1,6', '±': '0,4 4,4;2,2 2,6;0,0 4,0', '⌀': '1,0 0,1 0,5 1,6 3,6 4,5 4,1 3,0 1,0;0,0 4,6', 'Ø': '1,0 0,1 0,5 1,6 3,6 4,5 4,1 3,0 1,0;0,0 4,6',
+  'µ': '0,4 0,-2;0,1 1,0 3,0 4,1;4,4 4,0', '×': '0.5,1.5 3.5,4.5;0.5,4.5 3.5,1.5', '·': '2,3 2,3.4'
+};
+const STROKE_FONT = (() => { const o = {}; for (const k in STROKE_FONT_SRC) o[k] = STROKE_FONT_SRC[k] ? STROKE_FONT_SRC[k].split(';').map(pl => pl.trim().split(/\s+/).map(q => q.split(',').map(Number))) : []; return o; })();
+const FONT_BOX = [[[0, 0], [4, 0], [4, 6], [0, 6], [0, 0]]];
+function decodeTextCodes(t) {
+  return String(t).replace(/\\U\+([0-9a-fA-F]{4})/g, (m, h) => String.fromCharCode(parseInt(h, 16))).replace(/%%(\d{3})/g, (m, d) => String.fromCharCode(+d))
+    .replace(/%%[dD]/g, '°').replace(/%%[pP]/g, '±').replace(/%%[cC]/g, '⌀').replace(/%%[uUoOkK]/g, '').replace(/%%%/g, '%');
+}
+function stripMtext(t) {
+  t = String(t); let o = '';
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (c === '{' || c === '}') continue;
+    if (c !== '\\') { o += c; continue; }
+    const d = t[++i];
+    if (d === undefined) break;
+    if (d === 'P') o += '\n'; else if (d === '~') o += ' '; else if (d === '\\' || d === '{' || d === '}') o += d;
+    else if (d === 'U' && t[i + 1] === '+') { o += String.fromCharCode(parseInt(t.substr(i + 2, 4), 16)); i += 5; }
+    else if (d === 'S') { const j = t.indexOf(';', i); const part = t.slice(i + 1, j < 0 ? t.length : j); o += part.replace(/[\^#]/g, '/'); i = j < 0 ? t.length : j; }
+    else if ('fFHWQTACcpX'.indexOf(d) >= 0) { const j = t.indexOf(';', i); i = j < 0 ? t.length : j; }
+    // \L \l \O \o \K \k \N 등 한 글자 코드는 버린다
+  }
+  return decodeTextCodes(o);
+}
+// 한 줄을 획(꺾은선 목록)으로. 원점 = 왼쪽 기준선, 단위 = 글꼴 칸. 반환 { strokes, width(칸), unknown }
+function strokeLine(str) {
+  const strokes = []; let x = 0, unknown = 0;
+  for (const ch of str) {
+    let g = STROKE_FONT[ch]; if (g === undefined) { g = FONT_BOX; unknown++; }
+    for (const pl of g) strokes.push(pl.map(q => [q[0] + x, q[1]]));
+    x += 6;
+  }
+  return { strokes, width: Math.max(0, x - 2), unknown };
+}
+// TEXT·ATTRIB·MTEXT → 엔터티 좌표의 획 목록 + 글자 높이
+function layoutText(g) {
+  const out = [], H = g.h > 0 ? g.h : 2.5; let unknown = 0, str = '';
+  const put = (strokes, M) => { for (const pl of strokes) out.push(pl.map(q => mAp(M, q[0], q[1]))); };
+  if (g.t === 'text') {
+    str = decodeTextCodes(g.str);
+    const L = strokeLine(str); unknown += L.unknown;
+    let s = H / 6, wf = g.wf > 0 ? g.wf : 1, rot = (g.rot || 0) * Math.PI / 180, W = L.width * s * wf, P = [g.x, g.y], dx = 0, dy = 0;
+    const hal = g.hal || 0, val = g.val || 0, two = (hal !== 0 || val !== 0) && isFinite(g.x2);
+    if (two) P = [g.x2, g.y2];
+    if ((hal === 3 || hal === 5) && isFinite(g.x2)) { // 맞춤·채움: 두 점 사이에 맞춘다
+      const d = hyp(g.x2 - g.x, g.y2 - g.y); rot = Math.atan2(g.y2 - g.y, g.x2 - g.x); P = [g.x, g.y];
+      if (W > 0 && d > 0) { if (hal === 3) s *= d / W; else wf *= d / W; W = d; }
+    } else if (hal === 1 || hal === 4) dx = -W / 2; else if (hal === 2) dx = -W;
+    const Hs = 6 * s;
+    if (hal === 4) dy = -Hs / 2; else if (val === 1) dy = 2 * s; else if (val === 2) dy = -Hs / 2; else if (val === 3) dy = -Hs;
+    const tan = Math.tan((g.obl || 0) * Math.PI / 180), fx = (g.gen & 2) ? -1 : 1, fy = (g.gen & 4) ? -1 : 1;
+    // 칸 → 엔터티: 기울임, 반전, 맞춤 이동, 회전, 기준점
+    const M = mMul(mMul(mMul(mT(P[0], P[1]), mR(rot * 180 / Math.PI)), mT(dx, dy)), [s * wf * fx, 0, s * tan * fx, s * fy, 0, 0]);
+    put(L.strokes, M);
+  } else {
+    str = stripMtext(g.str);
+    const lines = str.split('\n'), s = H / 6, pitch = H * 5 / 3 * (g.lsf > 0 ? g.lsf : 1), a = g.att >= 1 && g.att <= 9 ? g.att : 1, col = (a - 1) % 3, row = Math.floor((a - 1) / 3);
+    const T = (lines.length - 1) * pitch + H, top = row === 0 ? 0 : row === 1 ? T / 2 : T;
+    const rot = isFinite(g.dx) && (g.dx || g.dy) ? Math.atan2(g.dy, g.dx) : (g.rot || 0);
+    lines.forEach((ln, i) => {
+      const L = strokeLine(ln); unknown += L.unknown;
+      const W = L.width * s, dx = col === 0 ? 0 : col === 1 ? -W / 2 : -W, base = top - H - i * pitch;
+      put(L.strokes, mMul(mMul(mMul(mT(g.x, g.y), mR(rot * 180 / Math.PI)), mT(dx, base)), [s, 0, 0, s, 0, 0]));
+    });
+  }
+  return { strokes: out, h: H, str, unknown };
 }
 function parseDxf(text) {
   const L = text.split(/\r\n|\r|\n/), C = [], V = [];
@@ -459,7 +575,7 @@ function buildBase(dxf, unitMode) {
     const s = makeShape(T, meta);
     if (s) add(s, layer); else ign(meta.src + ' (넓이 0)', layer, M, pts[0] ? pts[0].x : NaN, pts[0] ? pts[0].y : NaN);
   }
-  const opens = [];
+  const opens = []; base.texts = [];
   function walk(ents, M, layerOv, depth) {
     for (const e of ents) {
       const g = e._g || (e._g = entGeom(e));
@@ -476,6 +592,12 @@ function buildBase(dxf, unitMode) {
           continue;
         }
         addPoly(pts, Me, layer, { src: e.type, handle: g.handle, hasW: g.hasW });
+      } else if (g.t === 'text' || g.t === 'mtext') { // 글자: 내장 획 글꼴로 획을 만들어 둔다(층에 따라 출력)
+        const r = layoutText(g), k = Math.sqrt(Math.abs(mDet(Me)));
+        if (!r.strokes.length) continue;
+        const st = r.strokes.map(pl => pl.map(q => { const z = mAp(Me, q[0], q[1]); return { x: z[0], y: z[1], b: 0 }; }));
+        const fl = []; for (const pl of st) for (const q of pl) fl.push([q.x, q.y]);
+        base.texts.push({ layer, type: e.type, strokes: st, h: r.h * k, str: r.str, unknown: r.unknown, bbox: bboxOf(fl), x: st[0][0].x, y: st[0][0].y });
       } else if (g.t === 'line' || g.t === 'arc') { // 선·호: 열린 선으로 모아 두었다가 끝이 맞닿으면 잇는다(외형 등)
         let pts;
         if (g.t === 'line') pts = [{ x: g.x, y: g.y, b: 0 }, { x: g.x2, y: g.y2, b: 0 }];
@@ -518,7 +640,7 @@ function buildBase(dxf, unitMode) {
   const J = joinOpen(opens); base.joined = { loops: J.closed.length, parts: J.used };
   for (const c of J.closed) { const sh = makeShape(c.pts, { src: 'POLYLINE ' + c.n + '개 이음' }); if (sh) add(sh, c.layer); else base.ignored.push({ type: 'POLYLINE (넓이 0)', layer: c.layer, x: c.pts[0].x, y: c.pts[0].y, why: '' }); }
   base.paths = J.left.map(o => { const pts = o.pts.map(q => ({ x: q.x, y: q.y, b: q.b || 0 })); pts[pts.length - 1].b = 0; return { layer: o.layer, type: o.type, pts, bbox: bboxOf(flattenPath(pts, 1e-3)) }; });
-  for (const q of base.paths) base.layerCount.set(q.layer, (base.layerCount.get(q.layer) || 0) + 1);
+  for (const q of base.paths.concat(base.texts)) base.layerCount.set(q.layer, (base.layerCount.get(q.layer) || 0) + 1);
   return base;
 }
 
@@ -1255,6 +1377,20 @@ function buildGerber(L, cfg) {
     for (const [code, arr] of v.strokes) { o.push('D' + code + '*'); for (const pl of arr) { o.push(xy(pl[0]) + 'D02*'); for (let i = 1; i < pl.length; i++) o.push(xy(pl[i]) + 'D01*'); flush(); } }
     for (const [code, arr] of v.flashes) { o.push('D' + code + '*'); for (const p of arr) { o.push(xy(p) + 'D03*'); flush(); } }
   }
+  st.texts = 0; st.opens = 0; st.tsegs = 0;
+  if (L.tpaths && L.tpaths.length) { // 글자(내장 글꼴)·열린 선: 맨 마지막에 둥근 조리개 선으로
+    o.push('%LPD*%', 'G04 TEXT*'); const by = new Map();
+    for (const t of L.tpaths) { const a = circ(t.w); let arr = by.get(a.code); if (!arr) by.set(a.code, arr = []); arr.push(t); if (t.kind === 'text') st.texts++; else st.opens++; }
+    for (const [code, arr] of by) {
+      o.push('D' + code + '*'); const a = aps.find(q => q.code === code);
+      for (const t of arr) for (const P of t.strokes) {
+        o.push(xy([P[0].x, P[0].y]) + 'D02*'); let mode = 1;
+        for (let i = 0; i + 1 < P.length; i++) { const p = P[i], q = P[i + 1]; a.count++; st.tsegs++; if (!p.b) { if (mode !== 1) { o.push('G01*'); mode = 1; } o.push(xy([q.x, q.y]) + 'D01*'); } else { const c = arcOf(p.x, p.y, q.x, q.y, p.b), md = p.b > 0 ? 3 : 2; if (mode !== md) { o.push('G0' + md + '*'); mode = md; } o.push(xy([q.x, q.y]) + 'I' + fmtC(c.cx - p.x) + 'J' + fmtC(c.cy - p.y) + 'D01*'); } }
+        if (mode !== 1) o.push('G01*');
+        flush();
+      }
+    }
+  }
   const head = ['G04 DXF_to_Gerber build ' + BUILD + '*', 'G04 ' + L.target.toUpperCase() + '*', '%FSLAX46Y46*%', '%MOMM*%'];
   for (const mc of macros) head.push(mc);
   for (const a of aps) head.push('%ADD' + a.code + a.def + '*%');
@@ -1322,7 +1458,7 @@ function parseGerber(text) {
   }
   function data(b) {
     b = b.replace(/[\r\n\s]+/g, ''); if (!b) return;
-    if (/^G0?4/.test(b)) { if (b.indexOf('FILL') >= 0) sub = 'fill'; else if (b.indexOf('AREA') >= 0) sub = 'area'; return; }
+    if (/^G0?4/.test(b)) { if (b.indexOf('FILL') >= 0) sub = 'fill'; else if (b.indexOf('AREA') >= 0) sub = 'area'; else if (b.indexOf('TEXT') >= 0) sub = 'text'; return; }
     if (/^M0/.test(b)) { closeContour(); return; }
     let nx = x, ny = y, ci = 0, cj = 0, d = null, hasXY = false, m; const re = /([GXYIJD])([+-]?\d+)/g, sc = unit / Math.pow(10, dec);
     while ((m = re.exec(b))) {
@@ -1342,7 +1478,7 @@ function parseGerber(text) {
     else if (d === 1) {
       const seg = interp === 1 ? [[nx, ny]] : arcPts(x, y, nx, ny, ci, cj, interp === 3);
       if (inRegion) { if (!contour) contour = [[x, y]]; for (const p of seg) contour.push(p); }
-      else if (cur) { let px = x, py = y; for (const p of seg) { add('stroke', [mkCap(px, py, p[0], p[1], cur.sw / 2, pol)], [px, py, p[0], p[1], cur.sw / 2], { ap: cur.code }); px = p[0]; py = p[1]; } }
+      else if (cur) { let px = x, py = y; for (const p of seg) { add('stroke', [mkCap(px, py, p[0], p[1], cur.sw / 2, pol)], [px, py, p[0], p[1], cur.sw / 2], sub === 'text' ? { ap: cur.code, sub } : { ap: cur.code }); px = p[0]; py = p[1]; } }
     } else if (d === 3 && cur) add('flash', cur.atoms.map(a => moveAtom(a, nx, ny, pol)), [nx, ny], { ap: cur.code, apDef: cur });
     x = nx; y = ny;
   }
@@ -1432,6 +1568,8 @@ async function convertLayer(L, cfg, tick) {
   // Gerber를 쓰고 다시 읽어 모든 객체를 원본과 비교한다. 복원한 배선이 기준을 넘으면 그 객체만 영역으로 바꿔 다시 쓴다.
   const ATOM_C = new Map(), atomL = o => { let a = ATOM_C.get(o); if (!a) { if (ATOM_C.size > 40000) ATOM_C.clear(); a = mkPoly(o.flat, o.level % 2); ATOM_C.set(o, a); } return a; };
   let worst = 0, nBad = 0;
+  const tcap = new Grid(cs), tlist = [];
+  for (const t of (L.tpaths || [])) for (const P of t.strokes) { const f = flattenPath(P, FLAT_TOL); for (let i = 0; i + 1 < f.length; i++) { const c = mkCap(f[i][0], f[i][1], f[i + 1][0], f[i + 1][1], t.w / 2); c.bbox = c.bb; tcap.add(c.bb, c); tlist.push({ c, t }); } }
   for (let pass = 0; pass < 3; pass++) {
     await tick(L.label + ': Gerber 작성');
     const g = buildGerber(L, cfg); L.text = g.text; L.apertures = g.aps; L.stats = g.stats;
@@ -1441,7 +1579,7 @@ async function convertLayer(L, cfg, tick) {
     for (const s of act) {
       if (++cnt % 50 === 0) await tick(L.label + ': 형상 비교 ' + cnt + '/' + act.length);
       const bb = exp(s.bbox);
-      const c = compareTiled(s, bb, margin, tb => grid.query(tb).sort((a, b) => a.level - b.level || a.id - b.id).map(atomL),
+      const c = compareTiled(s, bb, margin, tb => grid.query(tb).sort((a, b) => a.level - b.level || a.id - b.id).map(atomL).concat(tcap.query(tb)),
         tb => { const res = []; for (const p of pg.query(tb).sort((a, b) => a.seq - b.seq)) for (const a of p.atoms) res.push(a); return res; }, cfg.grid);
       s.diff = c;
       if (c.maxDev > worst) worst = c.maxDev;
@@ -1450,6 +1588,15 @@ async function convertLayer(L, cfg, tick) {
     const redo = pass < 2 ? bad.filter(s => s.role === 'trace' && s.strokes) : [];
     if (!redo.length) { for (const s of bad) warn('diff', s, '출력과 원본의 차이 ' + s.diff.maxDev.toFixed(4) + 'mm (기준 ' + cfg.thr + 'mm 초과)', s.diff.at); break; }
     for (const s of redo) { const why = '복원 결과와 원본의 차이 ' + s.diff.maxDev.toFixed(4) + 'mm (기준 초과)'; s.role = 'region'; s.why = why; s.fallback = true; s.strokes = s.fills = s.narrow = null; warn('fallback', s, '영역으로 대체: ' + why, s.diff.at); }
+  }
+  if (tlist.length) { // 글자·열린 선: 원본 획 위의 점 ↔ 출력 선 중심선
+    const pgT = new Grid(cs), dev = new Map(); for (const p of L.prims) if (p.sub === 'text') pgT.add(p.bbox, p);
+    for (const { c, t } of tlist) for (const fr of [0, 0.5, 1]) {
+      const x = c.t === 'd' ? c.cx : c.x1 + (c.x2 - c.x1) * fr, y = c.t === 'd' ? c.cy : c.y1 + (c.y2 - c.y1) * fr, R = c.r + 0.05;
+      let d = Infinity; for (const p of pgT.query([x - R, y - R, x + R, y + R])) for (const a of p.atoms) { const e = (a.t === 'c' ? dSeg(x, y, a.x1, a.y1, a.x2, a.y2) : hyp(x - a.cx, y - a.cy)) + Math.abs(a.r - c.r); if (e < d) d = e; }
+      if (!(dev.get(t) >= d)) dev.set(t, d);
+    }
+    for (const [t, d] of dev) { if (d > worst) worst = d; if (d > cfg.thr) { nBad++; warn('diff', null, (t.kind === 'text' ? '글자' : '열린 선') + ' 출력이 원본과 다름 ' + (isFinite(d) ? d.toFixed(4) + 'mm' : '(선 없음)'), [(t.bbox[0] + t.bbox[2]) / 2, (t.bbox[1] + t.bbox[3]) / 2]); } }
   }
   for (const s of act) if (s.narrow) for (const w of s.narrow) warn('narrow', s, w.msg, [w.x, w.y]);
   for (const a of L.apertures) if (a.err > cfg.thr) W.push({ type: 'ellipse', target: L.target, id: null, msg: 'D' + a.code + ' 타원 근사 오차 ' + a.err.toFixed(4) + 'mm (기준 초과) → 분할 수를 늘리세요', bbox: null });
@@ -1517,15 +1664,22 @@ async function convertAll(base, cfg, prog) {
   const ox = cfg.origin === 'll' && isFinite(gb[0]) ? gb[0] : 0, oy = cfg.origin === 'll' && isFinite(gb[1]) ? gb[1] : 0, out = [];
   let nid = base.shapes.length;
   for (const tg of Object.keys(TARGETS)) {
-    const src = base.shapes.filter(s => cfg.layers[s.layer] === tg), srcP = tg === 'outline' ? (base.paths || []).filter(q => cfg.layers[q.layer] === tg) : [];
-    if (!src.length && !srcP.length) continue;
+    const src = base.shapes.filter(s => cfg.layers[s.layer] === tg), srcP = tg === 'outline' || cfg.openOn !== false ? (base.paths || []).filter(q => cfg.layers[q.layer] === tg) : [];
+    const srcT = cfg.textOn !== false ? (base.texts || []).filter(q => cfg.layers[q.layer] === tg) : [];
+    if (!src.length && !srcP.length && !srcT.length) continue;
     const L = { target: tg, label: TARGETS[tg].label, file: cfg.files[tg], mirror: !!cfg.mirror[tg], shapes: [], warnings: [] };
     const mir = cfg.mirror[tg] ? gb[0] + gb[2] - 2 * ox : null;
     if (tg === 'outline') {
       for (const s of src) { const w = workShape(s, ox, oy, mir); if (w) L.shapes.push(w); }
+      for (const t of srcT) for (const pl of t.strokes) srcP.push({ layer: t.layer, type: t.type, pts: pl });
       L.paths = srcP.map(q => { const pts = q.pts.map(p => ({ x: mir == null ? p.x - ox : mir - (p.x - ox), y: p.y - oy, b: mir == null ? p.b : -p.b })); return { layer: q.layer, type: q.type, pts, flat: flattenPath(pts, FLAT_TOL).slice(0, -0 || undefined) }; });
       await convertOutline(L, cfg, tick); out.push(L); continue;
     }
+    const tf = P => P.map(p => ({ x: mir == null ? p.x - ox : mir - (p.x - ox), y: p.y - oy, b: mir == null ? p.b : -p.b }));
+    const snapW = v => Math.max(cfg.apTol, Math.round(Math.round(v / cfg.apTol) * cfg.apTol * 1e6) / 1e6), tbb = st => { const f = []; for (const P of st) for (const q of flattenPath(P, 1e-3)) f.push(q); return bboxOf(f); };
+    L.tpaths = [];
+    for (const t of srcT) { const st = t.strokes.map(tf), w = snapW(t.h * (cfg.textPct > 0 ? cfg.textPct : 10) / 100); L.tpaths.push({ kind: 'text', w, strokes: st, bbox: tbb(st) }); L.warnings.push({ type: 'text', target: tg, id: null, msg: t.type + ' "' + t.str.replace(/\n/g, ' ').slice(0, 40) + '" → 내장 획 글꼴로 근사(높이 ' + fmtN(t.h) + ', 선폭 ' + fmtN(w) + 'mm)' + (t.unknown ? ', 글꼴에 없는 글자 ' + t.unknown + '개는 네모로' : ''), bbox: tbb(st) }); }
+    for (const q of srcP) { const st = [tf(q.pts)], w = snapW(cfg.openW > 0 ? cfg.openW : 0.1); L.tpaths.push({ kind: 'open', w, strokes: st, bbox: tbb(st) }); L.warnings.push({ type: 'open', target: tg, id: null, msg: q.type + ' 열린 선 → 선폭 ' + fmtN(w) + 'mm 선으로 냄', bbox: tbb(st) }); }
     const cu = tg === 'cu1' || tg === 'cu2';
     for (const s of src) {
       const w = workShape(s, ox, oy, mir); if (!w) continue;
@@ -1663,6 +1817,9 @@ function makeExampleDxf() {
   { const Bq = -Math.tan(Math.PI / 8); lw(A, [[25, 13.8], [25.4, 13.8], [25.4, 14.4], [25.3, 14.4, Bq], [25.25, 14.45], [25.25, 14.95, Bq], [25.3, 15.0], [25.4, 15.0], [25.4, 15.6], [25, 15.6], [25, 15.4, Bq], [24.95, 15.35], [23.8, 15.35], [23.8, 15.25], [24.95, 15.25, Bq], [25, 15.2], [25, 15.0], [25.1, 15.0, Bq], [25.15, 14.95], [25.15, 14.45, Bq], [25.1, 14.4], [25, 14.4]]); }
   // o. 3겹 안쪽 폴리선(동박 안 → 빈 곳 → 동박)
   lw(A, rectP(3, 3).map(p => [p[0] + 25.5, p[1] + 6])); lw(A, rectP(2, 2).map(p => [p[0] + 25.5, p[1] + 6])); lw(A, rectP(1, 1).map(p => [p[0] + 25.5, p[1] + 6]));
+  // p. 동박 글자: TEXT(왼쪽 기준), MTEXT(2줄, 가운데 맞춤, 90도)
+  w(0, 'TEXT'); w(8, A); w(10, 2); w(20, 33.2); w(40, 0.8); w(1, 'LED-01 R2');
+  w(0, 'MTEXT'); w(8, A); w(10, 27.3); w(20, 10.5); w(40, 0.5); w(71, 5); w(50, Math.PI / 2); w(1, 'A1\\PB2');
   // 외형: 선 4개 + 호 4개(모서리 R1)로 된 닫힌 외곽선, 따로 떨어진 선 1개
   const ln = (x1, y1, x2, y2) => { w(0, 'LINE'); w(8, O); w(10, x1); w(20, y1); w(11, x2); w(21, y2); }, arc = (cx, cy, a0, a1) => { w(0, 'ARC'); w(8, O); w(10, cx); w(20, cy); w(40, 1); w(50, a0); w(51, a1); };
   ln(1, -1, 27, -1); arc(27, 0, 270, 360); ln(28, 0, 28, 36); arc(27, 36, 0, 90); ln(27, 37, 1, 37); arc(1, 36, 90, 180); ln(0, 36, 0, 0); arc(1, 0, 180, 270);
@@ -1701,13 +1858,13 @@ if (typeof document !== 'undefined') (function () {
   const S = { dxf: null, base: null, fileName: '', layerTarget: {}, files: {}, filesEdited: {}, mirror: {}, overrides: {}, voids: {}, result: null, busy: false, pending: false };
   const V = { scale: 20, cx: 0, cy: 0, show: { cu1: true, cu2: true, mask: true, mask2: true, outline: true }, sel: null, flash: null, dpr: 1 };
   window.__app = { S, V };
-  const KIND_COL = { stroke: '#34d17a', flash: '#ffb224', area: '#ff5aa8', fill: '#3fc1ff' };
+  const KIND_COL = { stroke: '#34d17a', flash: '#ffb224', area: '#ff5aa8', fill: '#3fc1ff', text: '#f7e463' };
   // 종류별 색에서도 층을 구분한다: 동박 1 = 밝은 색, 동박 2 = 같은 색의 어두운 톤, 솔더마스크 = 옅은 톤
   const shade = (hex, k, w) => '#' + [1, 3, 5].map(i => { const v = parseInt(hex.substr(i, 2), 16); return Math.round(v * k + 255 * w).toString(16).padStart(2, '0'); }).join('');
   const KC = {}, kindCol = (tg, kind) => KC[tg + kind] || (KC[tg + kind] = tg === 'outline' ? '#e8e8e8' : tg === 'cu2' ? shade(KIND_COL[kind], 0.5, 0) : tg === 'mask' ? shade(KIND_COL[kind], 0.4, 0.6) : tg === 'mask2' ? shade(KIND_COL[kind], 0.25, 0.3) : KIND_COL[kind]);
   const MASK_LINE_COL = '#c77dff', MASK2_LINE_COL = '#4dd0e1'; // '마스크 선으로 보기'의 테두리 색(솔더마스크 1, 2)
   const LAYER_COL = { cu1: '#ff5a5a', cu2: '#4f8dff', mask: '#3ccf6e', mask2: '#ffd23f', outline: '#e8e8e8' };
-  const WT = { padcut: ['배선과 합쳐진 패드를 떼어 냄', 'i'], fallback: ['영역으로 출력(대체)', 'w'], narrow: ['좁은 패드 → 직각 마감', 'w'], overlap: ['같은 층 겹침', 'e'], nested: ['다른 객체 안의 폴리선', 'w'], diff: ['형상 차이 기준 초과', 'e'], dup: ['중복 객체', 'w'], width: ['폭 있는 폴리선', 'w'], arcflat: ['블록 배율로 호를 꺾은선으로 바꿈', 'w'], ellipse: ['타원 근사 오차', 'w'] };
+  const WT = { padcut: ['배선과 합쳐진 패드를 떼어 냄', 'i'], text: ['TEXT·MTEXT를 내장 글꼴로 근사', 'i'], open: ['열린 선을 선으로 냄', 'i'], fallback: ['영역으로 출력(대체)', 'w'], narrow: ['좁은 패드 → 직각 마감', 'w'], overlap: ['같은 층 겹침', 'e'], nested: ['다른 객체 안의 폴리선', 'w'], diff: ['형상 차이 기준 초과', 'e'], dup: ['중복 객체', 'w'], width: ['폭 있는 폴리선', 'w'], arcflat: ['블록 배율로 호를 꺾은선으로 바꿈', 'w'], ellipse: ['타원 근사 오차', 'w'] };
 
   /* ---------- 파일 ---------- */
   function setMsg(html, err) { const m = $('fileMsg'); m.innerHTML = html; m.className = err ? 'err' : 'muted'; }
@@ -1743,7 +1900,7 @@ if (typeof document !== 'undefined') (function () {
       for (const tg in TARGETS) S.files[tg] = stem + TARGETS[tg].suffix + '.gbr';
     }
     $('fileInfo').textContent = S.fileName + ' · ' + (b.ver || '버전 표시 없음') + ' · 단위 ' + b.unitText + ' · 닫힌 도형 ' + b.shapes.length + '개';
-    let msg = '읽기 완료: 닫힌 도형 ' + b.shapes.length + '개, 열린 선 ' + (b.paths || []).length + '개(외형으로만 출력), 무시한 객체 ' + b.ignored.length + '개.';
+    let msg = '읽기 완료: 닫힌 도형 ' + b.shapes.length + '개, 열린 선 ' + (b.paths || []).length + '개, 글자 ' + (b.texts || []).length + '개, 무시한 객체 ' + b.ignored.length + '개.';
     if (b.joined && b.joined.loops) msg += ' 끝이 맞닿은 열린 선 ' + b.joined.parts + '개를 이어 닫힌 외곽선 ' + b.joined.loops + '개로 만들었습니다.';
     if (b.ver && b.ver !== 'AC1015') msg += '<br>참고: 이 파일은 ' + esc(b.ver) + ' 형식입니다(AutoCAD 2000 = AC1015). 읽기는 시도했습니다.';
     setMsg(msg, false);
@@ -1785,7 +1942,7 @@ if (typeof document !== 'undefined') (function () {
   /* ---------- 변환 ---------- */
   function cfgNow() {
     const num = (id, d) => { const v = parseFloat($(id).value); return isFinite(v) && v > 0 ? v : d; };
-    return { layers: Object.assign({}, S.layerTarget), files: Object.assign({}, S.files), mirror: Object.assign({}, S.mirror), origin: $('oOrigin').value, ratio: num('oRatio', 4), grid: num('oGrid', 0.002), thr: num('oThr', 0.005), apTol: num('oApTol', 0.0001), noMacro: $('oNoMacro').checked, ellN: Math.max(12, Math.round(num('oEllN', 48))), allVoid: $('oAllVoid').checked, padCut: $('oPadCut').checked, outW: num('oOutW', 0.1), fillPoly: $('oFillPoly').checked, overrides: S.overrides, voids: S.voids };
+    return { layers: Object.assign({}, S.layerTarget), files: Object.assign({}, S.files), mirror: Object.assign({}, S.mirror), origin: $('oOrigin').value, ratio: num('oRatio', 4), grid: num('oGrid', 0.002), thr: num('oThr', 0.005), apTol: num('oApTol', 0.0001), noMacro: $('oNoMacro').checked, ellN: Math.max(12, Math.round(num('oEllN', 48))), allVoid: $('oAllVoid').checked, padCut: $('oPadCut').checked, outW: num('oOutW', 0.1), textOn: $('oTextOn').checked, textPct: num('oTextPct', 10), openOn: $('oOpenOn').checked, openW: num('oOpenW', 0.1), fillPoly: $('oFillPoly').checked, overrides: S.overrides, voids: S.voids };
   }
   async function convert(refit) {
     if (!S.base) return;
@@ -1825,7 +1982,7 @@ if (typeof document !== 'undefined') (function () {
     let allOk = true;
     for (const L of R.layers) {
       const st = L.stats, ok = L.verify.nBad === 0; if (!ok) allOk = false;
-      h += '<tr><td>' + L.label + (L.mirror ? ' <small>(반전)</small>' : '') + '</td><td class="num">' + (st.pads - st.padAreas) + (st.padAreas ? ' <small>+영역 ' + st.padAreas + '</small>' : '') + '</td><td class="num">' + (L.target === 'outline' ? '<small>외형 선</small> ' + (st.outlines + st.paths) + ' / ' + st.segs : st.traces + ' / ' + st.segs) + '</td><td class="num">' + st.areas + '</td><td class="num">' + st.fills + '</td><td class="num ' + (ok ? 'ok' : 'bad') + '">' + L.verify.worst.toFixed(4) + '</td></tr>';
+      h += '<tr><td>' + L.label + (L.mirror ? ' <small>(반전)</small>' : '') + '</td><td class="num">' + (st.pads - st.padAreas) + (st.padAreas ? ' <small>+영역 ' + st.padAreas + '</small>' : '') + '</td><td class="num">' + (L.target === 'outline' ? '<small>외형 선</small> ' + (st.outlines + st.paths) + ' / ' + st.segs : st.traces + ' / ' + st.segs + (st.texts || st.opens ? '<br><small>+글자 ' + st.texts + ', 열린 선 ' + st.opens + '</small>' : '')) + '</td><td class="num">' + st.areas + '</td><td class="num">' + st.fills + '</td><td class="num ' + (ok ? 'ok' : 'bad') + '">' + L.verify.worst.toFixed(4) + '</td></tr>';
     }
     h += '</tbody></table><div style="margin-top:6px;line-height:1.6">';
     h += '형상 비교: ' + (allOk ? '<span class="ok">모든 객체가 기준 이내</span>' : '<span class="bad">기준 초과 객체 있음 — 경고 목록 확인</span>') + '<br>';
@@ -1882,7 +2039,8 @@ if (typeof document !== 'undefined') (function () {
     box.appendChild(list);
   }
   function renderIgnored() {
-    const box = $('ignBox'), ig = S.base.ignored.concat((S.base.paths || []).filter(q => S.layerTarget[q.layer] !== 'outline').map(q => ({ type: q.type + ' (열린 선)', layer: q.layer, x: q.pts[0].x, y: q.pts[0].y }))); box.className = '';
+    const tgOf = l => S.layerTarget[l] || 'none', openUsed = q => tgOf(q.layer) === 'outline' || (tgOf(q.layer) !== 'none' && $('oOpenOn').checked), textUsed = q => tgOf(q.layer) !== 'none' && $('oTextOn').checked;
+    const box = $('ignBox'), ig = S.base.ignored.concat((S.base.paths || []).filter(q => !openUsed(q)).map(q => ({ type: q.type + ' (열린 선)', layer: q.layer, x: q.pts[0].x, y: q.pts[0].y })), (S.base.texts || []).filter(q => !textUsed(q)).map(q => ({ type: q.type, layer: q.layer, x: q.x, y: q.y }))); box.className = '';
     if (!ig.length) { box.innerHTML = '<span class="muted">없음</span>'; return; }
     const cnt = {}; for (const g of ig) cnt[g.type] = (cnt[g.type] || 0) + 1;
     box.innerHTML = '<div style="margin-bottom:4px">' + Object.keys(cnt).map(k => esc(k) + ' ' + cnt[k] + '개').join(', ') + '</div>';
@@ -1936,7 +2094,7 @@ if (typeof document !== 'undefined') (function () {
       for (const p of L.prims) {
         const b = p.bbox; if (b[0] > vb[2] || b[2] < vb[0] || b[1] > vb[3] || b[3] < vb[1]) continue;
         if (p.pol !== lastPol) { o.globalCompositeOperation = p.pol ? 'destination-out' : 'source-over'; lastPol = p.pol; }
-        const col = byLayer ? LAYER_COL[tg] : kindCol(tg, p.kind === 'region' ? p.sub : p.kind);
+        const col = byLayer ? LAYER_COL[tg] : kindCol(tg, p.sub === 'text' ? 'text' : p.kind === 'region' ? p.sub : p.kind);
         if (col !== lastCol) { o.fillStyle = o.strokeStyle = col; lastCol = col; }
         const w = b[2] - b[0], h = b[3] - b[1];
         if (w < tiny && h < tiny) { o.fillRect(b[0], b[1], Math.max(w, px0), Math.max(h, px0)); continue; } // 화면에서 점만 한 것은 점으로
@@ -1960,7 +2118,7 @@ if (typeof document !== 'undefined') (function () {
       if (tg === 'outline') continue;
       ctx.lineWidth = 1 * px; ctx.strokeStyle = ctx.fillStyle = '#06301a';
       for (const p of L.prims) {
-        if (p.kind !== 'stroke' || !bbHit(p.bbox, vb)) continue;
+        if (p.kind !== 'stroke' || p.sub === 'text' || !bbHit(p.bbox, vb)) continue;
         if (p.d[4] * V.scale < 2.5 * V.dpr) continue;
         const a = p.atoms[0]; if (a.t !== 'c') continue;
         ctx.beginPath(); ctx.moveTo(a.x1, a.y1); ctx.lineTo(a.x2, a.y2); ctx.stroke();
@@ -1970,6 +2128,7 @@ if (typeof document !== 'undefined') (function () {
     if ($('vOrig').checked) for (const tg of order) {
       const L = layerOf(tg); if (!L || !V.show[tg]) continue;
       ctx.lineWidth = 1.1 * px; ctx.strokeStyle = byLayer ? '#ffffff' : (isMaskT(tg) ? '#b9f5c8' : tg === 'cu2' ? '#b8ccff' : '#ffffff');
+      for (const q of (L.tpaths || [])) for (const P of q.strokes) { ctx.beginPath(); ctx.moveTo(P[0].x, P[0].y); for (let i = 1; i < P.length; i++) ctx.lineTo(P[i].x, P[i].y); ctx.stroke(); }
       if (L.paths) for (const q of L.paths) { const f = q.flat; ctx.beginPath(); ctx.moveTo(f[0][0], f[0][1]); for (let i = 1; i < f.length; i++) ctx.lineTo(f[i][0], f[i][1]); ctx.stroke(); }
       for (const s of L.shapes) { if (!bbHit(s.bbox, vb) || (s.bbox[2] - s.bbox[0] < 3 * px && s.bbox[3] - s.bbox[1] < 3 * px)) continue; ctx.setLineDash(s.isVoid || s.dup ? [4 * px, 3 * px] : []); pathOf(ctx, V.scale < 300 ? s.coarse : s.flat); ctx.stroke(); }
       ctx.setLineDash([]);
@@ -1988,7 +2147,7 @@ if (typeof document !== 'undefined') (function () {
   }
   function renderLegend() {
     const byLayer = $('vColor').value === 'layer';
-    const it = byLayer ? [[LAYER_COL.cu1, '동박 1'], [LAYER_COL.cu2, '동박 2'], [LAYER_COL.mask, '솔더마스크 1'], [LAYER_COL.mask2, '솔더마스크 2'], [LAYER_COL.outline, '외형']] : [[KIND_COL.stroke, '선(배선, D01)'], [KIND_COL.flash, '플래시(패드, D03)'], [KIND_COL.area, '영역(외곽선 그대로)'], [KIND_COL.fill, '모서리·끝 채움(영역)']];
+    const it = byLayer ? [[LAYER_COL.cu1, '동박 1'], [LAYER_COL.cu2, '동박 2'], [LAYER_COL.mask, '솔더마스크 1'], [LAYER_COL.mask2, '솔더마스크 2'], [LAYER_COL.outline, '외형']] : [[KIND_COL.stroke, '선(배선, D01)'], [KIND_COL.flash, '플래시(패드, D03)'], [KIND_COL.area, '영역(외곽선 그대로)'], [KIND_COL.fill, '모서리·끝 채움(영역)'], [KIND_COL.text, '글자·열린 선(D01)']];
     const sw = c => byLayer ? '<i style="background:' + c + '"></i>' : ['cu1', 'cu2', 'mask', 'mask2'].map(t => '<i style="margin-right:1px;background:' + (t === 'cu1' ? c : t === 'cu2' ? shade(c, 0.5, 0) : t === 'mask' ? shade(c, 0.4, 0.6) : shade(c, 0.25, 0.3)) + '"></i>').join('');
     $('legendItems').innerHTML = (byLayer ? '' : '<span style="margin-right:14px">색 톤: 밝음 = 동박 1 / 어두움 = 동박 2 / 옅음 = 솔더마스크 1 / 탁함 = 솔더마스크 2 · 흰 선 = 외형</span>') + it.map(v => '<span style="margin-right:14px;white-space:nowrap">' + sw(v[0]) + ' ' + v[1] + '</span>').join('') + (!byLayer && $('vMaskLine').checked ? '<span style="margin-right:14px;white-space:nowrap"><i style="background:none;border:2px solid ' + MASK_LINE_COL + '"></i>솔더마스크 1 테두리</span><span style="margin-right:14px;white-space:nowrap"><i style="background:none;border:2px solid ' + MASK2_LINE_COL + '"></i>솔더마스크 2 테두리</span>' : '') + '<span style="margin-right:14px"><i style="background:none;border:1px solid #fff"></i>원본 외곽선</span><span><i style="background:#06301a;height:3px;border:1px solid #6b7785"></i>중심선</span>';
   }
@@ -2045,7 +2204,7 @@ if (typeof document !== 'undefined') (function () {
   document.addEventListener('drop', ev => { const f = ev.dataTransfer && ev.dataTransfer.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => loadBuffer(rd.result, f.name); rd.readAsArrayBuffer(f); });
   $('btnExample').onclick = () => loadText(makeExampleDxf(), 'example.dxf');
   $('oUnit').onchange = () => rebuildBase(false);
-  for (const id of ['oOrigin', 'oRatio', 'oGrid', 'oThr', 'oApTol', 'oEllN', 'oNoMacro', 'oFillPoly', 'oAllVoid', 'oPadCut', 'oOutW']) $(id).addEventListener('change', () => convert(id === 'oOrigin'));
+  for (const id of ['oOrigin', 'oRatio', 'oGrid', 'oThr', 'oApTol', 'oEllN', 'oNoMacro', 'oFillPoly', 'oAllVoid', 'oPadCut', 'oOutW', 'oTextOn', 'oTextPct', 'oOpenOn', 'oOpenW']) $(id).addEventListener('change', () => { if (id === 'oTextOn' || id === 'oOpenOn') renderIgnored(); convert(id === 'oOrigin'); });
   for (const id of ['vOrig', 'vRes', 'vCenter']) $(id).onchange = draw;
   $('vMaskLine').onchange = () => { renderLegend(); draw(); };
   $('vColor').onchange = () => { renderLegend(); draw(); };

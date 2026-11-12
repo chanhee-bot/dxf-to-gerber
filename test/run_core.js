@@ -73,6 +73,12 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
     check('  떼어 낸 패드 크기 0.4×0.6 플래시', [a, b].every(q => q && q.out === 'flash' && q.pad.type === 'R' && Math.abs(Math.min(q.pad.w, q.pad.h) - 0.4) < 1e-6 && Math.abs(Math.max(q.pad.w, q.pad.h) - 0.6) < 1e-6), [a, b].map(q => q && q.pad ? q.pad.type + ' ' + q.pad.w.toFixed(3) + '×' + q.pad.h.toFixed(3) + ' ' + q.out : '-').join(', '));
     exp(L1, '패드 사이 목 → 선', 25.2, 14.7, 'trace', 1); exp(L1, '패드로 들어오는 배선 → 선', 24.3, 15.3, 'trace', 1);
     check('패드 떼어냄 표시 2건', types('padcut') === 2, String(types('padcut'))); }
+  // 동박 글자(내장 획 글꼴)·열린 선
+  { const tp = L1.prims.filter(p => p.sub === 'text'), ub = (x0, y0, x1, y1) => { const b = [Infinity, Infinity, -Infinity, -Infinity]; for (const p of tp) { const q = p.bbox; if (q[0] < x0 || q[2] > x1 || q[1] < y0 || q[3] > y1) continue; b[0] = Math.min(b[0], q[0]); b[1] = Math.min(b[1], q[1]); b[2] = Math.max(b[2], q[2]); b[3] = Math.max(b[3], q[3]); } return b; };
+    const near = (b, e) => b.every((v, i) => Math.abs(v - e[i]) < 0.02), f = b => b.map(v => v.toFixed(3)).join(',');
+    check('글자 2개 + 열린 선 2개를 선으로', L1.stats.texts === 2 && L1.stats.opens === 2 && types('text') === 2 && types('open') === 2 && L1.text.includes('G04 TEXT*'), JSON.stringify({ t: L1.stats.texts, o: L1.stats.opens }));
+    const s8 = 0.8 / 6, w8 = 0.08, t1 = ub(1.5, 32.5, 10, 34.5); check('TEXT 위치·크기(왼쪽 기준선, 높이 0.8, 선폭 10%)', near(t1, [2 - w8 / 2, 33.2 - w8 / 2, 2 + 52 * s8 + w8 / 2, 34 + w8 / 2]), f(t1));
+    const s5 = 0.5 / 6, T = 0.5 * 5 / 3 + 0.5, W = 10 * s5, t2 = ub(26, 9.5, 28.5, 11.5); check('MTEXT 2줄·가운데 맞춤·90도', near(t2, [27.3 - T / 2 - 0.025, 10.5 - W / 2 - 0.025, 27.3 + T / 2 + 0.025, 10.5 + W / 2 + 0.025]), f(t2)); }
   // 외형, 솔더마스크 2
   { const OL = R.layers.find(l => l.target === 'outline'), M2L = R.layers.find(l => l.target === 'mask2');
     check('출력 5개(동박 1·2, 솔더마스크 1·2, 외형)', R.layers.map(l => l.target).join(',') === 'cu1,cu2,mask,mask2,outline', R.layers.map(l => l.target).join(','));
