@@ -156,7 +156,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1112-1900';
+const BUILD = '1112-2130';
 
 /* ================================================================
  * 1. 기하 기본
@@ -588,7 +588,8 @@ function buildBase(dxf, unitMode, cutBlocks) {
   else if (dxf.insunits && U[dxf.insunits]) { scale = U[dxf.insunits]; unitText = ({ 1: 'inch', 4: 'mm', 5: 'cm', 6: 'm' })[dxf.insunits] || ('$INSUNITS=' + dxf.insunits); }
   else unitText = 'mm(가정: $INSUNITS 없음)';
   const base = { shapes: [], ignored: [], notes: [], layerCount: new Map(), scale, unitText, ver: dxf.ver, insts: [] };
-  let curInst = -1; // 지금 펼치는 맨 위 블록 삽입(이동만 있는 것)의 번호. ODB++ 스텝으로 묶는 데 쓴다
+  let curInst = -1; // 지금 펼치는 블록 삽입의 번호(inodes). 다 펼친 뒤 스텝 후보 삽입 번호(base.insts)로 바꾼다
+  const inodes = []; // 블록 삽입 하나하나(블록 안의 삽입 포함): { name, par, tr(도면 좌표에서 이동만 있음), x, y }
   for (const n of dxf.layers) base.layerCount.set(n, 0);
   const add = (s, layer) => { if (!s) return; s.id = base.shapes.length; s.layer = layer; if (s.inst === undefined) s.inst = curInst; base.shapes.push(s); base.layerCount.set(layer, (base.layerCount.get(layer) || 0) + 1); };
   const ign = (type, layer, M, x, y, why) => { const p = (isFinite(x) && isFinite(y)) ? mAp(M, x, y) : null; base.ignored.push({ type, layer, x: p ? p[0] : null, y: p ? p[1] : null, why: why || '' }); };
@@ -636,7 +637,7 @@ function buildBase(dxf, unitMode, cutBlocks) {
         const det = mDet(Me), sim = mIsSim(Me);
         let Q = pts;
         if (!sim && pts.some(q => q.b)) { const fl = []; for (let j = 0; j + 1 < pts.length; j++) { const p0 = pts[j], p1 = pts[j + 1]; if (!p0.b) { fl.push([p0.x, p0.y]); continue; } const a = arcOf(p0.x, p0.y, p1.x, p1.y, p0.b), m = Math.max(4, Math.ceil(Math.abs(a.sweep) / 0.05)); for (let i = 0; i < m; i++) { const t = a.a1 + a.sweep * i / m; fl.push([a.cx + a.r * Math.cos(t), a.cy + a.r * Math.sin(t)]); } } const z = pts[pts.length - 1]; fl.push([z.x, z.y]); Q = fl.map(q => ({ x: q[0], y: q[1], b: 0 })); }
-        opens.push({ layer, type: e.type, inst: typeof curInst === 'undefined' ? -1 : curInst, pts: Q.map(q => { const r = mAp(Me, q.x, q.y); return { x: r[0], y: r[1], b: det < 0 ? -(q.b || 0) : (q.b || 0) }; }) });
+        opens.push({ layer, type: e.type, inst: curInst, pts: Q.map(q => { const r = mAp(Me, q.x, q.y); return { x: r[0], y: r[1], b: det < 0 ? -(q.b || 0) : (q.b || 0) }; }) });
       } else if (g.t === 'circle') {
         if (!(g.r > 0)) continue;
         const c = mAp(Me, g.cx, g.cy);
@@ -655,15 +656,31 @@ function buildBase(dxf, unitMode, cutBlocks) {
         if (!blk || depth > 8) { ign('INSERT (블록 없음: ' + g.name + ')', layer, Me, g.x, g.y); continue; }
         for (let r = 0; r < g.rows; r++) for (let c = 0; c < g.cols; c++) {
           const Mi = mMul(mMul(mMul(mMul(mMul(Me, mT(g.x, g.y)), mR(g.rot)), mT(c * g.dc, r * g.dr)), mS(g.sx, g.sy)), mT(-blk.bx, -blk.by));
-          const top = depth === 0;
-          if (top) curInst = (Math.abs(Mi[0] - scale) < 1e-9 && Math.abs(Mi[3] - scale) < 1e-9 && Math.abs(Mi[1]) < 1e-9 && Math.abs(Mi[2]) < 1e-9) ? base.insts.push({ name: blk.name, x: Mi[4], y: Mi[5] }) - 1 : -1;
+          const par = curInst;
+          curInst = inodes.push({ name: blk.name, par, tr: Math.abs(Mi[0] - scale) < 1e-9 && Math.abs(Mi[3] - scale) < 1e-9 && Math.abs(Mi[1]) < 1e-9 && Math.abs(Mi[2]) < 1e-9, x: Mi[4], y: Mi[5] }) - 1;
           walk(blk.ents, Mi, layer, depth + 1);
-          if (top) curInst = -1;
+          curInst = par;
         }
       } else ign(e.type, layer, Me, g.x, g.y);
     }
   }
   walk(dxf.ents, mS(scale, scale), null, 0);
+  // 스텝 후보 삽입 고르기: 맨 위 삽입부터 보아, 같은 블록이 두 번 이상(이동만으로) 놓였으면 그 삽입을 후보로 삼고,
+  // 한 번뿐이거나 회전·반전·배율이 있는 삽입은 풀어서 그 안의 삽입을 같은 방법으로 본다(블록 안의 블록, 배열 등)
+  {
+    const n = inodes.length, kids = new Map(), idx = new Int32Array(n).fill(-1), res = new Int32Array(n);
+    let front = [], top = 0, nonTr = 0, deep = 0; const all = new Map();
+    for (let i = 0; i < n; i++) { const d = inodes[i]; all.set(d.name, (all.get(d.name) || 0) + 1); if (!d.tr) nonTr++; if (d.par < 0) { front.push(i); top++; } else { let a = kids.get(d.par); if (!a) kids.set(d.par, a = []); a.push(i); } }
+    while (front.length) {
+      const cnt = new Map(), next = []; for (const i of front) if (inodes[i].tr) cnt.set(inodes[i].name, (cnt.get(inodes[i].name) || 0) + 1);
+      for (const i of front) { const d = inodes[i]; if (d.tr && cnt.get(d.name) >= 2) { idx[i] = base.insts.push({ name: d.name, x: d.x, y: d.y }) - 1; if (d.par >= 0) deep++; } else { const a = kids.get(i); if (a) for (const k of a) next.push(k); } }
+      front = next;
+    }
+    for (let i = 0; i < n; i++) res[i] = idx[i] >= 0 ? idx[i] : inodes[i].par < 0 ? -1 : res[inodes[i].par];
+    for (const s of base.shapes) s.inst = s.inst >= 0 ? res[s.inst] : -1;
+    for (const o of opens) o.inst = o.inst >= 0 ? res[o.inst] : -1;
+    base.instStat = { n, top, nonTr, kinds: all.size, used: base.insts.length, deep, names: [...all].sort((a, b) => b[1] - a[1]).slice(0, 5) };
+  }
   // 끝점이 맞닿은 열린 폴리선을 이어 닫힌 외곽선으로 만든다(블록 경계에서 잘린 외곽선 등)
   const J = joinOpen(opens); base.joined = { loops: J.closed.length, parts: J.used };
   for (const c of J.closed) {
@@ -2127,6 +2144,8 @@ function buildOdb(R, base, opt) {
     let g = groups.get(key); if (!g) groups.set(key, g = { lines: il, insts: [], blk: base.insts[i].name });
     g.insts.push(i); instLines[i] = null;
   }
+  let nFeatIn = 0, nFeatOut = 0, nSingle = 0, nFilled = 0; for (const a of panel) nFeatOut += a.length;
+  for (const g of groups.values()) { nFilled += g.insts.length; if (g.insts.length < 2) nSingle++; let c = 0; for (const a of g.lines) c += a.length; nFeatIn += c * g.insts.length; }
   let steps = [...groups.values()].sort((a, b) => b.insts.length - a.insts.length);
   const flatten = g => { for (const i of g.insts) { const dx = base.insts[i].x - ox, dy = base.insts[i].y - oy; g.lines.forEach((arr, li) => { for (const t of arr) panel[li].push(odbShift(t, dx, dy, inch)); }); } };
   const keep = []; for (const g of steps) { if (g.insts.length < 2 || keep.length >= 1500) flatten(g); else keep.push(g); }
@@ -2185,7 +2204,7 @@ function buildOdb(R, base, opt) {
   }
   for (const u of usr.values()) put('symbols/' + u.name + '/features', head.concat(['#', '#Layer features', '#', 'S P 0'], odbContour(u.pts, 0, 0, C), ['SE']));
   let bytes = 0; for (const t of files.values()) bytes += t.length;
-  return { job, files, bytes, units: inch ? 'inch' : 'mm', steps: steps.map(g => ({ name: g.name, count: g.insts.length })), nSr, nInst: steps.reduce((a, g) => a + g.insts.length, 0), stat, layers: layers.map(l => l.name), noStepWhy: useSteps ? '' : (!opt.steps ? '스텝 묶기 꺼짐' : base.insts.length < 2 ? '블록 삽입이 없음' : '좌우 반전을 쓴 층이 있음') };
+  return { job, files, bytes, units: inch ? 'inch' : 'mm', steps: steps.map(g => ({ name: g.name, count: g.insts.length })), nSr, nInst: steps.reduce((a, g) => a + g.insts.length, 0), stat, layers: layers.map(l => l.name), diag: { stat: base.instStat, cand: base.insts.length, filled: nFilled, single: nSingle, featIn: nFeatIn, featOut: nFeatOut }, noStepWhy: useSteps ? '' : (!opt.steps ? '스텝 묶기 꺼짐' : base.insts.length < 2 ? '블록 삽입이 없음' : '좌우 반전을 쓴 층이 있음') };
 }
 // 스텝 좌표로 적은 줄을 패널 좌표로 옮긴다(한 번만 나오는 삽입을 패널에 풀어 넣을 때)
 function odbShift(t, dx, dy, inch) {
@@ -2254,9 +2273,10 @@ function checkOdb(odb, R) {
   }
   const rd = readOdb(odb.files, (ly, kind, pol, b, area, rr) => {
     res.total++; const t = byName[ly]; if (!t) { res.extra++; return; }
-    for (const it of t.g.query(b, TOL)) {
+    for (const it of t.g.query(b, 2.5e-4)) {
       if (it.used || it.kind !== kind || it.pol !== pol) continue;
-      const q = it.bbox; if (Math.abs(q[0] - b[0]) > TOL || Math.abs(q[1] - b[1]) > TOL || Math.abs(q[2] - b[2]) > TOL || Math.abs(q[3] - b[3]) > TOL) continue;
+      const q = it.bbox, T = kind === 'region' ? 2.5e-4 : TOL; // 영역의 호는 Gerber를 읽을 때 꺾은선으로 펴므로(FLAT_TOL) 둘레 상자가 그만큼 작을 수 있다
+      if (Math.abs(q[0] - b[0]) > T || Math.abs(q[1] - b[1]) > T || Math.abs(q[2] - b[2]) > T || Math.abs(q[3] - b[3]) > T) continue;
       if (kind === 'region') { const d = it.p.d; let ar = 0; for (let i = 0; i < d.length; i += 2) { const k = (i + 2) % d.length; ar += d[i] * d[k + 1] - d[k] * d[i + 1]; } if (Math.abs(Math.abs(ar) / 2 - area) > 1e-5 + 2e-3 * area) continue; }
       it.used = true; return;
     }
@@ -2855,6 +2875,11 @@ if (typeof document !== 'undefined') (function () {
       const c = checkOdb(odb, S.result);
       let h = '작업 이름 <b>' + esc(odb.job) + '</b> · ' + odb.units + ' · 파일 ' + odb.files.size + '개 · ' + (odb.bytes / 1e6).toFixed(2) + 'MB(압축 전)<br>';
       h += odb.steps.length ? '스텝 ' + odb.steps.length + '종을 ' + odb.nInst + '곳에 반복(반복 줄 ' + odb.nSr + '개): ' + esc(odb.steps.slice(0, 6).map(q => q.name + '×' + q.count).join(', ')) + (odb.steps.length > 6 ? ' …' : '') : '스텝 묶음 없음' + (odb.noStepWhy ? ' (' + odb.noStepWhy + ')' : ' (똑같이 반복되는 블록 삽입이 없음)') + ' — 전부 panel 스텝에 적음';
+      if ($('oOdbStep').checked && odb.diag.stat) {
+        const d = odb.diag, q = d.stat;
+        h += '<br><span class="muted">블록 진단: 도면의 블록 삽입 ' + q.n + '개(블록 ' + q.kinds + '종, 맨 위 ' + q.top + '개 / 블록 안 ' + (q.n - q.top) + '개, 회전·반전·배율 있는 것 ' + q.nonTr + '개)' + (q.names.length ? ' — 많이 쓴 블록: ' + esc(q.names.map(a => a[0] + '×' + a[1]).join(', ')) : '') +
+          '<br>스텝 후보(같은 블록이 이동만으로 2번 이상 놓인 삽입) ' + d.cand + '개' + (q.deep ? '(그중 블록 안의 삽입 ' + q.deep + '개)' : '') + ', 출력 층에 내용이 있는 후보 ' + d.filled + '개, 내용이 달라 혼자 남은 것 ' + d.single + '개 · 출력 요소 중 블록 후보 안 ' + d.featIn + '개 / 밖 ' + d.featOut + '개</span>';
+      }
       h += '<br>다시 읽기 대조: ' + (c.ok ? '<span class="ok">요소 ' + c.total + '개 모두 Gerber 결과와 일치</span>' : '<span class="bad">불일치 — 빠짐 ' + c.miss + ', 남음 ' + c.extra + ', 형식 오류 ' + c.errors + (c.at ? ' (예: ' + c.at[0].toFixed(3) + ', ' + c.at[1].toFixed(3) + ')' : '') + '</span>');
       h += ' · ' + ((performance.now() - t0) / 1000).toFixed(1) + '초';
       msg.innerHTML = h; msg.className = '';

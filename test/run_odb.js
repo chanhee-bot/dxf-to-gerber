@@ -40,6 +40,15 @@ async function one(label, dxfText, layers, extra, expectSteps) {
   fs.writeFileSync(path.join(out, 'odb_cells.dxf'), o.join('\n'));
   const r2 = await one('블록 배열 6×8', o.join('\n'), { COPPER: 'cu1' }, {}, 48);
   { const b3 = buildBase(parseDxf(o.join('\n')), 'auto', true); check('잘린 레일을 이어 칸마다 다시 자름', b3.joined.loops === 6 && b3.joined.cut === 6 && b3.shapes.filter(q => q.inst >= 0).length === 48 * 4, JSON.stringify(b3.joined) + ' 주인 있는 도형 ' + b3.shapes.filter(q => q.inst >= 0).length); check('  스텝 3종(아래 줄·가운데·위 줄)', r2.odb.steps.length === 3, r2.odb.steps.map(q => q.name + '×' + q.count).join(' ')); }
+  // 블록 안의 블록: 칸 배열 전체를 블록 PANEL에 넣고 한 번만 삽입(오토캐드 배열·묶음 블록과 같은 꼴) + 한 번만 쓴 블록 LOGO
+  {
+    const src = o.join('\n'), i0 = src.indexOf('0\nENDSEC'), ents = src.slice(src.indexOf('2\nENTITIES') + 11, src.lastIndexOf('0\nENDSEC'));
+    const nested = src.slice(0, i0) + '0\nBLOCK\n8\n0\n2\nPANEL\n70\n0\n10\n0\n20\n0\n30\n0\n3\nPANEL\n' + ents + '0\nENDBLK\n0\nBLOCK\n8\n0\n2\nLOGO\n70\n0\n10\n0\n20\n0\n30\n0\n3\nLOGO\n0\nCIRCLE\n8\nCOPPER\n10\n0\n20\n0\n40\n0.5\n0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nINSERT\n8\n0\n2\nPANEL\n10\n100\n20\n50\n0\nINSERT\n8\n0\n2\nLOGO\n10\n90\n20\n50\n0\nENDSEC\n0\nEOF';
+    const r3 = await one('블록 안의 블록(칸 배열을 블록 하나에 넣어 한 번 삽입)', nested, { COPPER: 'cu1' }, {}, 48);
+    const b4 = buildBase(parseDxf(nested), 'auto', true);
+    check('  안쪽 삽입 48개가 스텝 후보', b4.insts.length === 48 && b4.instStat.n === 50 && b4.instStat.top === 2 && b4.instStat.deep === 48, JSON.stringify(b4.instStat));
+    check('  스텝 3종(가운데·아래 줄·위 줄)', r3.odb.steps.map(s => s.count).join() === '36,6,6', r3.odb.steps.map(s => s.name + '×' + s.count).join(' '));
+  }
   // tar.gz 묶음을 실제로 풀어 본다
   for (const [nm, r] of [['odb_example', ex], ['odb_cells', r2]]) {
     const tgz = path.join(out, nm + '.tgz'); fs.writeFileSync(tgz, zlib.gzipSync(Buffer.from(makeTar(r.odb.files, r.odb.job))));
