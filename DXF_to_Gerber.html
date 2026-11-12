@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<title>DXF → Gerber 변환기</title>
+<title>DXF → Gerber / ODB++ 변환기</title>
 <style>
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
@@ -52,6 +52,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 .item:hover{background:#eaf2ff}
 .item small{color:#66727f}
 .tag{display:inline-block;padding:0 5px;border-radius:3px;font-size:11px;margin-right:4px;color:#fff;background:#6b7785}
+#outTbl.odb th:nth-child(2),#outTbl.odb td:nth-child(2),#outTbl.odb th:nth-child(4),#outTbl.odb td:nth-child(4){display:none}
 .tag.w{background:#d9822b}.tag.e{background:#c62828}.tag.i{background:#2e7d32}
 .ok{color:#2e7d32;font-weight:700}.bad{color:#c62828;font-weight:700}
 #busy{position:fixed;inset:0;background:rgba(16,21,27,.55);display:none;align-items:center;justify-content:center;z-index:50}
@@ -65,7 +66,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 </head>
 <body>
 <header>
-  <h1>DXF → Gerber 변환기</h1><span id="build"></span><span id="fileInfo"></span>
+  <h1>DXF → Gerber / ODB++ 변환기</h1><span id="build"></span><span id="fileInfo"></span>
 </header>
 <main>
 <section id="left">
@@ -105,8 +106,21 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
   </div>
   <div class="card">
     <h2>4. 출력 파일</h2>
+    <div class="opts" style="margin-bottom:8px">
+      <label for="oFormat" title="Gerber: 층마다 .gbr 파일. ODB++: 폴더 구조 한 묶음(블록 반복을 스텝으로 묶어 용량이 작음).">출력 형식</label>
+      <select id="oFormat"><option value="gerber">Gerber (RS-274X)</option><option value="odb">ODB++</option></select>
+    </div>
     <table id="outTbl"><thead><tr><th>출력</th><th>파일 이름</th><th title="좌우 반전(아랫면을 뒤집어 볼 때)">좌우 반전</th><th></th></tr></thead><tbody><tr><td colspan="4" class="muted">도면을 열면 표시됩니다.</td></tr></tbody></table>
-    <div style="margin-top:8px"><button id="btnZip" class="primary" disabled>전체 zip 내려받기</button></div>
+    <div id="gerberOut" style="margin-top:8px"><button id="btnZip" class="primary" disabled>전체 zip 내려받기</button> <span class="muted">층별 파일은 위 표의 "내려받기"</span></div>
+    <div id="odbOut" style="display:none">
+    <div class="opts" style="margin-top:8px">
+      <label for="oOdbUnit" title="inch: 단위 표시 없이 inch·mil로 적는 옛 형식(7.0). 오래된 CAM도 읽습니다. mm: UNITS=MM을 적는 8.1 형식.">단위·형식</label>
+      <select id="oOdbUnit"><option value="inch">inch (7.0, 호환)</option><option value="mm">mm (8.1)</option></select>
+      <label for="oOdbStep" title="같은 블록 삽입에서 나온 내용이 똑같으면 스텝 하나로 묶고 패널에서 반복 배치합니다. 끄면 전부 패널 스텝에 풀어 적습니다.">블록을 스텝으로 묶어 반복</label><input type="checkbox" id="oOdbStep" checked>
+    </div>
+    <div style="margin-top:8px"><button id="btnOdbTgz" class="primary" disabled>ODB++ 내려받기 (.tgz)</button> <button id="btnOdbZip" disabled>ODB++ (.zip)</button></div>
+    <div id="odbMsg" class="muted" style="margin-top:6px;line-height:1.5">변환 결과(선·플래시·영역)를 ODB++ 폴더 구조로 적습니다. 만든 뒤 다시 읽어 변환 결과와 요소 하나하나 대조합니다. 파일 이름·좌우 반전은 위 표를 따릅니다(이름은 작업 이름에만 쓰임).</div>
+    </div>
   </div>
 </section>
 <section id="center">
@@ -133,7 +147,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1112-1030';
+const BUILD = '1112-1130';
 
 /* ================================================================
  * 1. 기하 기본
@@ -237,10 +251,10 @@ function normalizePath(pts) {
   return P;
 }
 // 도형은 꼭짓점(pts)만 간직하고, 펼친 좌표(flat: 정밀, coarse: 화면·대략 계산용)는 쓸 때 만들어 잠깐만 기억한다(수십만 객체 도면의 메모리 때문)
-const FLAT_C = new Map(), COARSE_C = new Map();
+const FLAT_C = new Map(), COARSE_C = new Map(); let FLAT_N = 0, COARSE_N = 0; // 기억해 둔 점 개수로도 한도를 둔다(아주 큰 외곽선이 여러 번 만들어질 때)
 class Shape {
-  get flat() { let f = FLAT_C.get(this); if (!f) { if (FLAT_C.size > 40000) FLAT_C.clear(); f = flattenPath(this.pts, FLAT_TOL); FLAT_C.set(this, f); } return f; }
-  get coarse() { if (!this.hasArc) return this.flat; let f = COARSE_C.get(this); if (!f) { if (COARSE_C.size > 40000) COARSE_C.clear(); f = flattenPath(this.pts, 1e-3); COARSE_C.set(this, f); } return f; }
+  get flat() { let f = FLAT_C.get(this); if (!f) { f = flattenPath(this.pts, FLAT_TOL); if (FLAT_C.size > 40000 || FLAT_N > 3e6) { FLAT_C.clear(); FLAT_N = 0; } FLAT_N += f.length; FLAT_C.set(this, f); } return f; }
+  get coarse() { if (!this.hasArc) return this.flat; let f = COARSE_C.get(this); if (!f) { f = flattenPath(this.pts, 1e-3); if (COARSE_C.size > 40000 || COARSE_N > 3e6) { COARSE_C.clear(); COARSE_N = 0; } COARSE_N += f.length; COARSE_C.set(this, f); } return f; }
 }
 function finishShape(s) {
   s.hasArc = s.pts.some(p => p.b);
@@ -556,16 +570,18 @@ function parseDxf(text) {
 }
 
 // 블록을 펼쳐 닫힌 도형 목록(mm)으로 만든다
-function buildBase(dxf, unitMode) {
+// cutBlocks: 여러 블록 삽입에 걸친 외곽선을 블록 경계에서 다시 자른다(ODB++ 스텝 묶기용). Gerber만 낼 때는 자르지 않는다.
+function buildBase(dxf, unitMode, cutBlocks) {
   const U = { 1: 25.4, 2: 304.8, 4: 1, 5: 10, 6: 1000, 8: 25.4e-6, 9: 0.0254, 10: 914.4, 13: 1e-3, 14: 100 };
   let scale = 1, unitText = 'mm';
   if (unitMode === 'inch') { scale = 25.4; unitText = 'inch(지정)'; }
   else if (unitMode === 'mm') unitText = 'mm(지정)';
   else if (dxf.insunits && U[dxf.insunits]) { scale = U[dxf.insunits]; unitText = ({ 1: 'inch', 4: 'mm', 5: 'cm', 6: 'm' })[dxf.insunits] || ('$INSUNITS=' + dxf.insunits); }
   else unitText = 'mm(가정: $INSUNITS 없음)';
-  const base = { shapes: [], ignored: [], notes: [], layerCount: new Map(), scale, unitText, ver: dxf.ver };
+  const base = { shapes: [], ignored: [], notes: [], layerCount: new Map(), scale, unitText, ver: dxf.ver, insts: [] };
+  let curInst = -1; // 지금 펼치는 맨 위 블록 삽입(이동만 있는 것)의 번호. ODB++ 스텝으로 묶는 데 쓴다
   for (const n of dxf.layers) base.layerCount.set(n, 0);
-  const add = (s, layer) => { if (!s) return; s.id = base.shapes.length; s.layer = layer; base.shapes.push(s); base.layerCount.set(layer, (base.layerCount.get(layer) || 0) + 1); };
+  const add = (s, layer) => { if (!s) return; s.id = base.shapes.length; s.layer = layer; if (s.inst === undefined) s.inst = curInst; base.shapes.push(s); base.layerCount.set(layer, (base.layerCount.get(layer) || 0) + 1); };
   const ign = (type, layer, M, x, y, why) => { const p = (isFinite(x) && isFinite(y)) ? mAp(M, x, y) : null; base.ignored.push({ type, layer, x: p ? p[0] : null, y: p ? p[1] : null, why: why || '' }); };
   function addPoly(pts, M, layer, meta) {
     let P = pts;
@@ -588,7 +604,7 @@ function buildBase(dxf, unitMode) {
         if (!closed) {
           const det = mDet(Me);
           if (pts.length < 2 || (!mIsSim(Me) && pts.some(p => p.b))) { ign(e.type + ' (열린 선)', layer, Me, pts[0] ? pts[0].x : NaN, pts[0] ? pts[0].y : NaN); continue; }
-          opens.push({ layer, type: e.type, pts: pts.map(p => { const q = mAp(Me, p.x, p.y); return { x: q[0], y: q[1], b: det < 0 ? -(p.b || 0) : (p.b || 0) }; }) });
+          opens.push({ layer, type: e.type, inst: curInst, pts: pts.map(p => { const q = mAp(Me, p.x, p.y); return { x: q[0], y: q[1], b: det < 0 ? -(p.b || 0) : (p.b || 0) }; }) });
           continue;
         }
         addPoly(pts, Me, layer, { src: e.type, handle: g.handle, hasW: g.hasW });
@@ -630,7 +646,10 @@ function buildBase(dxf, unitMode) {
         if (!blk || depth > 8) { ign('INSERT (블록 없음: ' + g.name + ')', layer, Me, g.x, g.y); continue; }
         for (let r = 0; r < g.rows; r++) for (let c = 0; c < g.cols; c++) {
           const Mi = mMul(mMul(mMul(mMul(mMul(Me, mT(g.x, g.y)), mR(g.rot)), mT(c * g.dc, r * g.dr)), mS(g.sx, g.sy)), mT(-blk.bx, -blk.by));
+          const top = depth === 0;
+          if (top) curInst = (Math.abs(Mi[0] - scale) < 1e-9 && Math.abs(Mi[3] - scale) < 1e-9 && Math.abs(Mi[1]) < 1e-9 && Math.abs(Mi[2]) < 1e-9) ? base.insts.push({ name: blk.name, x: Mi[4], y: Mi[5] }) - 1 : -1;
           walk(blk.ents, Mi, layer, depth + 1);
+          if (top) curInst = -1;
         }
       } else ign(e.type, layer, Me, g.x, g.y);
     }
@@ -638,7 +657,23 @@ function buildBase(dxf, unitMode) {
   walk(dxf.ents, mS(scale, scale), null, 0);
   // 끝점이 맞닿은 열린 폴리선을 이어 닫힌 외곽선으로 만든다(블록 경계에서 잘린 외곽선 등)
   const J = joinOpen(opens); base.joined = { loops: J.closed.length, parts: J.used };
-  for (const c of J.closed) { const sh = makeShape(c.pts, { src: 'POLYLINE ' + c.n + '개 이음' }); if (sh) add(sh, c.layer); else base.ignored.push({ type: 'POLYLINE (넓이 0)', layer: c.layer, x: c.pts[0].x, y: c.pts[0].y, why: '' }); }
+  for (const c of J.closed) {
+    const sh = makeShape(c.pts, { src: 'POLYLINE ' + c.n + '개 이음', inst: c.inst });
+    if (!sh) { base.ignored.push({ type: 'POLYLINE (넓이 0)', layer: c.layer, x: c.pts[0].x, y: c.pts[0].y, why: '' }); continue; }
+    if (!c.junc || !cutBlocks) { add(sh, c.layer); continue; }
+    // 여러 블록 삽입에 걸친 외곽선: 이음 자리(블록 경계선)에서 다시 잘라 삽입마다 한 토막이 되게 한다
+    let pieces = [sh];
+    for (const ax of [1, 0]) {
+      const seen = new Map(); for (const j of c.junc) if (j.ax === ax) { const k = Math.round((ax ? j.y : j.x) * 1e6); seen.set(k, (seen.get(k) || 0) + 1); }
+      const cs = [...seen].filter(q => q[1] >= 2).map(q => q[0] / 1e6).sort((a, b) => a - b);
+      if (!cs.length) continue;
+      // 가운데 선부터 잘라 나간다(긴 레일을 끝에서부터 하나씩 자르면 큰 조각을 수백 번 다시 만들게 된다)
+      const many = (q, list) => { const lo = q.bbox[ax ? 1 : 0], hi = q.bbox[ax ? 3 : 2], in_ = list.filter(v => v > lo + 1e-6 && v < hi - 1e-6); if (!in_.length) return [q]; const m = in_.length >> 1, r = cutAt(q, ax, in_[m]); in_.splice(m, 1); let o = []; for (const z of (r || [q])) o = o.concat(r ? many(z, in_) : (in_.length ? many(z, in_) : [z])); return o; };
+      let nx = []; for (const q of pieces) nx = nx.concat(many(q, cs)); pieces = nx;
+    }
+    for (const q of pieces) { let v = -2; for (const z of q.pts) { const o = c.own.get(ptKey([z.x, z.y])); if (o === undefined) continue; if (v === -2) v = o; else if (v !== o) { v = -1; break; } } q.inst = v < 0 ? -1 : v; add(q, c.layer); }
+    if (pieces.length > 1) base.joined.cut = (base.joined.cut || 0) + 1;
+  }
   base.paths = J.left.map(o => { const pts = o.pts.map(q => ({ x: q.x, y: q.y, b: q.b || 0 })); pts[pts.length - 1].b = 0; return { layer: o.layer, type: o.type, pts, bbox: bboxOf(flattenPath(pts, 1e-3)) }; });
   for (const q of base.paths.concat(base.texts)) base.layerCount.set(q.layer, (base.layerCount.get(q.layer) || 0) + 1);
   return base;
@@ -668,9 +703,51 @@ function joinOpen(opens) {
     const pts = [];
     for (const c of chain) { const P = c.rev ? revOpen(c.o.pts) : c.o.pts; if (pts.length) pts.pop(); for (const q of P) pts.push({ x: q.x, y: q.y, b: q.b || 0 }); }
     pts.pop(); used += chain.length;
-    closed.push({ layer: o.layer, pts, n: chain.length });
+    const cl = { layer: o.layer, pts, n: chain.length, inst: chain[0].o.inst };
+    if (chain.some(c => c.o.inst !== cl.inst)) { // 서로 다른 블록 삽입의 조각이 이어진 고리: 이음 자리와 꼭짓점의 주인을 적어 둔다
+      cl.inst = -1; cl.junc = []; cl.own = new Map();
+      chain.forEach((c, k) => {
+        const P = c.rev ? revOpen(c.o.pts) : c.o.pts, nxt = chain[(k + 1) % chain.length], z = P[P.length - 1], y = P[P.length - 2];
+        for (let i = 1; i + 1 < P.length; i++) cl.own.set(ptKey([P[i].x, P[i].y]), c.o.inst);
+        if (nxt.o.inst !== c.o.inst) cl.junc.push({ x: z.x, y: z.y, ax: Math.abs(z.y - y.y) >= Math.abs(z.x - y.x) ? 1 : 0 });
+      });
+    }
+    closed.push(cl);
   }
   return { closed, left, used };
+}
+// 외곽선을 직선 하나(ax=1: y=c 가로선, ax=0: x=c 세로선)로 자른다. 직선 변만 지나고 꼭짓점을 지나지 않을 때만. 안 되면 null.
+function cutAt(s, ax, c) {
+  const P = s.pts, n = P.length, U = p => ax ? p.y : p.x, V = p => ax ? p.x : p.y, X = [];
+  for (let i = 0; i < n; i++) {
+    const p = P[i], q = P[(i + 1) % n];
+    if (Math.abs(U(p) - c) < 1e-7) return null;
+    if (p.b) { const a = arcOf(p.x, p.y, q.x, q.y, p.b), cc = ax ? a.cy : a.cx; for (let k = 1; k < 16; k++) { const t = a.a1 + a.sweep * k / 16, v = cc + a.r * (ax ? Math.sin(t) : Math.cos(t)); if ((v - c) * (U(p) - c) <= 0) return null; } if ((U(p) - c) * (U(q) - c) < 0) return null; continue; }
+    if ((U(p) - c) * (U(q) - c) < 0) { const t = (c - U(p)) / (U(q) - U(p)); X.push({ i, v: V(p) + (V(q) - V(p)) * t }); }
+  }
+  if (X.length < 2 || X.length % 2) return null;
+  X.sort((a, b) => a.v - b.v);
+  // 고리를 연결 목록으로 만들고 현(자른 선)으로 다시 잇는다
+  const nodes = P.map(p => ({ x: p.x, y: p.y, b: p.b || 0, next: null }));
+  for (const x of X) x.nd = { x: ax ? x.v : c, y: ax ? c : x.v, b: 0, next: null };
+  for (let i = 0; i < n; i++) nodes[i].next = nodes[(i + 1) % n];
+  for (const x of X) { const p = nodes[x.i]; x.nd.next = p.next; p.next = x.nd; } // 한 변에 교점은 하나뿐(직선과 직선)
+  const all = nodes.concat(X.map(x => x.nd));
+  const chords = [];
+  for (let j = 0; j < X.length; j += 2) {
+    const a = X[j].nd, b = X[j + 1].nd, a2 = { x: a.x, y: a.y, b: 0, next: a.next }, b2 = { x: b.x, y: b.y, b: 0, next: b.next };
+    a.next = b2; b.next = a2; all.push(a2, b2); chords.push([[a.x, a.y], [b.x, b.y]]);
+  }
+  const parts = [];
+  for (const st of all) {
+    if (st.seen) continue;
+    const pts = []; let nd = st, guard = 0;
+    do { nd.seen = true; pts.push({ x: nd.x, y: nd.y, b: nd.b }); nd = nd.next; } while (nd !== st && ++guard < all.length + 5);
+    const sh = makeShape(pts, { layer: s.layer, src: s.src, handle: s.handle, hasW: s.hasW, arcFlat: s.arcFlat, part: s.part || s.id || true, inst: s.inst, cuts: (s.cuts || []).concat(chords) });
+    if (!sh) return null;
+    parts.push(sh);
+  }
+  return parts.length < 2 ? null : parts;
 }
 // 꼭짓점이 많은 큰 외곽선을 가로/세로 직선으로 잘라 맞닿은 토막으로 나눈다(직선 변만 지나는 자리에서 자른다)
 function splitShape(s, maxN, depth) {
@@ -700,26 +777,8 @@ function splitShape(s, maxN, depth) {
       if (!best || score < best.score - 1e-9) best = { score, c, X };
     }
     if (!best) continue;
-    // 고리를 연결 목록으로 만들고 현(자른 선)으로 다시 잇는다
-    const nodes = P.map(p => ({ x: p.x, y: p.y, b: p.b || 0, next: null })), ins = new Map();
-    for (const x of best.X) { const nd = { x: ax ? x.v : best.c, y: ax ? best.c : x.v, b: 0, next: null }; x.nd = nd; let a = ins.get(x.i); if (!a) ins.set(x.i, a = []); a.push(nd); }
-    for (let i = 0; i < n; i++) nodes[i].next = nodes[(i + 1) % n];
-    for (const x of best.X) { const p = nodes[x.i]; x.nd.next = p.next; p.next = x.nd; } // 한 변에 교점은 하나뿐(직선과 직선)
-    const all = nodes.concat(best.X.map(x => x.nd));
-    for (let j = 0; j < best.X.length; j += 2) {
-      const a = best.X[j].nd, b = best.X[j + 1].nd, a2 = { x: a.x, y: a.y, b: 0, next: a.next }, b2 = { x: b.x, y: b.y, b: 0, next: b.next };
-      a.next = b2; b.next = a2; all.push(a2, b2);
-    }
-    const parts = []; let fail = false;
-    for (const st of all) {
-      if (st.seen) continue;
-      const pts = []; let nd = st, guard = 0;
-      do { nd.seen = true; pts.push({ x: nd.x, y: nd.y, b: nd.b }); nd = nd.next; } while (nd !== st && ++guard < all.length + 5);
-      const sh = makeShape(pts, { layer: s.layer, src: s.src, handle: s.handle, hasW: s.hasW, arcFlat: s.arcFlat, part: s.part || s.id });
-      if (!sh) { fail = true; break; }
-      parts.push(sh);
-    }
-    if (fail || parts.length < 2) continue;
+    const parts = cutAt(s, ax, best.c);
+    if (!parts) continue;
     let out = []; for (const q of parts) out = out.concat(splitShape(q, maxN, (depth || 0) + 1));
     return out;
   }
@@ -1500,7 +1559,7 @@ const TARGETS = { cu1: { label: '동박 1', suffix: '_L1' }, cu2: { label: '동�
 const isMaskT = tg => tg === 'mask' || tg === 'mask2';
 function workShape(s, ox, oy, mir) {
   const pts = s.pts.map(p => ({ x: mir == null ? p.x - ox : mir - (p.x - ox), y: p.y - oy, b: mir == null ? p.b : -p.b }));
-  const w = makeShape(pts, { id: s.id, layer: s.layer, src: s.src, handle: s.handle, hasW: s.hasW, arcFlat: s.arcFlat, cuts: s.cuts ? s.cuts.map(c => c.map(q => [mir == null ? q[0] - ox : mir - (q[0] - ox), q[1] - oy])) : undefined });
+  const w = makeShape(pts, { id: s.id, layer: s.layer, src: s.src, handle: s.handle, hasW: s.hasW, arcFlat: s.arcFlat, cuts: s.cuts ? s.cuts.map(c => c.map(q => [mir == null ? q[0] - ox : mir - (q[0] - ox), q[1] - oy])) : undefined, inst: s.inst, part: s.part });
   if (w && s.ell) w.ell = { cx: mir == null ? s.ell.cx - ox : mir - (s.ell.cx - ox), cy: s.ell.cy - oy, rx: s.ell.rx, ry: s.ell.ry, rot: mir == null ? s.ell.rot : Math.PI - s.ell.rot };
   return w;
 }
@@ -1741,6 +1800,272 @@ async function makeZipPacked(files) {
 }
 
 /* ================================================================
+ * 12. ODB++ 쓰기 · 다시 읽기 (스텝 반복 구조)
+ *   변환 결과(선·플래시·영역)를 ODB++ 폴더 구조로 적는다. 같은 블록 삽입에서 나온 요소가
+ *   삽입마다 똑같으면 스텝 하나로 묶고 패널 스텝에서 반복(STEP-REPEAT)한다.
+ * ================================================================ */
+const ODB_LAYER = { cu1: { name: 'l1', type: 'SIGNAL' }, cu2: { name: 'l2', type: 'SIGNAL' }, mask: { name: 'sm', type: 'SOLDER_MASK' }, mask2: { name: 'sm2', type: 'SOLDER_MASK' }, outline: { name: 'outline', type: 'DOCUMENT' } };
+const ODB_ORDER = ['mask', 'cu1', 'cu2', 'mask2', 'outline']; // 매트릭스 순서: 윗면 → 아랫면, 외형은 마지막
+const ODB_SEP = '\u0001';
+function odbNum(v, dec) { let s = v.toFixed(dec); if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, ''); return (s === '-0' || s === '') ? '0' : s; }
+function odbName(t) { return (String(t).toLowerCase().replace(/[^a-z0-9_+\-.]/g, '_').replace(/^[^a-z0-9]+/, '') || 'x').slice(0, 40); }
+// 다각형([{x,y,b}], 닫힘)을 ODB++ 윤곽 줄로. 섬은 시계 방향이어야 하므로 반시계면 뒤집어 적는다.
+function odbContour(P, dx, dy, C) {
+  let a = 0; const n = P.length; for (let i = 0; i < n; i++) { const p = P[i], q = P[(i + 1) % n]; a += p.x * q.y - q.x * p.y; }
+  const o = [];
+  if (a > 0) { // 반시계 → 뒤에서부터
+    o.push('OB ' + C(P[0].x - dx) + ' ' + C(P[0].y - dy) + ' I');
+    for (let i = n - 1; i >= 0; i--) { const p = P[i], q = P[(i + 1) % n]; // q → p 로 간다
+      if (!p.b) o.push('OS ' + C(p.x - dx) + ' ' + C(p.y - dy));
+      else { const c = arcOf(p.x, p.y, q.x, q.y, p.b); o.push('OC ' + C(p.x - dx) + ' ' + C(p.y - dy) + ' ' + C(c.cx - dx) + ' ' + C(c.cy - dy) + ' ' + (p.b > 0 ? 'Y' : 'N')); } }
+  } else {
+    o.push('OB ' + C(P[0].x - dx) + ' ' + C(P[0].y - dy) + ' I');
+    for (let i = 0; i < n; i++) { const p = P[i], q = P[(i + 1) % n];
+      if (!p.b) o.push('OS ' + C(q.x - dx) + ' ' + C(q.y - dy));
+      else { const c = arcOf(p.x, p.y, q.x, q.y, p.b); o.push('OC ' + C(q.x - dx) + ' ' + C(q.y - dy) + ' ' + C(c.cx - dx) + ' ' + C(c.cy - dy) + ' ' + (p.b > 0 ? 'N' : 'Y')); } }
+  }
+  o.push('OE'); return o;
+}
+// opt: { job, units: 'inch'|'mm', steps: bool, apTol, ellN }
+function buildOdb(R, base, opt) {
+  const inch = opt.units !== 'mm', tol = opt.apTol || 1e-4;
+  const C = v => odbNum(inch ? v / 25.4 : v, inch ? 8 : 6);           // 좌표
+  const Zs = v => odbNum(inch ? v / 0.0254 : v * 1000, inch ? 4 : 3); // 심벌 크기(mil / 마이크로미터)
+  const snap = v => Math.round(Math.round(v / tol) * tol * 1e6) / 1e6;
+  const head = inch ? [] : ['UNITS=MM'];
+  const usr = new Map(); // 사용자 심벌: 이름 → 윤곽 줄
+  const usrSym = (key, mk) => { let u = usr.get(key); if (!u) { u = { name: 'usr_' + (usr.size + 1), pts: mk() }; usr.set(key, u); } return u.name; };
+  const rotP = (x, y, a) => ({ x: x * Math.cos(a) - y * Math.sin(a), y: x * Math.sin(a) + y * Math.cos(a) });
+  function padSym(p, s) {
+    if (p.type === 'C') return 'r' + Zs(snap(p.d));
+    if (p.type === 'E') {
+      const rx = snap(p.rx), ry = snap(p.ry);
+      if (!p.rot) return 'el' + Zs(2 * rx) + 'x' + Zs(2 * ry);
+      return usrSym('E' + rx + 'x' + ry + 'r' + p.rot.toFixed(7), () => ellipsePts({ cx: 0, cy: 0, rx, ry, rot: p.rot }, Math.max(48, opt.ellN || 48)));
+    }
+    const w = snap(p.w), h = snap(p.h), a = p.rot;
+    if (p.type === 'R') return a ? usrSym('R' + w + 'x' + h + 'r' + a.toFixed(7), () => [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(q => Object.assign(rotP(q[0], q[1], a), { b: 0 }))) : 'rect' + Zs(w) + 'x' + Zs(h);
+    if (p.type === 'O') return a ? usrSym('O' + w + 'x' + h + 'r' + a.toFixed(7), () => { const d = (w - h) / 2; return [[-d, -h / 2, 0], [d, -h / 2, 1], [d, h / 2, 0], [-d, h / 2, 1]].map(q => Object.assign(rotP(q[0], q[1], a), { b: q[2] })); }) : 'oval' + Zs(w) + 'x' + Zs(h);
+    if (p.type === 'RR') {
+      const r = snap(p.r);
+      if (!a) return 'rect' + Zs(w) + 'x' + Zs(h) + 'xr' + Zs(r);
+      return usrSym('RR' + w + 'x' + h + 'c' + r + 'r' + a.toFixed(7), () => { const B = Math.tan(Math.PI / 8), X = w / 2, Y = h / 2; return [[-X + r, -Y, 0], [X - r, -Y, B], [X, -Y + r, 0], [X, Y - r, B], [X - r, Y, 0], [-X + r, Y, B], [-X, Y - r, 0], [-X, -Y + r, B]].map(q => Object.assign(rotP(q[0], q[1], a), { b: q[2] })); });
+    }
+    return null;
+  }
+  // 요소 하나를 줄(문자열)로. 심벌 이름은 ODB_SEP 사이에 넣어 두었다가 파일을 쓸 때 번호로 바꾼다.
+  const fLine = (x1, y1, x2, y2, w, pol, dx, dy) => 'L ' + C(x1 - dx) + ' ' + C(y1 - dy) + ' ' + C(x2 - dx) + ' ' + C(y2 - dy) + ' ' + ODB_SEP + 'r' + Zs(w) + ODB_SEP + ' ' + pol + ' 0';
+  const fPad = (x, y, sym, pol, dx, dy) => 'P ' + C(x - dx) + ' ' + C(y - dy) + ' ' + ODB_SEP + sym + ODB_SEP + ' ' + pol + ' 0 0';
+  const fSurf = (P, pol, dx, dy) => ['S ' + pol + ' 0'].concat(odbContour(P, dx, dy, C), ['SE']).join('\n');
+  const triP = d => { const P = []; for (let i = 0; i < d.length; i += 3) P.push({ x: d[i], y: d[i + 1], b: d[i + 2] }); return P; };
+  const layers = R.layers.slice().sort((a, b) => ODB_ORDER.indexOf(a.target) - ODB_ORDER.indexOf(b.target)).map(L => ({ L, name: ODB_LAYER[L.target].name, type: ODB_LAYER[L.target].type, flat: L.shapes.some(s => !s.dup && s.level > 0) }));
+  const ox = R.offset[0], oy = R.offset[1];
+  const useSteps = !!opt.steps && base.insts.length > 1 && !R.layers.some(L => L.mirror && L.target !== 'outline');
+  const nI = useSteps ? base.insts.length : 0;
+  // 삽입별 줄 모음(레이어별), 패널 줄(레이어별)
+  const instLines = []; for (let i = 0; i < nI; i++) instLines.push(null);
+  const panel = layers.map(() => []);
+  const stat = { lines: 0, pads: 0, surfs: 0 };
+  layers.forEach((ly, li) => {
+    if (ly.L.target === 'outline') { // 외형: 다시 읽은 선 그대로(호는 잘게 편 선분) 패널 스텝에
+      for (const p of ly.L.prims) if (p.kind === 'stroke') { const d = p.d; panel[li].push(fLine(d[0], d[1], d[2], d[3], 2 * d[4], p.pol ? 'N' : 'P', 0, 0)); stat.lines++; }
+      return;
+    }
+    const sh = ly.L.shapes.filter(s => !s.dup).sort((a, b) => a.level - b.level);
+    for (const s of sh) {
+      const pol = s.level % 2 ? 'N' : 'P', own = useSteps && !ly.flat && s.inst >= 0 && s.inst < nI ? s.inst : -1;
+      const dx = own >= 0 ? base.insts[own].x - ox : 0, dy = own >= 0 ? base.insts[own].y - oy : 0, out = [];
+      if (s.out === 'flash') { const sym = padSym(s.pad, s); if (sym) { out.push(fPad(s.pad.cx, s.pad.cy, sym, pol, dx, dy)); stat.pads++; } else { out.push(fSurf(s.pts, pol, dx, dy)); stat.surfs++; } }
+      else if (s.out === 'line') {
+        for (const k of s.strokes) { out.push(fLine(k.x1, k.y1, k.x2, k.y2, k.w, pol, dx, dy)); stat.lines++; }
+        for (const d of s.fills) { out.push(fSurf(triP(d), pol, dx, dy)); stat.surfs++; }
+      } else { out.push(fSurf(s.ell ? ellipsePts(s.ell, opt.ellN || 48) : s.pts, pol, dx, dy)); stat.surfs++; }
+      if (own < 0) { for (const t of out) panel[li].push(t); continue; }
+      let il = instLines[own]; if (!il) il = instLines[own] = layers.map(() => []);
+      for (const t of out) il[li].push(t);
+    }
+    // 글자(내장 글꼴)·열린 선: 다시 읽은 선 그대로 패널 스텝에
+    for (const p of ly.L.prims) if (p.kind === 'stroke' && p.sub === 'text') { const d = p.d; panel[li].push(fLine(d[0], d[1], d[2], d[3], 2 * d[4], p.pol ? 'N' : 'P', 0, 0)); stat.lines++; }
+  });
+  // 내용이 똑같은 삽입끼리 스텝 하나로
+  const groups = new Map();
+  for (let i = 0; i < nI; i++) {
+    const il = instLines[i]; if (!il) continue;
+    for (const a of il) a.sort();
+    const key = il.map(a => a.join('\n')).join('\n' + ODB_SEP + ODB_SEP + '\n');
+    let g = groups.get(key); if (!g) groups.set(key, g = { lines: il, insts: [], blk: base.insts[i].name });
+    g.insts.push(i); instLines[i] = null;
+  }
+  let steps = [...groups.values()].sort((a, b) => b.insts.length - a.insts.length);
+  const flatten = g => { for (const i of g.insts) { const dx = base.insts[i].x - ox, dy = base.insts[i].y - oy; g.lines.forEach((arr, li) => { for (const t of arr) panel[li].push(odbShift(t, dx, dy, inch)); }); } };
+  const keep = []; for (const g of steps) { if (g.insts.length < 2 || keep.length >= 1500) flatten(g); else keep.push(g); }
+  steps = keep;
+  const usedNames = new Set(['panel']);
+  for (const g of steps) { let nm = odbName(g.blk), k = 1; while (usedNames.has(nm + (k > 1 ? '_' + k : ''))) k++; g.name = nm + (k > 1 ? '_' + k : ''); usedNames.add(g.name); }
+  // 파일 만들기
+  const files = new Map(), put = (path, lines) => files.set(path, lines.join('\n') + '\n');
+  const featFile = (lines) => {
+    const syms = new Map(), body = [];
+    for (const t of lines) { const a = t.split(ODB_SEP); if (a.length === 3) { let ix = syms.get(a[1]); if (ix === undefined) { ix = syms.size; syms.set(a[1], ix); } body.push(a[0] + ix + a[2]); } else body.push(t); }
+    const o = head.concat(['#', '#Feature symbol names', '#']); for (const [nm, ix] of syms) o.push('$' + ix + ' ' + nm);
+    o.push('#', '#Layer features', '#'); return o.concat(body);
+  };
+  const rectProfile = b => head.concat(['#', '#Layer features', '#', 'S P 0', 'OB ' + C(b[0]) + ' ' + C(b[1]) + ' I', 'OS ' + C(b[0]) + ' ' + C(b[3]), 'OS ' + C(b[2]) + ' ' + C(b[3]), 'OS ' + C(b[2]) + ' ' + C(b[1]), 'OS ' + C(b[0]) + ' ' + C(b[1]), 'OE', 'SE']);
+  const hdr = sr => head.concat(['X_DATUM=0', 'Y_DATUM=0', 'X_ORIGIN=0', 'Y_ORIGIN=0', 'TOP_ACTIVE=0', 'BOTTOM_ACTIVE=0', 'RIGHT_ACTIVE=0', 'LEFT_ACTIVE=0', 'AFFECTING_BOM=', 'AFFECTING_BOM_CHANGED=0'], sr || []);
+  const job = odbName(opt.job || 'job'), up = t => t.toUpperCase();
+  const now = new Date(), p2 = v => String(v).padStart(2, '0'), stamp = now.getFullYear() + p2(now.getMonth() + 1) + p2(now.getDate()) + '.' + p2(now.getHours()) + p2(now.getMinutes()) + p2(now.getSeconds());
+  put('misc/info', ['JOB_NAME=' + job, 'ODB_VERSION_MAJOR=' + (inch ? 7 : 8), 'ODB_VERSION_MINOR=' + (inch ? 0 : 1), 'ODB_SOURCE=DXF_to_ODB', 'CREATION_DATE=' + stamp, 'SAVE_DATE=' + stamp, 'SAVE_APP=DXF_to_ODB ' + BUILD, 'SAVE_USER=user'].concat(inch ? [] : ['UNITS=MM', 'MAX_UID=0']));
+  const mx = []; let col = 1;
+  for (const nm of ['panel'].concat(steps.map(g => g.name))) mx.push('STEP {', '    COL=' + (col++), '    NAME=' + up(nm), '}', '');
+  layers.forEach((ly, i) => mx.push('LAYER {', '    ROW=' + (i + 1), '    CONTEXT=BOARD', '    TYPE=' + ly.type, '    NAME=' + up(ly.name), '    POLARITY=POSITIVE', '    START_NAME=', '    END_NAME=', '    OLD_NAME=', '}', ''));
+  put('matrix/matrix', mx);
+  put('fonts/standard', ['XSIZE 0.302000', 'YSIZE 0.302000', 'OFFSET 0.000000']);
+  // 스텝 반복: 같은 높이에서 간격이 일정한 삽입은 NX로, 같은 줄이 일정 간격으로 쌓이면 NY로 묶는다
+  const sr = []; let nSr = 0;
+  const E = 2e-6;
+  for (const g of steps) {
+    const pos = g.insts.map(i => [base.insts[i].x - ox, base.insts[i].y - oy]).sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+    const rows = []; // {x, y, dx, nx}
+    for (let i = 0; i < pos.length;) {
+      let j = i + 1, dx = 0;
+      if (j < pos.length && Math.abs(pos[j][1] - pos[i][1]) < E) { dx = pos[j][0] - pos[i][0]; j++; while (j < pos.length && Math.abs(pos[j][1] - pos[i][1]) < E && Math.abs(pos[j][0] - pos[j - 1][0] - dx) < E) j++; }
+      rows.push({ x: pos[i][0], y: pos[i][1], dx, nx: j - i }); i = j;
+    }
+    rows.sort((a, b) => a.x - b.x || a.nx - b.nx || a.dx - b.dx || a.y - b.y);
+    for (let i = 0; i < rows.length;) {
+      const a = rows[i]; let j = i + 1, dy = 0; const same = r => Math.abs(r.x - a.x) < E && r.nx === a.nx && Math.abs(r.dx - a.dx) < E;
+      if (j < rows.length && same(rows[j])) { dy = rows[j].y - a.y; j++; while (j < rows.length && same(rows[j]) && Math.abs(rows[j].y - rows[j - 1].y - dy) < E) j++; }
+      sr.push('', 'STEP-REPEAT {', '    NAME=' + up(g.name), '    X=' + C(a.x), '    Y=' + C(a.y), '    DX=' + C(a.dx), '    DY=' + C(dy), '    NX=' + a.nx, '    NY=' + (j - i), '    ANGLE=0', '    MIRROR=NO', '}'); nSr++;
+      i = j;
+    }
+  }
+  const pb = R.bbox || [0, 0, 1, 1];
+  // 패널 외형(profile): 외형 층에 닫힌 외곽선이 있으면 가장 큰 것, 없으면 전체 둘레 상자
+  const OLy = R.layers.find(L => L.target === 'outline'), big = OLy ? OLy.shapes.slice().sort((a, b) => Math.abs(b.area) - Math.abs(a.area))[0] : null;
+  put('steps/panel/stephdr', hdr(sr)); put('steps/panel/profile', big ? head.concat(['#', '#Layer features', '#', 'S P 0'], odbContour(big.ell ? ellipsePts(big.ell, opt.ellN || 48) : big.pts, 0, 0, C), ['SE']) : rectProfile(pb));
+  layers.forEach((ly, li) => put('steps/panel/layers/' + ly.name + '/features', featFile(panel[li])));
+  for (const g of steps) {
+    // 스텝 외형: 요소 좌표의 둘레 상자(대략)
+    const b = [Infinity, Infinity, -Infinity, -Infinity], re = /^(?:L|P|OB|OS|OC) (-?[\d.]+) (-?[\d.]+)/gm, k = inch ? 25.4 : 1;
+    for (const arr of g.lines) for (const t of arr) { let m; re.lastIndex = 0; while ((m = re.exec(t))) { const x = +m[1] * k, y = +m[2] * k; if (x < b[0]) b[0] = x; if (x > b[2]) b[2] = x; if (y < b[1]) b[1] = y; if (y > b[3]) b[3] = y; } }
+    if (!isFinite(b[0])) { b[0] = b[1] = 0; b[2] = b[3] = 1; }
+    put('steps/' + g.name + '/stephdr', hdr()); put('steps/' + g.name + '/profile', rectProfile(b));
+    layers.forEach((ly, li) => put('steps/' + g.name + '/layers/' + ly.name + '/features', featFile(g.lines[li])));
+  }
+  for (const u of usr.values()) put('symbols/' + u.name + '/features', head.concat(['#', '#Layer features', '#', 'S P 0'], odbContour(u.pts, 0, 0, C), ['SE']));
+  let bytes = 0; for (const t of files.values()) bytes += t.length;
+  return { job, files, bytes, units: inch ? 'inch' : 'mm', steps: steps.map(g => ({ name: g.name, count: g.insts.length })), nSr, nInst: steps.reduce((a, g) => a + g.insts.length, 0), stat, layers: layers.map(l => l.name), noStepWhy: useSteps ? '' : (!opt.steps ? '스텝 묶기 꺼짐' : base.insts.length < 2 ? '블록 삽입이 없음' : '좌우 반전을 쓴 층이 있음') };
+}
+// 스텝 좌표로 적은 줄을 패널 좌표로 옮긴다(한 번만 나오는 삽입을 패널에 풀어 넣을 때)
+function odbShift(t, dx, dy, inch) {
+  const k = inch ? 25.4 : 1, dec = inch ? 8 : 6, f = (v, d) => odbNum((+v * k + d) / k, dec);
+  return t.split('\n').map(l => {
+    const a = l.split(' ');
+    if (a[0] === 'L') { a[1] = f(a[1], dx); a[2] = f(a[2], dy); a[3] = f(a[3], dx); a[4] = f(a[4], dy); }
+    else if (a[0] === 'P' || a[0] === 'OB' || a[0] === 'OS') { a[1] = f(a[1], dx); a[2] = f(a[2], dy); }
+    else if (a[0] === 'OC') { a[1] = f(a[1], dx); a[2] = f(a[2], dy); a[3] = f(a[3], dx); a[4] = f(a[4], dy); }
+    return a.join(' ');
+  }).join('\n');
+}
+// 쓴 ODB++를 다시 읽어 요소마다 emit(layerName, kind, pol, bbox, area, tolExtra)를 부른다(스텝 반복을 풀어서)
+function readOdb(files, emit) {
+  const txt = p => files.get(p) || '', lay = [], steps = [];
+  { let cur = null; for (const l of txt('matrix/matrix').split('\n')) { const t = l.trim(); if (t === 'STEP {') cur = { k: 's' }; else if (t === 'LAYER {') cur = { k: 'l' }; else if (t === '}') { if (cur && cur.NAME) (cur.k === 's' ? steps : lay).push(cur.NAME.toLowerCase()); cur = null; } else if (cur) { const m = /^(\w+)=(.*)$/.exec(t); if (m) cur[m[1]] = m[2]; } } }
+  const usrCache = new Map();
+  function parseFeat(path) { // → { unit(mm per unit), symUnit(mm per size unit), syms[], recs[] }
+    const lines = txt(path).split('\n'); let mm = false; const syms = [], recs = []; let surf = null, cont = null, px = 0, py = 0;
+    for (const l of lines) {
+      if (!l || l[0] === '#') continue;
+      if (l.indexOf('UNITS=') === 0) { mm = l.indexOf('MM') > 0; continue; }
+      if (l[0] === '$') { const a = l.split(' '); syms[+a[0].slice(1)] = a[1]; continue; }
+      const a = l.split(' ');
+      if (a[0] === 'L') recs.push({ t: 'L', x1: +a[1], y1: +a[2], x2: +a[3], y2: +a[4], sym: +a[5], pol: a[6] });
+      else if (a[0] === 'P') recs.push({ t: 'P', x: +a[1], y: +a[2], sym: +a[3], pol: a[4] });
+      else if (a[0] === 'S') { surf = { t: 'S', pol: a[1], conts: [] }; recs.push(surf); }
+      else if (a[0] === 'OB') { cont = [[+a[1], +a[2]]]; surf.conts.push(cont); px = +a[1]; py = +a[2]; }
+      else if (a[0] === 'OS') { cont.push([+a[1], +a[2]]); px = +a[1]; py = +a[2]; }
+      else if (a[0] === 'OC') { const ex = +a[1], ey = +a[2], cx = +a[3], cy = +a[4], r = hyp(px - cx, py - cy), ccw = a[5] === 'N'; if (r > 0) { let a1 = Math.atan2(py - cy, px - cx), a2 = Math.atan2(ey - cy, ex - cx), sw = ccw ? a2 - a1 : a1 - a2; while (sw <= 1e-12) sw += 2 * Math.PI; if (!ccw) sw = -sw; const n = Math.max(2, Math.ceil(Math.abs(sw) / 0.05)); for (let j = 1; j < n; j++) { const t = a1 + sw * j / n; cont.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]); } } cont.push([ex, ey]); px = ex; py = ey; }
+    }
+    return { u: mm ? 1 : 25.4, su: mm ? 0.001 : 0.0254, syms, recs };
+  }
+  const symBox = (name, su) => { // → { hw, hh } 반폭·반높이(mm) 또는 사용자 심벌의 둘레 상자
+    let m;
+    if ((m = /^r([\d.]+)$/.exec(name))) return { b: [-m[1] * su / 2, -m[1] * su / 2, m[1] * su / 2, m[1] * su / 2], r: m[1] * su / 2 };
+    if ((m = /^(?:rect|oval|el)([\d.]+)x([\d.]+)(?:xr[\d.]+)?$/.exec(name))) return { b: [-m[1] * su / 2, -m[2] * su / 2, m[1] * su / 2, m[2] * su / 2] };
+    let c = usrCache.get(name);
+    if (!c) { const f = parseFeat('symbols/' + name + '/features'), b = [Infinity, Infinity, -Infinity, -Infinity]; for (const r of f.recs) if (r.t === 'S') for (const ct of r.conts) for (const q of ct) { b[0] = Math.min(b[0], q[0] * f.u); b[1] = Math.min(b[1], q[1] * f.u); b[2] = Math.max(b[2], q[0] * f.u); b[3] = Math.max(b[3], q[1] * f.u); } c = { b, bad: !isFinite(b[0]) }; usrCache.set(name, c); }
+    return c;
+  };
+  const featCache = new Map(), feat = p => { let f = featCache.get(p); if (!f) featCache.set(p, f = parseFeat(p)); return f; };
+  let errors = 0;
+  function emitStep(step, ox, oy) {
+    for (const ly of lay) {
+      const f = feat('steps/' + step + '/layers/' + ly + '/features'), u = f.u;
+      for (const r of f.recs) {
+        if (r.t === 'L') { const sb = symBox(f.syms[r.sym] || '', f.su), rr = sb.r || 0; if (!sb.r) errors++; const x1 = r.x1 * u + ox, y1 = r.y1 * u + oy, x2 = r.x2 * u + ox, y2 = r.y2 * u + oy; emit(ly, 'stroke', r.pol === 'N' ? 1 : 0, [Math.min(x1, x2) - rr, Math.min(y1, y2) - rr, Math.max(x1, x2) + rr, Math.max(y1, y2) + rr], hyp(x2 - x1, y2 - y1), rr); }
+        else if (r.t === 'P') { const sb = symBox(f.syms[r.sym] || '', f.su); if (sb.bad || !sb.b) { errors++; continue; } const x = r.x * u + ox, y = r.y * u + oy; emit(ly, 'flash', r.pol === 'N' ? 1 : 0, [x + sb.b[0], y + sb.b[1], x + sb.b[2], y + sb.b[3]], 0, 0); }
+        else for (const ct of r.conts) { const b = [Infinity, Infinity, -Infinity, -Infinity]; let ar = 0; for (let i = 0; i < ct.length; i++) { const p = ct[i], q = ct[(i + 1) % ct.length]; ar += p[0] * q[1] - q[0] * p[1]; b[0] = Math.min(b[0], p[0]); b[1] = Math.min(b[1], p[1]); b[2] = Math.max(b[2], p[0]); b[3] = Math.max(b[3], p[1]); } if (ar > 1e-12) errors++; /* 섬은 시계 방향이어야 한다 */ emit(ly, 'region', r.pol === 'N' ? 1 : 0, [b[0] * u + ox, b[1] * u + oy, b[2] * u + ox, b[3] * u + oy], Math.abs(ar) / 2 * u * u, 0); }
+      }
+    }
+    const lines = txt('steps/' + step + '/stephdr').split('\n'); let u = 25.4, cur = null;
+    for (const l of lines) { const t = l.trim(); if (t === 'UNITS=MM') u = 1; else if (t === 'STEP-REPEAT {') cur = {}; else if (t === '}') { if (cur) { const nm = (cur.NAME || '').toLowerCase(); if (steps.indexOf(nm) < 0) errors++; else for (let j = 0; j < (+cur.NY || 1); j++) for (let i = 0; i < (+cur.NX || 1); i++) emitStep(nm, ox + (+cur.X + i * +cur.DX) * u, oy + (+cur.Y + j * +cur.DY) * u); } cur = null; } else if (cur) { const m = /^(\w+)=(.*)$/.exec(t); if (m) cur[m[1]] = m[2]; } }
+  }
+  if (steps.indexOf('panel') < 0) errors++; else emitStep('panel', 0, 0);
+  return { errors, layers: lay, steps };
+}
+// ODB++를 다시 읽어 Gerber 쪽 결과(L.prims)와 요소 하나하나 맞는지 본다
+function checkOdb(odb, R) {
+  const TOL = 6e-5, byName = {}, res = { total: 0, miss: 0, extra: 0, errors: 0, at: null };
+  for (const L of R.layers) {
+    const g = new Grid(2), items = [];
+    for (const p of L.prims) { const it = { bbox: p.bbox, kind: p.kind, pol: p.pol, used: false, p }; items.push(it); g.add(p.bbox, it); }
+    byName[ODB_LAYER[L.target].name] = { g, items };
+  }
+  const rd = readOdb(odb.files, (ly, kind, pol, b, area, rr) => {
+    res.total++; const t = byName[ly]; if (!t) { res.extra++; return; }
+    for (const it of t.g.query(b, TOL)) {
+      if (it.used || it.kind !== kind || it.pol !== pol) continue;
+      const q = it.bbox; if (Math.abs(q[0] - b[0]) > TOL || Math.abs(q[1] - b[1]) > TOL || Math.abs(q[2] - b[2]) > TOL || Math.abs(q[3] - b[3]) > TOL) continue;
+      if (kind === 'region') { const d = it.p.d; let ar = 0; for (let i = 0; i < d.length; i += 2) { const k = (i + 2) % d.length; ar += d[i] * d[k + 1] - d[k] * d[i + 1]; } if (Math.abs(Math.abs(ar) / 2 - area) > 1e-5 + 2e-3 * area) continue; }
+      it.used = true; return;
+    }
+    res.extra++; if (!res.at) res.at = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+  });
+  res.errors = rd.errors;
+  for (const k in byName) for (const it of byName[k].items) if (!it.used) { res.miss++; if (!res.at) res.at = [(it.bbox[0] + it.bbox[2]) / 2, (it.bbox[1] + it.bbox[3]) / 2]; }
+  res.ok = !res.miss && !res.extra && !res.errors;
+  return res;
+}
+// tar(ustar) 묶음. files: Map(path → text), root: 맨 위 폴더 이름
+function makeTar(files, root) {
+  const enc = new TextEncoder(), blocks = []; let total = 0;
+  const hdr = (name, size, type) => {
+    const h = new Uint8Array(512), put = (s, o) => { const b = enc.encode(s); h.set(b, o); }, oct = (v, n) => v.toString(8).padStart(n - 1, '0') + '\0';
+    let nm = name, pre = ''; if (enc.encode(nm).length > 100) { const k = nm.lastIndexOf('/', nm.length - 2 > 99 ? 99 + (nm.length - 100) : nm.length); const cut = nm.indexOf('/', nm.length - 100); pre = nm.slice(0, cut); nm = nm.slice(cut + 1); }
+    put(nm, 0); put(type === '5' ? '0000755\0' : '0000644\0', 100); put('0000000\0', 108); put('0000000\0', 116); put(oct(size, 12), 124); put(oct(Math.floor(Date.now() / 1000), 12), 136); put('        ', 148); h[156] = type.charCodeAt(0); put('ustar\0' + '00', 257); if (pre) put(pre, 345);
+    let sum = 0; for (let i = 0; i < 512; i++) sum += h[i]; put(sum.toString(8).padStart(6, '0') + '\0 ', 148);
+    return h;
+  };
+  const dirs = new Set(), add = b => { blocks.push(b); total += b.length; };
+  const mkdir = d => { if (dirs.has(d)) return; const up = d.lastIndexOf('/'); if (up > 0) mkdir(d.slice(0, up)); dirs.add(d); add(hdr(d + '/', 0, '5')); };
+  for (const [path, text] of files) {
+    const full = root + '/' + path; mkdir(full.slice(0, full.lastIndexOf('/')));
+    const data = enc.encode(text); add(hdr(full, data.length, '0')); add(data); const pad = (512 - data.length % 512) % 512; if (pad) add(new Uint8Array(pad));
+  }
+  add(new Uint8Array(1024));
+  const out = new Uint8Array(total); let o = 0; for (const b of blocks) { out.set(b, o); o += b.length; }
+  return out;
+}
+async function gzipBytes(u8) {
+  if (typeof CompressionStream === 'undefined') return null;
+  const cs = new CompressionStream('gzip'), wr = cs.writable.getWriter(); wr.write(u8); wr.close();
+  const chunks = [], rd = cs.readable.getReader(); let n = 0;
+  for (;;) { const r = await rd.read(); if (r.done) break; chunks.push(r.value); n += r.value.length; }
+  const out = new Uint8Array(n); let o = 0; for (const c of chunks) { out.set(c, o); o += c.length; }
+  return out;
+}
+
+/* ================================================================
  * 10. 예제 도면 (개발 검증용)
  * ================================================================ */
 function offsetPolyline(c, w) { // 중심선 → 마이터 외곽선(끝은 직각)
@@ -1882,7 +2207,7 @@ if (typeof document !== 'undefined') (function () {
   }
   function rebuildBase(fresh) {
     if (!S.dxf) return;
-    S.base = buildBase(S.dxf, $('oUnit').value);
+    S.base = buildBase(S.dxf, $('oUnit').value, $('oFormat').value === 'odb' && $('oOdbStep').checked);
     const b = S.base, stem = S.fileName.replace(/\.[^.]*$/, '') || 'output';
     if (fresh) {
       // 이름으로 추정: 마스크 → 솔더마스크, 동박처럼 보이는 이름 우선, 외형·치수·부품 같은 이름은 출력 안 함
@@ -1958,6 +2283,7 @@ if (typeof document !== 'undefined') (function () {
     $('hint').style.display = S.result && S.result.layers.length ? 'none' : '';
     for (const tg in TARGETS) { const b = $('dl_' + tg); if (b) b.disabled = !layerOf(tg); }
     $('btnZip').disabled = !(S.result && S.result.layers.length);
+    $('btnOdbTgz').disabled = $('btnOdbZip').disabled = $('btnZip').disabled;
     renderToolbarLayers(); renderSummary(); renderLegend();
     if (refit) fit(); else draw();
     if (V.sel) { const s = findShape(V.sel.target, V.sel.id); if (s) showPop(s, V.sel.target, null); else closePop(); }
@@ -2204,12 +2530,38 @@ if (typeof document !== 'undefined') (function () {
   document.addEventListener('drop', ev => { const f = ev.dataTransfer && ev.dataTransfer.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => loadBuffer(rd.result, f.name); rd.readAsArrayBuffer(f); });
   $('btnExample').onclick = () => loadText(makeExampleDxf(), 'example.dxf');
   $('oUnit').onchange = () => rebuildBase(false);
+  // 출력 형식: Gerber / ODB++. ODB++에서 스텝 묶기를 쓰면 블록 경계에서 외곽선을 잘라야 해서 도면을 다시 펼친다(객체 번호가 바뀌므로 눌러서 바꾼 것은 지운다)
+  const applyFormat = () => { const odb = $('oFormat').value === 'odb'; $('gerberOut').style.display = odb ? 'none' : ''; $('odbOut').style.display = odb ? '' : 'none'; $('outTbl').classList.toggle('odb', odb); };
+  const reformat = () => { applyFormat(); if (S.dxf) { S.overrides = {}; S.voids = {}; rebuildBase(false); } };
+  $('oFormat').onchange = reformat; $('oOdbStep').onchange = () => { if ($('oFormat').value === 'odb') reformat(); };
+  applyFormat();
   for (const id of ['oOrigin', 'oRatio', 'oGrid', 'oThr', 'oApTol', 'oEllN', 'oNoMacro', 'oFillPoly', 'oAllVoid', 'oPadCut', 'oOutW', 'oTextOn', 'oTextPct', 'oOpenOn', 'oOpenW']) $(id).addEventListener('change', () => { if (id === 'oTextOn' || id === 'oOpenOn') renderIgnored(); convert(id === 'oOrigin'); });
   for (const id of ['vOrig', 'vRes', 'vCenter']) $(id).onchange = draw;
   $('vMaskLine').onchange = () => { renderLegend(); draw(); };
   $('vColor').onchange = () => { renderLegend(); draw(); };
   $('btnFit').onclick = fit;
   cv.addEventListener('dblclick', fit);
+  async function odbOut(kind) {
+    if (!S.result || !S.base) return;
+    const stem = S.fileName.replace(/\.[^.]*$/, '') || 'output', msg = $('odbMsg'), bs = [$('btnOdbTgz'), $('btnOdbZip')];
+    bs.forEach(b => b.disabled = true); msg.className = 'muted'; msg.textContent = 'ODB++ 만드는 중…';
+    await new Promise(r => setTimeout(r, 30));
+    try {
+      const t0 = performance.now(), odb = buildOdb(S.result, S.base, { job: stem, units: $('oOdbUnit').value, steps: $('oOdbStep').checked, apTol: cfgNow().apTol, ellN: cfgNow().ellN });
+      msg.textContent = 'ODB++ 다시 읽어 대조하는 중…'; await new Promise(r => setTimeout(r, 30));
+      const c = checkOdb(odb, S.result);
+      let h = '작업 이름 <b>' + esc(odb.job) + '</b> · ' + odb.units + ' · 파일 ' + odb.files.size + '개 · ' + (odb.bytes / 1e6).toFixed(2) + 'MB(압축 전)<br>';
+      h += odb.steps.length ? '스텝 ' + odb.steps.length + '종을 ' + odb.nInst + '곳에 반복(반복 줄 ' + odb.nSr + '개): ' + esc(odb.steps.slice(0, 6).map(q => q.name + '×' + q.count).join(', ')) + (odb.steps.length > 6 ? ' …' : '') : '스텝 묶음 없음' + (odb.noStepWhy ? ' (' + odb.noStepWhy + ')' : ' (똑같이 반복되는 블록 삽입이 없음)') + ' — 전부 panel 스텝에 적음';
+      h += '<br>다시 읽기 대조: ' + (c.ok ? '<span class="ok">요소 ' + c.total + '개 모두 Gerber 결과와 일치</span>' : '<span class="bad">불일치 — 빠짐 ' + c.miss + ', 남음 ' + c.extra + ', 형식 오류 ' + c.errors + (c.at ? ' (예: ' + c.at[0].toFixed(3) + ', ' + c.at[1].toFixed(3) + ')' : '') + '</span>');
+      h += ' · ' + ((performance.now() - t0) / 1000).toFixed(1) + '초';
+      msg.innerHTML = h; msg.className = '';
+      S.odbInfo = { steps: odb.steps.length, nInst: odb.nInst, ok: c.ok, total: c.total, bytes: odb.bytes, files: odb.files.size };
+      if (kind === 'zip') { const fl = []; for (const [pth, text] of odb.files) fl.push({ name: odb.job + '/' + pth, text }); download(stem + '_odb.zip', [await makeZipPacked(fl)], 'application/zip'); }
+      else { const tar = makeTar(odb.files, odb.job), gz = await gzipBytes(tar); if (gz) download(stem + '_odb.tgz', [gz], 'application/gzip'); else download(stem + '_odb.tar', [tar], 'application/x-tar'); }
+    } catch (e) { msg.innerHTML = '<span class="bad">ODB++ 만들기 실패: ' + esc(String(e && e.message || e)) + '</span>'; msg.className = ''; console.error(e); }
+    bs.forEach(b => b.disabled = false);
+  }
+  $('btnOdbTgz').onclick = () => odbOut('tgz'); $('btnOdbZip').onclick = () => odbOut('zip');
   $('btnZip').onclick = async () => { if (!S.result) return; const stem = S.fileName.replace(/\.[^.]*$/, '') || 'output', b = $('btnZip'), t = b.textContent; b.disabled = true; b.textContent = '압축 중…'; try { download(stem + '_gerber.zip', [await makeZipPacked(S.result.layers.map(L => ({ name: S.files[L.target], text: L.text })))], 'application/zip'); } finally { b.disabled = false; b.textContent = t; } };
   window.addEventListener('resize', resize);
   renderLegend(); resize();

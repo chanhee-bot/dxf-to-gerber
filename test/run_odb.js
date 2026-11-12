@@ -1,12 +1,12 @@
-// ODB++ 빌드(DXF_to_ODB.html) 검증: 변환 → ODB++ 쓰기 → 다시 읽어 Gerber 결과와 요소별 대조.
+// ODB++ 출력 검증: 변환 → ODB++ 쓰기 → 다시 읽어 Gerber 결과와 요소별 대조.
 // 사용: node test/run_odb.js [dxf 파일]   (파일을 주면 그 도면으로, 없으면 예제 도면 + 블록 배열 도면)
 const fs = require('fs'), path = require('path'), vm = require('vm'), zlib = require('zlib'), cp = require('child_process');
-const html = fs.readFileSync(path.join(__dirname, '..', 'DXF_to_ODB.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '..', 'DXF_to_Gerber.html'), 'utf8');
 vm.runInThisContext(/<script>([\s\S]*)<\/script>/.exec(html)[1], { filename: 'DXF_to_ODB.js' });
 let fails = 0; const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? '  ok   ' : '  FAIL ') + name + (info ? '  ' + info : '')); };
 const cfg = (layers, extra) => Object.assign({ layers, files: { cu1: 'a_L1.gbr', cu2: 'a_L2.gbr', mask: 'a_SM.gbr' }, mirror: {}, origin: 'dxf', ratio: 4, grid: 0.002, thr: 0.005, apTol: 0.0001, noMacro: false, ellN: 48, allVoid: false, overrides: {}, voids: {} }, extra || {});
 async function one(label, dxfText, layers, extra, expectSteps) {
-  const base = buildBase(parseDxf(dxfText), 'auto'), R = await convertAll(base, cfg(layers, extra));
+  const base = buildBase(parseDxf(dxfText), 'auto', true), R = await convertAll(base, cfg(layers, extra));
   console.log('\n== ' + label + ' (블록 삽입 ' + base.insts.length + '개)');
   for (const L of R.layers) check(L.label + ' 형상 비교 기준 이내', L.verify.nBad === 0, '최대 ' + L.verify.worst.toFixed(5));
   let last = null;
@@ -39,7 +39,7 @@ async function one(label, dxfText, layers, extra, expectSteps) {
   w(0, 'ENDSEC'); w(0, 'EOF');
   fs.writeFileSync(path.join(out, 'odb_cells.dxf'), o.join('\n'));
   const r2 = await one('블록 배열 6×8', o.join('\n'), { COPPER: 'cu1' }, {}, 48);
-  { const b3 = buildBase(parseDxf(o.join('\n')), 'auto'); check('잘린 레일을 이어 칸마다 다시 자름', b3.joined.loops === 6 && b3.joined.cut === 6 && b3.shapes.filter(q => q.inst >= 0).length === 48 * 4, JSON.stringify(b3.joined) + ' 주인 있는 도형 ' + b3.shapes.filter(q => q.inst >= 0).length); check('  스텝 3종(아래 줄·가운데·위 줄)', r2.odb.steps.length === 3, r2.odb.steps.map(q => q.name + '×' + q.count).join(' ')); }
+  { const b3 = buildBase(parseDxf(o.join('\n')), 'auto', true); check('잘린 레일을 이어 칸마다 다시 자름', b3.joined.loops === 6 && b3.joined.cut === 6 && b3.shapes.filter(q => q.inst >= 0).length === 48 * 4, JSON.stringify(b3.joined) + ' 주인 있는 도형 ' + b3.shapes.filter(q => q.inst >= 0).length); check('  스텝 3종(아래 줄·가운데·위 줄)', r2.odb.steps.length === 3, r2.odb.steps.map(q => q.name + '×' + q.count).join(' ')); }
   // tar.gz 묶음을 실제로 풀어 본다
   for (const [nm, r] of [['odb_example', ex], ['odb_cells', r2]]) {
     const tgz = path.join(out, nm + '.tgz'); fs.writeFileSync(tgz, zlib.gzipSync(Buffer.from(makeTar(r.odb.files, r.odb.job))));
