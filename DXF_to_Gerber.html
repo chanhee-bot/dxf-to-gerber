@@ -109,6 +109,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
   <div class="card" id="applyCard">
     <button id="btnConvert" class="primary" disabled>변환</button>
     <label style="margin-left:10px" title="켜면 레이어 지정이나 옵션을 바꿀 때마다 바로 변환합니다. 작은 도면에서 편합니다."><input type="checkbox" id="oAuto"> 설정을 바꾸면 바로 변환</label>
+    <label style="margin-left:10px" title="배선 복원과 형상 비교를 CPU 코어 여러 개에 나눠 계산합니다(객체가 많을 때만). 결과는 한 코어로 할 때와 같습니다. 문제가 있으면 끄세요."><input type="checkbox" id="oPar" checked> 여러 코어 사용<span id="coreN"></span></label>
     <div id="applyMsg" class="muted" style="margin-top:6px;line-height:1.5">도면을 열고 레이어의 출력 대상과 옵션을 정한 뒤 "변환"을 누르세요.</div>
   </div>
   <div class="card">
@@ -155,7 +156,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1112-1430';
+const BUILD = '1112-1600';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1571,7 +1572,63 @@ function workShape(s, ox, oy, mir) {
   if (w && s.ell) w.ell = { cx: mir == null ? s.ell.cx - ox : mir - (s.ell.cx - ox), cy: s.ell.cy - oy, rx: s.ell.rx, ry: s.ell.ry, rot: mir == null ? s.ell.rot : Math.PI - s.ell.rot };
   return w;
 }
-async function convertLayer(L, cfg, tick) {
+/* ---- 여러 코어: 배선 복원과 형상 비교를 워커에 나눠 맡긴다. 주고받는 것은 숫자·배열뿐이고, 같은 함수를 한 스레드에서도 그대로 쓴다 ---- */
+function packPts(pts) { const d = new Float64Array(pts.length * 3); for (let i = 0; i < pts.length; i++) { d[3 * i] = pts[i].x; d[3 * i + 1] = pts[i].y; d[3 * i + 2] = pts[i].b || 0; } return d; }
+function shapeFrom(d, extra) { const pts = []; for (let i = 0; i < d.length; i += 3) pts.push({ x: d[i], y: d[i + 1], b: d[i + 2] }); return finishShape(Object.assign(new Shape(), { pts }, extra || {})); }
+// 배선 하나 복원: s = 대상, nb = 맞닿은 이웃
+function traceCore(s, nb, fillPoly) {
+  const inNb = (x, y) => { for (const o of nb) if (inTol(o, x, y, 1e-6)) return true; return false; };
+  const T = s.hasArc ? flattenTagged(s.pts, TRACE_FLAT) : null, poly0 = T ? T.poly : s.pts.map(p => [p.x, p.y]);
+  const r = reconstructTrace(poly0, (x, y) => inTol(s, x, y, 1e-6) || inNb(x, y), inNb);
+  if (!r.ok) return { ok: false, why: r.why };
+  const idx = T ? new Map(poly0.map((q, i) => [ptKey(q), i])) : null;
+  return { ok: true, strokes: r.strokes, fills: r.fills.map(f => packFill(f, fillPoly ? null : T, idx)), warns: r.warns };
+}
+// 객체 하나의 형상 비교(원본 = 주변 도형 + 글자 획, 결과 = 다시 읽은 Gerber 요소)
+function compareOne(s, grid, pg, tcap, margin, g, atomL) {
+  const b = s.bbox;
+  return compareTiled(s, [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin], margin, tb => grid.query(tb).sort((a, c) => a.level - c.level || a.id - c.id).map(atomL).concat(tcap.query(tb)),
+    tb => { const res = []; for (const p of pg.query(tb).sort((a, c) => a.seq - c.seq)) for (const a of p.atoms) res.push(a); return res; }, g);
+}
+function mkAtomL() { const C = new Map(); return o => { let a = C.get(o); if (!a) { if (C.size > 40000) C.clear(); a = mkPoly(o.flat, o.level % 2); C.set(o, a); } return a; }; }
+const cleanAtom = a => a.t === 'd' ? { t: 'd', cx: a.cx, cy: a.cy, r: a.r, pol: a.pol, bb: a.bb } : a.t === 'c' ? { t: 'c', x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2, r: a.r, pol: a.pol, q: a.q, bb: a.bb } : { t: 'p', pts: a.pts, pol: a.pol, bb: a.bb };
+function workerHandle(m) {
+  if (m.cmd === 'trace') return m.tasks.map(t => { const r = traceCore(shapeFrom(t.P), t.nb.map(d => shapeFrom(d)), m.fillPoly); r.id = t.id; return r; });
+  if (m.cmd === 'cmp') {
+    const grid = new Grid(m.cs), pg = new Grid(m.cs), tcap = new Grid(m.cs), byId = new Map(), atomL = mkAtomL();
+    for (const q of m.shapes) { const sh = shapeFrom(q.P, { id: q.id, level: q.level }); byId.set(q.id, sh); grid.add(sh.bbox, sh); }
+    const KN = ['stroke', 'flash', 'region'];
+    for (const q of m.prims) { const pr = Object.assign(new Prim(), { kind: KN[q.k], pol: q.pol, d: q.d, bbox: q.bb, seq: q.seq }); if (q.k === 1) pr.apDef = { atoms: m.aps[q.ap] }; pg.add(pr.bbox, pr); }
+    for (let i = 0; i < m.tcaps.length; i += 5) { const c = mkCap(m.tcaps[i], m.tcaps[i + 1], m.tcaps[i + 2], m.tcaps[i + 3], m.tcaps[i + 4]); c.bbox = c.bb; tcap.add(c.bb, c); }
+    return m.targets.map(id => { const c = compareOne(byId.get(id), grid, pg, tcap, m.margin, m.grid, atomL); return { id, area: c.area, maxDev: c.maxDev, at: c.at, nLines: c.nLines, gUsed: c.gUsed }; });
+  }
+  return null;
+}
+// 워커 묶음. src = 이 프로그램의 스크립트 글(워커에는 화면이 없어 계산 부분만 돈다). run(개수, k번째 일 만들기, 진행 알림) → 결과 배열
+function makePool(src, n) {
+  const url = URL.createObjectURL(new Blob([src + '\n;self.onmessage = function (e) { var r = null, err = null; try { r = workerHandle(e.data.m); } catch (x) { err = String(x && x.stack || x); } self.postMessage({ r: r, err: err }); };'], { type: 'text/javascript' }));
+  const ws = []; for (let i = 0; i < n; i++) ws.push(new Worker(url));
+  return {
+    n, close() { for (const w of ws) w.terminate(); URL.revokeObjectURL(url); },
+    run(count, make, onProgress) {
+      return new Promise((res, rej) => {
+        const out = new Array(count); let next = 0, done = 0, dead = false;
+        if (!count) { res(out); return; }
+        const fail = e => { if (!dead) { dead = true; rej(e instanceof Error ? e : new Error(String(e))); } };
+        const feed = w => {
+          if (dead || next >= count) return;
+          const k = next++;
+          w.onmessage = e => { if (e.data.err) { fail(e.data.err); return; } out[k] = e.data.r; done++; if (onProgress) onProgress(done, count); if (done === count) res(out); else feed(w); };
+          w.onerror = ev => fail(ev.message || '워커 오류');
+          try { w.postMessage({ m: make(k) }); } catch (x) { fail(x); }
+        };
+        for (const w of ws) feed(w);
+      });
+    }
+  };
+}
+async function convertLayer(L, cfg, tick, pool) {
+  const T0 = Date.now(), times = L.times = { contact: 0, trace: 0, write: 0, compare: 0, cores: 1 };
   const W = L.warnings, S = L.shapes;
   const warn = (type, s, msg, pt) => W.push({ type, target: L.target, id: s ? s.id : null, msg, bbox: pt ? [pt[0], pt[1], pt[0], pt[1]] : (s ? s.bbox : null) });
   const seen = new Map();
@@ -1621,37 +1678,70 @@ async function convertLayer(L, cfg, tick) {
     if (role === 'region' && !quiet && !s.isVoid) warn('fallback', s, '영역으로 출력: ' + why);
   }
   const margin = Math.max(4 * cfg.grid, 2 * cfg.thr), snap = v => Math.round(Math.round(v / cfg.apTol) * cfg.apTol * 1e6) / 1e6;
-  const exp = b => [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin];
+  times.contact = Date.now() - T0; let T1 = Date.now();
   const traces = act.filter(s => s.role === 'trace'); cnt = 0;
-  for (const s of traces) {
-    if (++cnt % 20 === 0) await tick(L.label + ': 배선 복원 ' + cnt + '/' + traces.length);
-    const nb = [...new Set(s.contacts.map(c => c.o))].filter(o => !o.isVoid && o.parent !== s && s.parent !== o);
-    const inNb = (x, y) => { for (const o of nb) if (inTol(o, x, y, 1e-6)) return true; return false; };
-    const T = s.hasArc ? flattenTagged(s.pts, TRACE_FLAT) : null, poly0 = T ? T.poly : s.pts.map(p => [p.x, p.y]);
-    const r = reconstructTrace(poly0, (x, y) => inTol(s, x, y, 1e-6) || inNb(x, y), inNb);
+  const nbOf = s => [...new Set(s.contacts.map(c => c.o))].filter(o => !o.isVoid && o.parent !== s && s.parent !== o);
+  const applyTrace = (s, r) => {
     if (!r.ok) { s.role = 'region'; s.why = r.why; s.fallback = true; warn('fallback', s, '영역으로 대체: ' + r.why); }
-    else { for (const k of r.strokes) k.w = snap(k.w); s.strokes = r.strokes; const idx = T ? new Map(poly0.map((q, i) => [ptKey(q), i])) : null; s.fills = r.fills.map(f => packFill(f, cfg.fillPoly ? null : T, idx)); s.narrow = r.warns; }
+    else { for (const k of r.strokes) k.w = snap(k.w); s.strokes = r.strokes; s.fills = r.fills; s.narrow = r.warns; }
+  };
+  let par = false;
+  if (pool && (pool.force || traces.length >= 300)) { // 여러 코어: 150개씩 묶어 워커에 맡긴다
+    try {
+      const CH = 150, nCh = Math.ceil(traces.length / CH), byId = new Map(traces.map(s => [s.id, s]));
+      await tick(L.label + ': 배선 복원 (코어 ' + pool.n + '개)');
+      const res = await pool.run(nCh, k => ({ cmd: 'trace', fillPoly: !!cfg.fillPoly, tasks: traces.slice(k * CH, (k + 1) * CH).map(s => ({ id: s.id, P: packPts(s.pts), nb: nbOf(s).map(o => packPts(o.pts)) })) }), (d, n) => { tick(L.label + ': 배선 복원 ' + Math.min(traces.length, d * CH) + '/' + traces.length + ' (코어 ' + pool.n + '개)'); });
+      for (const part of res) for (const r of part) applyTrace(byId.get(r.id), r);
+      par = true; times.cores = pool.n;
+    } catch (e) { if (typeof console !== 'undefined') console.warn('여러 코어 배선 복원 실패, 한 코어로 다시 합니다:', e); for (const s of traces) { s.strokes = s.fills = s.narrow = null; if (s.fallback) { s.role = 'trace'; s.fallback = false; s.why = ''; } } for (let i = W.length - 1; i >= 0; i--) if (W[i].type === 'fallback' && /^영역으로 대체/.test(W[i].msg)) W.splice(i, 1); }
   }
+  if (!par) for (const s of traces) {
+    if (++cnt % 20 === 0) await tick(L.label + ': 배선 복원 ' + cnt + '/' + traces.length);
+    applyTrace(s, traceCore(s, nbOf(s), cfg.fillPoly));
+  }
+  times.trace = Date.now() - T1;
   // Gerber를 쓰고 다시 읽어 모든 객체를 원본과 비교한다. 복원한 배선이 기준을 넘으면 그 객체만 영역으로 바꿔 다시 쓴다.
-  const ATOM_C = new Map(), atomL = o => { let a = ATOM_C.get(o); if (!a) { if (ATOM_C.size > 40000) ATOM_C.clear(); a = mkPoly(o.flat, o.level % 2); ATOM_C.set(o, a); } return a; };
+  const atomL = mkAtomL();
   let worst = 0, nBad = 0;
   const tcap = new Grid(cs), tlist = [];
   for (const t of (L.tpaths || [])) for (const P of t.strokes) { const f = flattenPath(P, FLAT_TOL); for (let i = 0; i + 1 < f.length; i++) { const c = mkCap(f[i][0], f[i][1], f[i + 1][0], f[i + 1][1], t.w / 2); c.bbox = c.bb; tcap.add(c.bb, c); tlist.push({ c, t }); } }
   for (let pass = 0; pass < 3; pass++) {
     await tick(L.label + ': Gerber 작성');
+    T1 = Date.now();
     const g = buildGerber(L, cfg); L.text = g.text; L.apertures = g.aps; L.stats = g.stats;
     L.prims = parseGerber(L.text);
     const pg = new Grid(cs); for (const p of L.prims) pg.add(p.bbox, p);
+    times.write += Date.now() - T1; T1 = Date.now();
     const bad = []; worst = 0; nBad = 0; cnt = 0;
+    let parC = false;
+    if (pool && (pool.force || act.length >= 2000)) { // 여러 코어: 긴 쪽으로 줄 세워 띠 모양으로 나누고, 띠마다 그 안팎의 도형·요소만 보낸다
+      try {
+        const lb = [Infinity, Infinity, -Infinity, -Infinity]; for (const s of act) { lb[0] = Math.min(lb[0], s.bbox[0]); lb[1] = Math.min(lb[1], s.bbox[1]); lb[2] = Math.max(lb[2], s.bbox[2]); lb[3] = Math.max(lb[3], s.bbox[3]); }
+        const ax = (lb[3] - lb[1]) > (lb[2] - lb[0]) ? 1 : 0, ord = act.slice().sort((a, b) => (a.bbox[ax] + a.bbox[ax + 2]) - (b.bbox[ax] + b.bbox[ax + 2]) || a.id - b.id);
+        const CH = Math.max(400, Math.ceil(ord.length / (pool.n * 6))), nCh = Math.ceil(ord.length / CH), kOf = { stroke: 0, flash: 1, region: 2 };
+        const aps = {}; for (const p of L.prims) if (p.kind === 'flash' && !aps[p.ap]) aps[p.ap] = p.apDef.atoms.map(cleanAtom);
+        await tick(L.label + ': 형상 비교 (코어 ' + pool.n + '개)');
+        const res = await pool.run(nCh, k => {
+          const part = ord.slice(k * CH, (k + 1) * CH), ub = [Infinity, Infinity, -Infinity, -Infinity];
+          for (const s of part) { ub[0] = Math.min(ub[0], s.bbox[0]); ub[1] = Math.min(ub[1], s.bbox[1]); ub[2] = Math.max(ub[2], s.bbox[2]); ub[3] = Math.max(ub[3], s.bbox[3]); }
+          const M = margin * 3 + 2.5; // 타일(2mm)이 띠 밖으로 조금 나가는 것까지
+          const tc = tcap.query(ub, M), td = new Float64Array(tc.length * 5); tc.forEach((c, i) => { const o = 5 * i; if (c.t === 'd') { td[o] = td[o + 2] = c.cx; td[o + 1] = td[o + 3] = c.cy; } else { td[o] = c.x1; td[o + 1] = c.y1; td[o + 2] = c.x2; td[o + 3] = c.y2; } td[o + 4] = c.r; });
+          return { cmd: 'cmp', cs, margin, grid: cfg.grid, targets: part.map(s => s.id), tcaps: td, aps,
+            shapes: grid.query(ub, M).map(s => ({ id: s.id, level: s.level, P: packPts(s.pts) })),
+            prims: pg.query(ub, M).map(p => ({ k: kOf[p.kind], pol: p.pol, seq: p.seq, d: p.d, bb: p.bbox, ap: p.ap })) };
+        }, (d, n) => { tick(L.label + ': 형상 비교 ' + Math.min(act.length, d * CH) + '/' + act.length + ' (코어 ' + pool.n + '개)'); });
+        const byId = new Map(act.map(s => [s.id, s]));
+        for (const part of res) for (const c of part) byId.get(c.id).diff = c;
+        parC = true; times.cores = pool.n;
+      } catch (e) { if (typeof console !== 'undefined') console.warn('여러 코어 형상 비교 실패, 한 코어로 다시 합니다:', e); }
+    }
     for (const s of act) {
-      if (++cnt % 50 === 0) await tick(L.label + ': 형상 비교 ' + cnt + '/' + act.length);
-      const bb = exp(s.bbox);
-      const c = compareTiled(s, bb, margin, tb => grid.query(tb).sort((a, b) => a.level - b.level || a.id - b.id).map(atomL).concat(tcap.query(tb)),
-        tb => { const res = []; for (const p of pg.query(tb).sort((a, b) => a.seq - b.seq)) for (const a of p.atoms) res.push(a); return res; }, cfg.grid);
-      s.diff = c;
+      if (!parC) { if (++cnt % 50 === 0) await tick(L.label + ': 형상 비교 ' + cnt + '/' + act.length); s.diff = compareOne(s, grid, pg, tcap, margin, cfg.grid, atomL); }
+      const c = s.diff;
       if (c.maxDev > worst) worst = c.maxDev;
       if (c.maxDev > cfg.thr) { nBad++; bad.push(s); }
     }
+    times.compare += Date.now() - T1;
     const redo = pass < 2 ? bad.filter(s => s.role === 'trace' && s.strokes) : [];
     if (!redo.length) { for (const s of bad) warn('diff', s, '출력과 원본의 차이 ' + s.diff.maxDev.toFixed(4) + 'mm (기준 ' + cfg.thr + 'mm 초과)', s.diff.at); break; }
     for (const s of redo) { const why = '복원 결과와 원본의 차이 ' + s.diff.maxDev.toFixed(4) + 'mm (기준 초과)'; s.role = 'region'; s.why = why; s.fallback = true; s.strokes = s.fills = s.narrow = null; warn('fallback', s, '영역으로 대체: ' + why, s.diff.at); }
@@ -1725,7 +1815,7 @@ async function convertOutline(L, cfg, tick) {
 // cfg: { layers:{이름:'cu1'|'cu2'|'mask'|'mask2'|'outline'|'none'}, files:{cu1,..}, mirror:{cu1,..}, origin, ratio, grid, thr, apTol, noMacro, ellN, allVoid, overrides:{id:role}, voids:{id:bool} }
 // prev: 직전 결과. 그 층에 영향을 주는 입력(레이어 지정, 옵션, 원점·반전, 눌러서 바꾼 것)이 같으면 그 층 결과를 그대로 쓴다.
 const ID_SPAN = 50000000; // 토막·떼어 낸 패드의 번호는 출력 대상마다 따로 매긴다(다른 층을 다시 변환해도 번호가 바뀌지 않게)
-async function convertAll(base, cfg, prog, prev) {
+async function convertAll(base, cfg, prog, prev, pool) {
   let last = Date.now();
   const tick = async msg => { if (prog && Date.now() - last > 120) { await prog(msg); last = Date.now(); } };
   const gb = [Infinity, Infinity, -Infinity, -Infinity];
@@ -1767,7 +1857,7 @@ async function convertAll(base, cfg, prog, prev) {
       if (all.length > ws.length) L.split = (L.split || 0) + 1;
       for (const q of all) { q.id = nid++; q.partOf = s.id; L.shapes.push(q); if (pads.indexOf(q) >= 0) { q.padCut = true; L.warnings.push({ type: 'padcut', target: tg, id: q.id, msg: '배선과 한 외곽선이던 사각 패드를 떼어 플래시로 냄', bbox: q.bbox }); } }
     }
-    await convertLayer(L, cfg, tick);
+    await convertLayer(L, cfg, tick, pool);
     out.push(L);
   }
   return { layers: out, bbox: isFinite(gb[0]) ? [gb[0] - ox, gb[1] - oy, gb[2] - ox, gb[3] - oy] : null, offset: [ox, oy], base };
@@ -2196,6 +2286,7 @@ function makeExampleDxf() {
  * ================================================================ */
 if (typeof document !== 'undefined') (function () {
   const $ = id => document.getElementById(id);
+  const SRC = document.currentScript ? document.currentScript.textContent : '', CORES = Math.min(8, Math.max(1, navigator.hardwareConcurrency || 1));
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   $('build').textContent = '빌드 ' + BUILD;
   const S = { dxf: null, base: null, fileName: '', layerTarget: {}, files: {}, filesEdited: {}, mirror: {}, overrides: {}, voids: {}, result: null, busy: false, pending: false };
@@ -2310,11 +2401,16 @@ if (typeof document !== 'undefined') (function () {
     if (!applied && S.dirtyFit) refit = true;
     let info = '';
     try {
-      S.result = await convertAll(S.base, cfg, async msg => { $('busyMsg').textContent = msg; await new Promise(r => setTimeout(r, 0)); }, S.result);
+      let pool = null;
+      if ($('oPar').checked && CORES > 1 && SRC && typeof Worker !== 'undefined') { try { pool = S.pool || (S.pool = makePool(SRC, CORES)); } catch (e) { console.warn('워커를 만들지 못해 한 코어로 변환합니다:', e); pool = null; } }
+      S.result = await convertAll(S.base, cfg, async msg => { $('busyMsg').textContent = msg; await new Promise(r => setTimeout(r, 0)); }, S.result, pool);
       S.result.ms = performance.now() - t0;
       if (!applied) { S.dirty = false; S.dirtyFit = false; S.cfgApplied = cfg; }
       const re = S.result.layers.filter(l => !l.reused).map(l => l.label), keep = S.result.layers.filter(l => l.reused).map(l => l.label);
-      info = '변환 완료(' + (S.result.ms / 1000).toFixed(1) + '초)' + (re.length ? ' · 변환한 층: ' + re.join(', ') : '') + (keep.length ? ' · 그대로 쓴 층: ' + keep.join(', ') : '') + (S.result.layers.length ? '' : ' · 출력 대상 레이어가 없습니다');
+      const tm = { contact: 0, trace: 0, write: 0, compare: 0 }; let cores = 1; for (const l of S.result.layers) if (!l.reused && l.times) { for (const k in tm) tm[k] += l.times[k] || 0; cores = Math.max(cores, l.times.cores || 1); }
+      const sec = v => (v / 1000).toFixed(1) + '초';
+      S.result.stage = '<br><small>단계별: 맞닿음·겹침 ' + sec(tm.contact) + ' · 배선 복원 ' + sec(tm.trace) + ' · Gerber 쓰기·읽기 ' + sec(tm.write) + ' · 형상 비교 ' + sec(tm.compare) + ' · 코어 ' + cores + '개 사용</small>';
+      info = '변환 완료(' + (S.result.ms / 1000).toFixed(1) + '초)' + (re.length ? ' · 변환한 층: ' + re.join(', ') : '') + (keep.length ? ' · 그대로 쓴 층: ' + keep.join(', ') : '') + (S.result.layers.length ? '' : ' · 출력 대상 레이어가 없습니다') + (re.length ? S.result.stage : '');
     } catch (e) { console.error(e); S.result = null; setMsg('변환 중 오류: ' + esc(e.message), true); }
     S.busy = false; $('busy').style.display = 'none';
     $('hint').style.display = S.result && S.result.layers.length ? 'none' : '';
@@ -2619,6 +2715,7 @@ if (typeof document !== 'undefined') (function () {
   for (const id of ['oOrigin', 'oRatio', 'oGrid', 'oThr', 'oApTol', 'oEllN', 'oNoMacro', 'oFillPoly', 'oAllVoid', 'oPadCut', 'oOutW', 'oTextOn', 'oTextPct', 'oOpenOn', 'oOpenW']) $(id).addEventListener('change', () => { if (id === 'oTextOn' || id === 'oOpenOn') renderIgnored(); markDirty(id === 'oOrigin'); });
   $('btnConvert').onclick = () => convert(); $('dirtyBar').onclick = () => convert();
   $('oAuto').onchange = () => { if ($('oAuto').checked && S.dirty) convert(); };
+  $('coreN').textContent = CORES > 1 ? ' (' + CORES + '개)' : ' (코어 1개라 쓰지 않음)';
   for (const id of ['vOrig', 'vRes', 'vCenter']) $(id).onchange = draw;
   $('vMaskLine').onchange = () => { renderLegend(); draw(); };
   $('vColor').onchange = () => { renderLegend(); draw(); };

@@ -119,6 +119,16 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
     const Rd = await convertAll(base, cfgOf({ ratio: 3 }), null, Ra); check('패드 판정 비율을 바꾸면 외형만 빼고 다시 변환', Rd.layers.map(l => l.target + (l.reused ? '=' : '!')).join(' ') === 'cu1! cu2! mask! mask2! outline=', Rd.layers.map(l => l.target + (l.reused ? '=' : '!')).join(' '));
     const pid = L1.shapes.find(q => q.padCut).id, pid2 = (await convertAll(base, cfgOf({ layers: Object.assign({}, c0.layers, { L2_BOT: 'none' }) }))).layers[0].shapes.find(q => q.padCut).id;
     check('다른 층을 빼도 토막 번호는 그대로', pid === pid2, pid + ' ' + pid2); }
+  // 여러 코어 경로: 워커가 하는 일(workerHandle)을 복제된 값으로 불러, 한 코어 결과와 같은지
+  { let calls = 0; const fake = { n: 3, force: true, run: async (count, make, onP) => { const out = []; for (let k = 0; k < count; k++) { out.push(structuredClone(workerHandle(structuredClone(make(k))))); calls++; if (onP) onP(k + 1, count); } return out; } };
+    for (const [nm, extra] of [['기본', {}], ['번갈아·매크로 대신 영역·반전', { allVoid: true, noMacro: true, origin: 'll', mirror: { cu2: true } }]]) {
+      const A = await convertAll(base, cfgOf(extra)), B = await convertAll(base, cfgOf(extra), null, null, fake);
+      const strip = t => t.replace(/G04 DXF_to_Gerber build [^*]*\*/, '');
+      check('여러 코어 = 한 코어 (' + nm + '): Gerber 글자 그대로', A.layers.length === B.layers.length && A.layers.every((l, i) => strip(l.text) === strip(B.layers[i].text)));
+      const dv = L => L.shapes.map(q => q.id + ':' + (q.diff ? q.diff.maxDev.toFixed(9) : '-') + ':' + q.role).join(' ');
+      check('  형상 비교 값·판정도 같음', A.layers.every((l, i) => dv(l) === dv(B.layers[i]) && l.verify.nBad === B.layers[i].verify.nBad && Math.abs(l.verify.worst - B.layers[i].verify.worst) < 1e-12));
+    }
+    check('워커 일을 실제로 거침', calls > 4, String(calls)); }
   // 일부러 틀린 결과를 넣었을 때 비교가 잡아내는지
   const bad = compareRegion([-0.5, 0, 3.5, 1],[mkPoly([[0, 0.4], [3, 0.4], [3, 0.6], [0, 0.6]])], [mkCap(0, 0.5, 3, 0.5, 0.1)], 0.002);
   check('비교가 둥근 끝 돌출을 잡음', bad.maxDev > 0.02, 'maxDev ' + bad.maxDev.toFixed(4));
