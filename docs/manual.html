@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>DXF → Gerber / ODB++ 변환기 사용설명서</title>
+<style>
+@page { size: A4; margin: 18mm 17mm 20mm 17mm; @bottom-center { content: counter(page); font: 9pt "Malgun Gothic","Apple SD Gothic Neo","NanumGothic","Noto Sans CJK KR",sans-serif; color: #66727f; } @top-right { content: "DXF → Gerber / ODB++ 변환기 사용설명서"; font: 8pt "Malgun Gothic","Apple SD Gothic Neo","NanumGothic","Noto Sans CJK KR",sans-serif; color: #9aa5b1; } }
+@page :first { @bottom-center { content: none; } @top-right { content: none; } }
+* { box-sizing: border-box; }
+html { font-family: "Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","NanumGothic","Noto Sans CJK KR",sans-serif; font-size: 10pt; line-height: 1.65; color: #1c2430; }
+body { margin: 0; word-break: keep-all; overflow-wrap: break-word; }
+@media screen { body { max-width: 176mm; margin: 0 auto; padding: 10mm 0; } }
+h1 { font-size: 17pt; margin: 0 0 4mm; padding-bottom: 2mm; border-bottom: 2px solid #1f2b3a; color: #1f2b3a; break-before: page; break-after: avoid; line-height: 1.3; }
+h2 { font-size: 12.5pt; margin: 7mm 0 2mm; color: #1f4f96; break-after: avoid; line-height: 1.35; }
+h3 { font-size: 10.5pt; margin: 5mm 0 1.5mm; color: #1c2430; break-after: avoid; }
+p { margin: 0 0 2.5mm; }
+ul, ol { margin: 0 0 2.5mm; padding-left: 5.5mm; }
+li { margin-bottom: 0.8mm; }
+table { border-collapse: collapse; width: 100%; margin: 2mm 0 4mm; font-size: 9pt; line-height: 1.5; }
+th, td { border: 1px solid #c5ccd5; padding: 1.3mm 1.8mm; text-align: left; vertical-align: top; }
+th { background: #eef1f5; font-weight: 700; }
+tr { break-inside: avoid; }
+thead { display: table-header-group; }
+figure { margin: 3mm 0 4mm; break-inside: avoid; text-align: center; }
+figure img { max-width: 100%; border: 1px solid #c5ccd5; border-radius: 3px; display: block; margin: 0 auto; }
+figcaption { font-size: 8.5pt; color: #55606c; margin-top: 1.3mm; }
+.row { display: flex; gap: 4mm; align-items: flex-start; justify-content: center; }
+.row figure { margin: 0; flex: 1; }
+.pair { display: flex; gap: 5mm; align-items: flex-start; break-inside: avoid; margin: 3mm 0 4mm; }
+.pair > figure { margin: 0; flex: none; }
+.pair > div { flex: 1; }
+.n { display: inline-block; width: 4.6mm; height: 4.6mm; border-radius: 50%; background: #ff2d2d; color: #fff; font: 700 8pt/4.6mm Arial, sans-serif; text-align: center; vertical-align: 0.2mm; margin-right: 0.6mm; }
+.ui { font-weight: 700; color: #12365f; white-space: nowrap; }
+.note, .warn, .tip { border-left: 3.5px solid #1f6feb; background: #eef4fd; padding: 2mm 3mm; margin: 2.5mm 0 4mm; break-inside: avoid; font-size: 9.3pt; }
+.warn { border-color: #d9822b; background: #fdf3e7; }
+.tip { border-color: #2e7d32; background: #edf6ee; }
+.note b:first-child, .warn b:first-child, .tip b:first-child { margin-right: 1.5mm; }
+.tag { display: inline-block; padding: 0 1.6mm; border-radius: 2px; font-size: 8pt; color: #fff; background: #6b7785; white-space: nowrap; }
+.tag.w { background: #d9822b; } .tag.e { background: #c62828; } .tag.i { background: #2e7d32; }
+.sw { display: inline-block; width: 4mm; height: 2.8mm; border-radius: 1px; vertical-align: -0.3mm; margin-right: 1mm; border: 0.5px solid #888; }
+code { font-family: Consolas, "DejaVu Sans Mono", monospace; font-size: 8.8pt; background: #f0f2f5; padding: 0 1mm; border-radius: 2px; }
+.steps { counter-reset: st; list-style: none; padding: 0; }
+.steps > li { counter-increment: st; position: relative; padding-left: 9mm; margin-bottom: 2.2mm; break-inside: avoid; }
+.steps > li::before { content: counter(st); position: absolute; left: 0; top: 0.3mm; width: 6mm; height: 6mm; border-radius: 50%; background: #1f6feb; color: #fff; font: 700 9.5pt/6mm Arial, sans-serif; text-align: center; }
+/* 표지 */
+.cover { height: 255mm; display: flex; flex-direction: column; justify-content: center; break-after: page; }
+.cover .t1 { font-size: 30pt; font-weight: 700; color: #1f2b3a; line-height: 1.3; }
+.cover .t2 { font-size: 16pt; color: #1f4f96; margin-top: 4mm; font-weight: 700; }
+.cover .bar { width: 40mm; height: 3px; background: #1f6feb; margin: 9mm 0; }
+.cover .meta { font-size: 11pt; line-height: 2; color: #3a4654; }
+.cover img { width: 100%; border: 1px solid #c5ccd5; border-radius: 4px; margin-top: 12mm; }
+/* 목차 */
+.toc { break-after: page; }
+.toc .tt { font-size: 17pt; font-weight: 700; color: #1f2b3a; border-bottom: 2px solid #1f2b3a; padding-bottom: 2mm; margin-bottom: 3mm; }
+.toc a { display: flex; align-items: baseline; color: inherit; text-decoration: none; }
+.toc a.c { font-weight: 700; margin-top: 1.5mm; font-size: 10pt; line-height: 1.4; }
+.toc a.s { padding-left: 6mm; font-size: 9pt; color: #3a4654; line-height: 1.3; }
+.toc a i { flex: 1; border-bottom: 1px dotted #9aa5b1; margin: 0 2mm; }
+.toc a .pg { min-width: 6mm; text-align: right; font-variant-numeric: tabular-nums; }
+svg text { font-family: inherit; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="t1">DXF → Gerber / ODB++ 변환기</div>
+  <div class="t2">사용설명서</div>
+  <div class="bar"></div>
+  <div class="meta">
+    대상 프로그램: <b>DXF_to_Gerber.html</b><br>
+    기준 빌드: <b class="build">—</b> (화면 제목 옆 “빌드” 표시와 같아야 합니다)<br>
+    화면 사진: 프로그램에 들어 있는 예제 도면
+  </div>
+  <img src="img/07_converted.png" alt="">
+</div>
+
+<div class="toc">
+  <div class="tt">목차</div>
+  <div id="tocList"></div>
+</div>
+
+<!-- ============================================================ -->
+<h1 id="c1">1. 개요</h1>
+
+<h2 id="c1-1">1.1 무엇을 하는 프로그램인가</h2>
+<p>오토캐드에서 저장한 <b>.dxf 도면</b>을 열어, PCB 제작용 <b>Gerber(RS-274X, .gbr)</b> 또는 <b>ODB++</b> 파일로 바꿔 내려받는 프로그램입니다.</p>
+<ul>
+  <li>도면에 <b>외곽선(폭 0 닫힌 폴리선)</b>으로 그린 배선을 Gerber의 <b>“둥근 조리개 + 선”</b>으로 되돌립니다. 선폭이 곧 조리개 지름이므로, 업체 CAM에서 배선 폭 보정을 할 수 있습니다.</li>
+  <li>패드는 모양과 크기를 알아내 <b>플래시</b>(조리개를 한 번 찍는 방식)로 냅니다.</li>
+  <li>선으로 되돌릴 수 없는 객체는 <b>외곽선 그대로 “영역”</b>으로 냅니다. 되돌리기에 실패해도 출력 모양은 원본과 달라지지 않게 하는 것이 원칙입니다.</li>
+  <li>만든 출력 파일을 프로그램이 <b>다시 읽어 원본 도면과 모양을 비교</b>하고, 차이와 경고를 화면에 보여 줍니다. 사용자는 미리보기에서 결과를 직접 확인하고, 객체를 눌러 판정을 바꿀 수 있습니다.</li>
+</ul>
+
+<h2 id="c1-2">1.2 실행 방법</h2>
+<ul>
+  <li>설치가 필요 없습니다. <b>DXF_to_Gerber.html 파일 하나</b>를 브라우저로 열면 됩니다(파일을 두 번 누르거나 브라우저 창에 끌어다 놓기).</li>
+  <li><b>인터넷 연결이 필요 없습니다.</b> 모든 계산은 이 PC의 브라우저 안에서 이루어지며, 도면 파일은 PC 밖으로 나가지 않습니다.</li>
+  <li>브라우저는 <b>크롬 또는 엣지</b>를 권장합니다. 개발 중 동작 확인은 크롬 계열(Chromium)에서만 했습니다.</li>
+  <li>화면은 PC 모니터 기준입니다(가로 1280픽셀 이상).</li>
+</ul>
+
+<h2 id="c1-3">1.3 화면 구성</h2>
+<figure><img src="img/01_start.png" alt=""><figcaption>처음 화면</figcaption></figure>
+<table>
+  <tr><th style="width:22mm">표시</th><th>내용</th></tr>
+  <tr><td><span class="n">1</span>왼쪽</td><td>작업 순서대로 놓인 네 묶음: <span class="ui">1. 도면 파일</span> → <span class="ui">2. 옵션</span> → <span class="ui">3. 레이어</span>(아래에 <span class="ui">변환</span> 버튼) → <span class="ui">4. 출력 파일</span>. 화면이 낮으면 왼쪽 부분만 따로 스크롤됩니다.</td></tr>
+  <tr><td><span class="n">2</span>가운데</td><td>미리보기. 위에는 보기 설정 줄, 아래에는 색 범례와 마우스 위치 좌표가 있습니다.</td></tr>
+  <tr><td><span class="n">3</span>오른쪽</td><td><span class="ui">변환 요약</span>, <span class="ui">경고</span>, <span class="ui">조리개 목록</span>, <span class="ui">패드 판정 변경</span>, <span class="ui">무시한 객체</span>.</td></tr>
+  <tr><td><span class="n">4</span>빌드</td><td>제목 옆 “빌드 MMDD-HHMM”. 프로그램 판을 구분하는 번호입니다. 이 설명서는 빌드 <b class="build">—</b> 기준입니다.</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h1 id="c2">2. 입력 도면 조건</h1>
+
+<h2 id="c2-1">2.1 파일 형식</h2>
+<ul>
+  <li><b>오토캐드 2000 / 2000LT 형식의 DXF(글자 형식, ASCII)</b>를 기준으로 합니다. 오토캐드에서 <b>다른 이름으로 저장 → “AutoCAD 2000 DXF”</b>를 고르면 됩니다.</li>
+  <li>다른 판의 DXF(예: R12)도 읽기를 시도하며, 이때는 “참고: 이 파일은 … 형식입니다”라고 알려 줍니다.</li>
+  <li><b>바이너리 DXF와 DWG는 읽지 못합니다.</b> 바이너리 DXF를 열면 다시 저장하라는 안내만 나옵니다.</li>
+  <li>한글 레이어 이름은 그대로 읽습니다.</li>
+  <li>단위는 도면에 적힌 값($INSUNITS: inch, mm, cm, m)을 따르고, 적혀 있지 않으면 mm로 봅니다. <span class="ui">도면 단위</span> 옵션으로 직접 정할 수도 있습니다.</li>
+</ul>
+
+<h2 id="c2-2">2.2 도면을 그리는 방식</h2>
+<table>
+  <tr><th style="width:30mm">항목</th><th>조건</th></tr>
+  <tr><td>배선과 패드</td><td>모두 <b>폭 0인 닫힌 폴리선(외곽선)</b>으로 그립니다. 폭이 있는 폴리선은 폭을 무시하고 외곽선만 쓰며 경고에 표시됩니다.</td></tr>
+  <tr><td>패드</td><td>배선과 따로 그린 객체이고, 배선은 패드 변에 맞닿게 그립니다. 패드와 배선을 한 폴리선으로 그린 경우에도 <b>직각 사각 패드(0°/90°)</b>는 자동으로 떼어 냅니다(7.4절).</td></tr>
+  <tr><td>배선 모양</td><td>뾰족한 꺾임, 둥근 꺾임(R), T자 같은 분기, 폭이 바뀌는 곳(계단·테이퍼) 모두 처리합니다.</td></tr>
+  <tr><td>층 구분</td><td><b>DXF 레이어</b>로 구분합니다. 동박 2층, 솔더마스크 2층, 외형 1층까지 출력할 수 있습니다.</td></tr>
+  <tr><td>겹침</td><td>같은 층 안에서는 객체가 겹치지 않아야 합니다(겹치면 경고만 냅니다). 서로 다른 층끼리 겹치는 것은 정상이며 검사하지 않습니다.</td></tr>
+  <tr><td>솔더마스크</td><td>그린 도형이 곧 개구부(열리는 곳)이며, 그대로 출력합니다.</td></tr>
+</table>
+
+<h2 id="c2-3">2.3 읽는 객체와 읽지 않는 객체</h2>
+<table>
+  <tr><th style="width:52mm">도면 객체</th><th>처리</th></tr>
+  <tr><td>닫힌 폴리선(LWPOLYLINE, POLYLINE)</td><td>패드 또는 배선 후보. 호(bulge) 구간 포함.</td></tr>
+  <tr><td>원(CIRCLE), 닫힌 타원(ELLIPSE)</td><td>원 패드, 타원 패드(타원은 다각형으로 근사).</td></tr>
+  <tr><td>SOLID, 솔리드 채움 HATCH의 경계</td><td>영역.</td></tr>
+  <tr><td>선(LINE), 호(ARC), 열린 폴리선</td><td>같은 레이어에서 끝이 맞닿으면 이어서 닫힌 외곽선으로 만듭니다. 끝내 열린 것은 외형 층에서는 선으로, 동박·솔더마스크 층에서는 옵션에 따라 선으로 냅니다(7.6절).</td></tr>
+  <tr><td>글자(TEXT, MTEXT, 보이는 속성)</td><td>출력 대상 층에 있으면 옵션에 따라 프로그램 안의 단순한 글꼴로 그립니다(7.6절).</td></tr>
+  <tr><td>블록 삽입(INSERT)</td><td>이동·회전·배율·배열·좌우 반전을 적용해 펼칩니다.</td></tr>
+  <tr><td>치수(DIMENSION), 무늬 HATCH, 타원·스플라인 경계 HATCH, 열린 타원 호, 그 밖의 객체</td><td>출력하지 않습니다. 오른쪽 <span class="ui">무시한 객체</span>에 종류·레이어·위치가 나옵니다. “출력 안 함”으로 둔 레이어의 글자와 열린 선도 여기에 나옵니다. 꼭 나와야 하는 객체가 이 목록에 있지 않은지 확인해 주세요.</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h1 id="c3">3. 빠른 시작</h1>
+<p>도면을 열어 내려받기까지의 순서입니다. 처음이라면 <span class="ui">예제 도면 열기</span>로 먼저 따라 해 보시기 바랍니다.</p>
+<ol class="steps">
+  <li><b>도면 열기</b> — <span class="ui">1. 도면 파일</span>에 .dxf 파일을 끌어다 놓거나 <span class="ui">파일 선택</span>을 누릅니다. 바로 아래에 “읽기 완료: 닫힌 도형 …개”가 나오면 읽힌 것입니다.</li>
+  <li><b>레이어 지정</b> — <span class="ui">3. 레이어</span> 표에서 DXF 레이어마다 <span class="ui">출력 대상</span>(동박 1 / 동박 2 / 솔더마스크 1 / 솔더마스크 2 / 외형 / 출력 안 함)을 확인합니다. 레이어 이름으로 자동 지정되지만, 반드시 눈으로 확인해 주세요.</li>
+  <li><b>변환</b> — 파란 <span class="ui">변환</span> 버튼(또는 미리보기 위의 주황색 띠)을 누릅니다. 도면을 열기만 해서는 변환되지 않습니다.</li>
+  <li><b>결과 확인</b> — 오른쪽 <span class="ui">변환 요약</span>에 초록색으로 <b>“모든 객체가 기준 이내”</b>가 나오는지 봅니다. <span class="ui">경고</span> 목록의 항목을 누르면 그 위치로 확대됩니다. 미리보기에서 흰 선(원본)과 색칠된 결과가 겹쳐 보이므로 모양을 직접 견줘 볼 수 있습니다.</li>
+  <li><b>필요하면 고치기</b> — 미리보기에서 객체를 눌러 패드 ↔ 배선 ↔ 영역을 바꾸거나, 안쪽 폴리선을 빈 곳/동박으로 지정합니다.</li>
+  <li><b>내려받기</b> — <span class="ui">4. 출력 파일</span>에서 층별 <span class="ui">내려받기</span> 또는 <span class="ui">전체 zip 내려받기</span>를 누릅니다. ODB++가 필요하면 <span class="ui">출력 형식</span>을 ODB++로 바꾸고 다시 <span class="ui">변환</span>한 뒤 <span class="ui">ODB++ 내려받기</span>를 누릅니다.</li>
+</ol>
+<figure><img src="img/06_before_convert.png" alt=""><figcaption>도면을 연 직후. <span class="n">1</span> 파란 “변환” 버튼이나 주황색 띠를 눌러야 변환이 시작됩니다.</figcaption></figure>
+<div class="tip"><b>확인 요령</b>내려받기 전에 최소한 ① 레이어 표의 출력 대상 ② 변환 요약의 “형상 비교” 줄 ③ 빨간 딱지가 붙은 경고(같은 층 겹침, 형상 차이 기준 초과) 세 가지는 확인하시기 바랍니다.</div>
+
+<!-- ============================================================ -->
+<h1 id="c4">4. 화면별 상세 설명</h1>
+
+<h2 id="c4-1">4.1 “1. 도면 파일”</h2>
+<div class="pair">
+  <figure><img src="img/03_file_card.png" style="width:86mm" alt=""></figure>
+  <div>
+    <p><span class="n">1</span> 점선 칸에 .dxf 파일을 끌어다 놓거나 <span class="ui">파일 선택</span>을 누릅니다. <span class="ui">예제 도면 열기</span>는 프로그램에 들어 있는 연습용 도면을 엽니다.</p>
+    <p><span class="n">2</span> 읽은 결과입니다. 닫힌 도형, 열린 선, 글자, 무시한 객체의 개수가 나옵니다. 끝이 맞닿은 열린 선을 이어 닫힌 외곽선으로 만들었으면 그 개수도 알려 줍니다.</p>
+  </div>
+</div>
+<figure><img src="img/02_fileinfo.png" style="width:120mm" alt=""><figcaption>화면 오른쪽 위: 파일 이름 · DXF 형식 번호(AC1015 = 오토캐드 2000) · 적용된 단위 · 닫힌 도형 수</figcaption></figure>
+<ul>
+  <li>빨간 글씨가 나오면 읽지 못한 것입니다(10장 참고).</li>
+  <li>새 도면을 열면 이전 도면에서 눌러 바꾼 판정, 레이어 지정, 파일 이름은 모두 처음 상태로 돌아갑니다. 옵션 값은 그대로 남습니다.</li>
+</ul>
+
+<h2 id="c4-2">4.2 “2. 옵션”</h2>
+<figure><img src="img/04_options.png" style="width:108mm" alt=""><figcaption>옵션(사진의 값이 기본값)</figcaption></figure>
+<p>옵션 이름 위에 마우스를 올리면 짧은 설명이 나오는 항목이 있습니다. 옵션을 바꾼 뒤에는 <span class="ui">변환</span>을 눌러야 결과에 반영됩니다(4.4절).</p>
+<table>
+  <thead><tr><th style="width:43mm">옵션</th><th style="width:25mm">기본값</th><th>뜻과 바꿀 때</th></tr></thead>
+  <tr><td>도면 단위</td><td>자동($INSUNITS, 없으면 mm)</td><td>도면 좌표의 단위. 도면에 단위가 적혀 있지 않거나 틀리게 적혀 있어 크기가 25.4배 다르게 나올 때 mm 또는 inch로 직접 고릅니다. 화면 오른쪽 위에 적용된 단위가 표시됩니다.</td></tr>
+  <tr><td>원점</td><td>DXF 좌표 그대로</td><td>출력 좌표의 기준. “전체 좌측 하단 = 0,0”을 고르면 출력 대상 전체의 왼쪽 아래 구석이 0,0이 되도록 모든 층을 같이 옮깁니다.</td></tr>
+  <tr><td>패드 판정 비율 (긴 변÷짧은 변 이하)</td><td>4</td><td>사각형을 패드로 볼 기준. 긴 변÷짧은 변이 이 값 이하이면 패드 후보입니다. 길쭉한 패드가 배선으로 판정되면 값을 키우고, 짧은 배선 토막이 패드로 판정되면 줄입니다. 몇 개만 틀리면 옵션을 바꾸는 대신 미리보기에서 눌러 바꾸는 편이 안전합니다.</td></tr>
+  <tr><td>형상 비교 격자 (mm)</td><td>0.002</td><td>원본과 결과의 모양을 비교할 때의 촘촘함. 작을수록 정밀하지만 오래 걸립니다. 보통 그대로 둡니다.</td></tr>
+  <tr><td>형상 차이 경고 기준 (mm)</td><td>0.005</td><td>원본과 결과의 차이가 이 값을 넘으면 경고합니다. 배선은 이 값을 넘으면 자동으로 영역 출력으로 바뀝니다.</td></tr>
+  <tr><td>조리개 공유 허용 오차 (mm)</td><td>0.0001</td><td>크기 차이가 이 값 이내인 패드·선폭은 같은 조리개(D코드)를 씁니다. 조리개 목록이 미세한 크기 차이로 지나치게 많아질 때 키웁니다.</td></tr>
+  <tr><td>타원 다각형 분할 수</td><td>48</td><td>타원 패드를 몇 각형으로 근사할지. “타원 근사 오차” 경고가 나오면 늘립니다.</td></tr>
+  <tr><td>매크로(AM) 대신 영역으로 내기</td><td>꺼짐</td><td>회전된 사각형·회전된 오블롱·둥근 모서리 사각형·타원 패드는 조리개 매크로로 냅니다. CAM이 매크로를 읽지 못하거나 모양이 틀리게 보일 때 켜면 이런 패드를 영역으로 냅니다.</td></tr>
+  <tr><td>채움 영역의 호를 꺾은선으로 내기</td><td>꺼짐</td><td>둥근 꺾임(R) 배선의 모서리 채움은 호로 적어 파일을 줄입니다. CAM이 영역 안의 호를 잘못 읽을 때 켭니다(파일이 커집니다).</td></tr>
+  <tr><td>안쪽 폴리선을 빈 곳·동박 번갈아</td><td>꺼짐</td><td>다른 객체 안에 그려진 폴리선을 바깥 객체와 반대로 처리합니다(동박 → 빈 곳 → 동박 …). 동박면의 구멍이나 글자 속 구멍을 폴리선으로 그린 도면에서 켭니다. 꺼 두면 안쪽 폴리선은 모두 동박이며, 객체마다 눌러서 바꿀 수 있습니다(5.5절).</td></tr>
+  <tr><td>배선과 합쳐진 사각 패드 떼어내기</td><td>켜짐</td><td>패드와 배선이 한 폴리선이면 직각 사각 패드를 떼어 플래시로 냅니다. 패드가 아닌 곳이 떼어져 곤란할 때 끕니다(7.4절).</td></tr>
+  <tr><td>외형 선폭 (mm)</td><td>0.1</td><td>외형 층의 선을 그리는 둥근 조리개의 지름.</td></tr>
+  <tr><td>TEXT·MTEXT를 내장 획 글꼴로 내기(근사)</td><td>켜짐</td><td>출력 대상 층의 글자를 프로그램 안의 단순한 글꼴(영문·숫자·기호)로 그려 선으로 냅니다. 글자가 나오면 안 되는 도면에서는 끕니다. 글자 모양이 오토캐드와 똑같아야 하면 7.6절을 보세요.</td></tr>
+  <tr><td>글자 선폭 (글자 높이의 %)</td><td>10</td><td>위 글자의 선폭. 글자 높이 1mm이면 선폭 0.1mm.</td></tr>
+  <tr><td>동박·마스크 층의 열린 선을 선으로 내기</td><td>켜짐</td><td>동박·솔더마스크 층에 남은 열린 선(선, 호, 열린 폴리선. 예: 오토캐드에서 분해한 글자)을 둥근 조리개 선으로 냅니다. 끄면 무시한 객체 목록에 남습니다.</td></tr>
+  <tr><td>열린 선 선폭 (mm)</td><td>0.1</td><td>위 열린 선의 선폭.</td></tr>
+</table>
+
+<h2 id="c4-3">4.3 “3. 레이어”</h2>
+<div class="pair">
+  <figure><img src="img/05_layers.png" style="width:92mm" alt=""></figure>
+  <div>
+    <p><span class="n">1</span> DXF 레이어마다 읽은 객체 수와 <span class="ui">출력 대상</span>이 나옵니다.</p>
+    <p><span class="n">2</span> 변환 버튼(4.4절).</p>
+    <p><span class="n">3</span> 지금 무엇을 해야 하는지, 변환 뒤에는 걸린 시간을 알려 주는 안내 글.</p>
+  </div>
+</div>
+<h3 id="c4-3a">출력 대상 5가지</h3>
+<table>
+  <tr><th style="width:27mm">출력 대상</th><th style="width:38mm">Gerber 파일 이름(기본)</th><th>내용</th></tr>
+  <tr><td>동박 1</td><td>원본이름_L1.gbr</td><td rowspan="2">배선은 선, 패드는 플래시, 나머지는 영역.</td></tr>
+  <tr><td>동박 2</td><td>원본이름_L2.gbr</td></tr>
+  <tr><td>솔더마스크 1</td><td>원본이름_SM1.gbr</td><td rowspan="2">그린 도형 = 개구부. 패드 모양은 플래시, 나머지는 영역.</td></tr>
+  <tr><td>솔더마스크 2</td><td>원본이름_SM2.gbr</td></tr>
+  <tr><td>외형</td><td>원본이름_OUTLINE.gbr</td><td>닫힌 외곽선과 열린 선을 “외형 선폭”의 선으로 따라 그립니다.</td></tr>
+  <tr><td>출력 안 함</td><td>—</td><td>출력하지 않습니다(치수, 부품 외곽 등).</td></tr>
+</table>
+<ul>
+  <li><b>같은 출력 대상을 고른 레이어 여러 개는 한 파일로 합쳐집니다.</b> 패드와 배선이 서로 다른 레이어에 있어도 둘 다 “동박 1”로 지정하면 맞닿음이 제대로 판정됩니다.</li>
+  <li>아랫면을 뒤집어 내야 하면 “4. 출력 파일” 표의 <span class="ui">좌우 반전</span>을 켭니다. 기본은 꺼짐(DXF 좌표 그대로)입니다.</li>
+</ul>
+<h3 id="c4-3b">자동 지정 규칙</h3>
+<p>도면을 열면 레이어 이름을 보고 아래처럼 추정합니다. 추정일 뿐이므로 표를 반드시 확인하고, 틀리면 직접 고르세요.</p>
+<table>
+  <tr><th style="width:27mm">출력 대상</th><th>이렇게 추정합니다</th></tr>
+  <tr><td>솔더마스크 1·2</td><td>이름에 mask, solder, 마스크, 레지스트가 있거나 SM이 따로 떨어진 낱말로 있는 레이어. 둘이면 이름에 bot, bottom, 하면, 뒷면이 있거나 2로 끝나는 쪽이 솔더마스크 2.</td></tr>
+  <tr><td>외형</td><td>이름에 outline, 외형, board, border, edge, profile이 있는 첫 레이어(zone, limit, trace가 든 이름은 제외).</td></tr>
+  <tr><td>동박 1·2</td><td>이름에 copper, 동박, 배선, 패턴이 있거나 cu, top, bot, bottom, L1~L9가 따로 떨어진 낱말로 있는 레이어 중 앞의 둘(pad가 든 이름은 제외). 그런 이름이 하나도 없으면, 보조용으로 보이는 이름(outline, zone, limit, body, text, info, dim, border, frame, 외형, 치수, 부품, 레이어 “0”)을 뺀 나머지 중 앞의 둘.</td></tr>
+  <tr><td>출력 안 함</td><td>그 밖의 레이어와 객체가 없는 레이어.</td></tr>
+</table>
+
+<h2 id="c4-4">4.4 “변환” 버튼</h2>
+<p>레이어 지정, 옵션, 좌우 반전, 출력 형식을 바꿔도 <b>바로 변환하지 않습니다.</b> 큰 도면에서 설정 하나를 바꿀 때마다 기다리지 않도록, 다 정한 뒤 <span class="ui">변환</span>을 한 번 누르는 방식입니다.</p>
+<figure><img src="img/34_dirty.png" alt=""><figcaption>설정을 바꾼 뒤: <span class="n">1</span> 미리보기 위 주황색 띠 “설정이 바뀌었습니다 — 눌러서 변환”, <span class="n">2</span> 변환 버튼에 주황 테두리와 빨간 안내 글. 이 동안 내려받기 버튼은 잠깁니다.</figcaption></figure>
+<ul>
+  <li>설정이 바뀐 동안 화면에 보이는 것은 <b>이전 설정의 결과</b>입니다. 내려받기는 <span class="ui">변환</span>을 누른 뒤에 다시 열립니다.</li>
+  <li><b>바뀐 층만 다시 변환합니다.</b> 예를 들어 외형 선폭만 바꾸면 외형 층만 다시 변환하고 나머지는 그대로 씁니다. 안내 글에 “변환한 층 / 그대로 쓴 층”이 나옵니다.</li>
+  <li><span class="ui">설정을 바꾸면 바로 변환</span>(기본 꺼짐): 켜면 설정을 바꿀 때마다 곧바로 변환합니다. 작은 도면에서 편합니다.</li>
+  <li><span class="ui">여러 코어 사용</span>(기본 켜짐, 괄호 안은 쓸 코어 수): 객체가 많을 때 계산을 CPU 코어 여러 개에 나눕니다. 결과는 한 코어로 할 때와 같습니다(9장).</li>
+  <li>미리보기에서 객체를 눌러 바꾸는 것(패드 ↔ 배선, 빈 곳/동박, 되돌리기)은 <span class="ui">변환</span>을 누르지 않아도 <b>즉시 반영</b>됩니다.</li>
+</ul>
+<div class="row">
+  <figure><img src="img/08_apply_done.png" alt=""><figcaption>변환 직후: 걸린 시간, 변환한 층, 단계별 시간, 쓴 코어 수</figcaption></figure>
+  <figure><img src="img/35_apply_partial.png" alt=""><figcaption>외형 선폭만 바꾸고 변환: 외형만 다시 변환</figcaption></figure>
+</div>
+<p><b>단계별 시간</b>은 어디에서 시간이 걸리는지 보여 줍니다: 패드 떼기·토막 / 맞닿음·겹침 / 배선 복원 / Gerber 쓰기·읽기 / 형상 비교. 문의하실 때 이 줄을 알려 주시면 도움이 됩니다.</p>
+
+<h2 id="c4-5">4.5 “4. 출력 파일” — Gerber</h2>
+<div class="pair">
+  <figure><img src="img/09_output_gerber.png" style="width:92mm" alt=""></figure>
+  <div>
+    <p><span class="n">1</span> <span class="ui">출력 형식</span>: Gerber (RS-274X) 또는 ODB++.</p>
+    <p><span class="n">2</span> <span class="ui">파일 이름</span>: 고쳐 쓸 수 있습니다. 이름을 바꾸는 것은 다시 변환할 필요가 없습니다.</p>
+    <p><span class="n">3</span> <span class="ui">좌우 반전</span>: 그 출력만 좌우로 뒤집습니다(바꾸면 변환 필요).</p>
+    <p><span class="n">4</span> <span class="ui">내려받기</span>: 그 층의 .gbr 파일 하나.</p>
+    <p><span class="n">5</span> <span class="ui">전체 zip 내려받기</span>: 변환된 층 전부를 “원본이름_gerber.zip” 하나로.</p>
+  </div>
+</div>
+<p>Gerber 출력의 형식은 다음과 같습니다.</p>
+<ul>
+  <li>RS-274X, 단위 mm, 좌표 자릿수 정수 4·소수 6(<code>%FSLAX46Y46*%</code>, <code>%MOMM*%</code>).</li>
+  <li>X2 속성(<code>%TF</code>, <code>%TA</code>, <code>%TO</code>)과 반복 배치(<code>%SR</code>)는 쓰지 않습니다.</li>
+  <li>배선 = 둥근 조리개 선, 패드 = 플래시, 영역 = G36/G37, 호 = G75와 G02/G03. 빈 곳은 음극성(<code>%LPC*%</code>)으로 냅니다.</li>
+</ul>
+<div class="note"><b>참고</b>내려받은 파일은 브라우저의 “다운로드” 폴더에 저장됩니다. 변환되지 않은 층(출력 대상으로 고른 레이어가 없는 출력)의 내려받기 버튼은 눌리지 않습니다.</div>
+
+<h2 id="c4-6">4.6 “4. 출력 파일” — ODB++</h2>
+<p><span class="ui">출력 형식</span>을 ODB++로 바꾸면 파일 이름 칸과 층별 내려받기가 사라지고 ODB++ 묶음이 나타납니다. 형식을 바꾼 뒤에는 <span class="ui">변환</span>을 다시 눌러야 합니다. 자세한 내용은 8장에 있습니다.</p>
+<table>
+  <tr><th style="width:24mm"></th><th>Gerber</th><th>ODB++</th></tr>
+  <tr><td>파일</td><td>층마다 .gbr 하나, 또는 전체 zip</td><td>폴더 구조 한 묶음(.tgz 또는 .zip)</td></tr>
+  <tr><td>반복 무늬</td><td>전부 풀어서 적음(큰 도면은 파일이 큼)</td><td>똑같이 반복되는 부분을 스텝 하나로 묶어 반복 배치(파일이 작음)</td></tr>
+  <tr><td>단위</td><td>mm</td><td>inch(7.0) 또는 mm(8.1) 선택</td></tr>
+  <tr><td>확인 방법</td><td colspan="2">어느 형식이든 변환 결과(선·플래시·영역)는 같고, 미리보기와 형상 비교는 공통입니다. ODB++는 만든 뒤 다시 읽어 변환 결과와 요소 하나하나를 대조한 결과를 추가로 보여 줍니다.</td></tr>
+</table>
+<div class="warn"><b>주의</b>출력 형식을 바꾸거나, ODB++ 상태에서 <span class="ui">반복되는 부분을 스텝으로 묶기</span>를 켜고 끄면 도면을 다시 펼치므로 <b>미리보기에서 눌러 바꾼 판정과 빈 곳 지정이 지워집니다.</b> 출력 형식을 먼저 정한 뒤에 눌러 바꾸는 작업을 하세요.</div>
+
+<!-- ============================================================ -->
+<h1 id="c5">5. 미리보기와 검사</h1>
+<p>미리보기는 <b>출력할 Gerber를 프로그램이 다시 읽어서</b> 그린 것입니다. 즉 화면에 보이는 색칠된 모양이 실제 출력 파일의 내용이고, 그 위에 원본 DXF 외곽선을 흰 선으로 겹쳐 보여 줍니다.</p>
+<figure><img src="img/07_converted.png" alt=""><figcaption>변환 뒤의 화면. <span class="n">1</span> 보기 설정 줄 <span class="n">2</span> 미리보기 <span class="n">3</span> 색 범례·좌표 <span class="n">4</span> 변환 요약 <span class="n">5</span> 경고</figcaption></figure>
+
+<h2 id="c5-1">5.1 확대·축소·이동</h2>
+<table>
+  <tr><th style="width:52mm">조작</th><th>동작</th></tr>
+  <tr><td>마우스 휠</td><td>마우스가 있는 곳을 중심으로 확대·축소</td></tr>
+  <tr><td>왼쪽 버튼으로 끌기</td><td>화면 이동(“영역 선택”이 켜져 있으면 가운데·오른쪽 버튼으로 끌기)</td></tr>
+  <tr><td><span class="ui">전체 보기</span> 버튼, 또는 두 번 누르기</td><td>도면 전체가 보이게 맞춤</td></tr>
+  <tr><td>마우스 움직이기</td><td>오른쪽 아래에 그 위치의 좌표(mm, 출력 좌표)가 표시됨</td></tr>
+</table>
+<p>아주 큰 도면에서는 움직이는 동안 직전 화면을 늘려서 보여 주다가, 멈추면 다시 선명하게 그립니다.</p>
+
+<h2 id="c5-2">5.2 보기 설정 줄</h2>
+<figure><img src="img/10_toolbar.png" alt=""></figure>
+<table>
+  <tr><th style="width:40mm">항목</th><th>내용</th></tr>
+  <tr><td>동박 1 … 외형</td><td>층별로 켜고 끕니다. 꺼진 층은 눌러도 선택되지 않습니다. 위아래 층이 겹쳐 헷갈릴 때 한 층만 켜 놓고 보세요.</td></tr>
+  <tr><td>원본 외곽선</td><td>원본 DXF 외곽선(흰 선). 빈 곳으로 처리한 객체와 중복 객체는 점선.</td></tr>
+  <tr><td>변환 결과</td><td>출력 결과(색칠된 면). 끄면 원본만 보입니다.</td></tr>
+  <tr><td>중심선</td><td>배선으로 낸 선의 중심선과 양 끝점(짙은 선과 점). 선이 어디서 시작해 어디서 끝나는지 볼 수 있습니다.</td></tr>
+  <tr><td>마스크 선으로 보기</td><td>솔더마스크를 속을 채우지 않고 테두리만 보입니다(5.3절). 화면 표시만 바뀌고 출력 파일은 그대로 면입니다.</td></tr>
+  <tr><td>색</td><td>“종류별”(선·플래시·영역 구분) 또는 “레이어별”(층 구분).</td></tr>
+  <tr><td>영역 선택</td><td>켜면 왼쪽 버튼으로 끌어 여러 객체를 고릅니다(5.4절).</td></tr>
+</table>
+
+<h2 id="c5-3">5.3 색의 의미</h2>
+<figure><img src="img/11_legend.png" alt=""><figcaption>“종류별” 색의 범례. 색 칸 네 개는 왼쪽부터 동박 1 · 동박 2 · 솔더마스크 1 · 솔더마스크 2의 톤</figcaption></figure>
+<table>
+  <tr><th style="width:45mm">색(종류별)</th><th>뜻</th></tr>
+  <tr><td><span class="sw" style="background:#34d17a"></span>초록</td><td>선(배선) — 둥근 조리개로 그은 선</td></tr>
+  <tr><td><span class="sw" style="background:#ffb224"></span>주황</td><td>플래시(패드)</td></tr>
+  <tr><td><span class="sw" style="background:#ff5aa8"></span>분홍</td><td>영역(외곽선 그대로) — 선이나 플래시로 내지 못해 외곽선대로 낸 것</td></tr>
+  <tr><td><span class="sw" style="background:#3fc1ff"></span>하늘색</td><td>모서리·끝 채움(영역) — 배선의 꺾임 모서리, 직각 끝, 폭이 바뀌는 부분을 메우는 작은 영역</td></tr>
+  <tr><td><span class="sw" style="background:#f7e463"></span>노랑</td><td>글자·열린 선</td></tr>
+  <tr><td><span class="sw" style="background:#fff"></span>흰 선</td><td>원본 외곽선, 외형 층의 선</td></tr>
+</table>
+<ul>
+  <li>같은 색이라도 <b>밝으면 동박 1, 어두우면 동박 2, 옅으면 솔더마스크 1, 탁하면 솔더마스크 2</b>입니다.</li>
+  <li>선택한 객체는 굵은 노란 테두리로 표시됩니다.</li>
+</ul>
+<div class="row">
+  <figure><img src="img/31_mask_line.png" alt=""><figcaption>“마스크 선으로 보기” 켬: 솔더마스크 1은 보라, 2는 청록 테두리. 패드와 개구부의 겹침을 보기 쉽습니다.</figcaption></figure>
+  <figure><img src="img/32_mask_face.png" alt=""><figcaption>끔: 솔더마스크가 옅은 면으로 패드를 덮어 보입니다.</figcaption></figure>
+</div>
+<figure><img src="img/33_layer_color.png" style="width:120mm" alt=""><figcaption>“레이어별” 색의 범례: 동박 1 빨강, 동박 2 파랑, 솔더마스크 1 초록, 솔더마스크 2 노랑, 외형 흰색</figcaption></figure>
+
+<h2 id="c5-4">5.4 객체를 눌러 판정 바꾸기</h2>
+<p>자동 판정이 틀렸거나 다르게 내고 싶은 객체는 미리보기에서 눌러 바꿉니다. 누르면 객체 정보 창이 뜹니다.</p>
+<figure><img src="img/22_popup.png" style="width:150mm" alt=""><figcaption><span class="n">1</span> 객체 정보: 층·객체 번호, 원본 종류와 레이어, 모양, 자동 판정(이유), 현재 출력, 형상 차이 <span class="n">2</span> 바꾸기 버튼(파란 것이 현재 상태)</figcaption></figure>
+<table>
+  <tr><th style="width:28mm">버튼</th><th>동작</th></tr>
+  <tr><td>자동</td><td>프로그램의 자동 판정으로 되돌립니다.</td></tr>
+  <tr><td>패드(플래시)</td><td>플래시로 냅니다. 패드 모양(사각·원·오블롱·둥근 모서리 사각·타원)으로 인식된 객체에서만 눌립니다.</td></tr>
+  <tr><td>배선(선)</td><td>둥근 조리개 선으로 냅니다. 선으로 되돌릴 수 있는 객체에서만 눌립니다.</td></tr>
+  <tr><td>영역</td><td>외곽선 그대로 영역으로 냅니다. 어떤 객체든 가능하며, 모양이 가장 확실하게 보존됩니다.</td></tr>
+</table>
+<figure><img src="img/23_popup_changed.png" style="width:150mm" alt=""><figcaption>왼쪽 패드를 “배선(선)”으로 바꾼 모습. 주황(플래시)이 초록(선)으로 바뀌고, 직각 모서리는 하늘색 채움으로 메워집니다.</figcaption></figure>
+<ul>
+  <li>바꾼 내용은 곧바로 반영되며, <b>바꾼 객체와 그 주변만</b> 다시 계산하므로 큰 도면에서도 빠릅니다.</li>
+  <li>바꾼 객체는 오른쪽 <span class="ui">패드 판정 변경</span>에 모입니다. 항목을 누르면 그 위치로 확대되고, <span class="ui">되돌리기</span>로 하나씩 되돌릴 수 있습니다.</li>
+  <li>외형 층의 객체와 중복 객체는 바꿀 수 없습니다.</li>
+</ul>
+<figure><img src="img/24_overrides.png" style="width:86mm" alt=""><figcaption>“패드 판정 변경” 목록</figcaption></figure>
+
+<h3 id="c5-4a">여러 객체를 한꺼번에 바꾸기</h3>
+<table>
+  <tr><th style="width:62mm">조작</th><th>동작</th></tr>
+  <tr><td>누르기</td><td>하나 선택</td></tr>
+  <tr><td>Ctrl 또는 Shift를 누른 채 누르기</td><td>선택에 더하거나 빼기</td></tr>
+  <tr><td>Shift를 누른 채 끌기, 또는 “영역 선택”을 켜고 끌기</td><td>상자로 선택. <b>왼쪽 → 오른쪽</b>으로 끌면 상자 안에 다 들어온 객체만(파란 실선), <b>오른쪽 → 왼쪽</b>으로 끌면 걸친 객체도(초록 점선)</td></tr>
+  <tr><td>Esc</td><td>선택 해제</td></tr>
+</table>
+<div class="row">
+  <figure><img src="img/26_box.png" alt=""><figcaption>상자로 선택하는 중</figcaption></figure>
+  <figure><img src="img/25_multi.png" alt=""><figcaption>2개 이상 고르면 “객체 n개 선택” 창. 괄호 안은 바꿀 수 있는 개수</figcaption></figure>
+</div>
+<p>상자 선택은 켜져 있는(보이는) 층의 객체만 고르며, 객체의 둘레 상자를 기준으로 판단합니다. 한꺼번에 바꾼 뒤에도 선택은 유지됩니다.</p>
+
+<h2 id="c5-5">5.5 안쪽 폴리선: 빈 곳 / 동박</h2>
+<p>다른 객체 안에 그려진 폴리선(예: 동박면 안의 원)은 구멍(빈 곳)일 수도, 겹쳐 그린 동박일 수도 있습니다. 프로그램은 이를 마음대로 정하지 않고 <b>기본은 동박</b>으로 두며, 경고 목록 “다른 객체 안의 폴리선”에 올립니다.</p>
+<ol>
+  <li>경고 목록에서 항목을 누르면 그 객체로 확대되고 정보 창이 뜹니다.</li>
+  <li>창의 <span class="ui">빈 곳으로</span> 또는 <span class="ui">동박으로</span>를 누릅니다.</li>
+</ol>
+<div class="row">
+  <figure><img src="img/28_nested_pop.png" style="width:74mm" alt=""><figcaption>지정 전: 안쪽 원이 동박(패드)으로 나옴. <span class="n">1</span> 빈 곳으로 / 동박으로</figcaption></figure>
+  <figure><img src="img/29_nested_void.png" style="width:60mm" alt=""><figcaption>바깥 원을 “빈 곳으로”: 동박면에 구멍이 뚫리고 가운데 작은 원은 섬으로 남음</figcaption></figure>
+</div>
+<div class="pair">
+  <figure><img src="img/30_alternate.png" style="width:30mm" alt=""></figure>
+  <div><p>이런 객체가 많으면 옵션 <span class="ui">안쪽 폴리선을 빈 곳·동박 번갈아</span>를 켜고 변환하세요. 바깥 객체와 반대로(동박 → 빈 곳 → 동박 …) 한꺼번에 처리하며, 그 뒤에도 객체마다 눌러 바꿀 수 있습니다. 왼쪽은 이 옵션을 켠 3겹 사각형입니다(동박 → 빈 곳 → 동박).</p></div>
+</div>
+
+<!-- ============================================================ -->
+<h1 id="c6">6. 요약·경고 목록 읽는 법</h1>
+
+<h2 id="c6-1">6.1 변환 요약</h2>
+<div class="pair">
+  <figure><img src="img/12_summary.png" style="width:80mm" alt=""></figure>
+  <div>
+    <table style="margin-top:0">
+      <tr><th style="width:24mm">열</th><th>뜻</th></tr>
+      <tr><td>패드(플래시)</td><td>플래시로 낸 패드 수. “+영역 n”은 매크로 대신 영역으로 낸 패드.</td></tr>
+      <tr><td>배선(객체/선분)</td><td>선으로 낸 배선 객체 수 / 그 선분 수. “+글자, 열린 선”은 따로 셉니다.</td></tr>
+      <tr><td>영역(대체)</td><td>외곽선 그대로 영역으로 낸 객체 수.</td></tr>
+      <tr><td>모서리 채움</td><td>배선의 모서리·끝을 메운 작은 영역 수.</td></tr>
+      <tr><td>최대 차이(mm)</td><td>그 층에서 원본과 결과가 가장 많이 다른 곳의 거리.</td></tr>
+    </table>
+  </div>
+</div>
+<h3 id="c6-1a">형상 비교</h3>
+<p>변환이 끝나면 <b>출력 Gerber를 다시 읽어</b>, 객체마다 원본 외곽선과 겹쳐 고운 격자(옵션 “형상 비교 격자”, 기본 0.002mm)로 서로 다른 부분을 찾습니다. 가장 많이 벗어난 거리가 “최대 차이”입니다.</p>
+<ul>
+  <li><span style="color:#2e7d32;font-weight:700">모든 객체가 기준 이내</span>(초록): 모든 객체의 차이가 “형상 차이 경고 기준”(기본 0.005mm) 이내. 정상입니다.</li>
+  <li><span style="color:#c62828;font-weight:700">기준 초과 객체 있음 — 경고 목록 확인</span>(빨강): 경고 목록의 “형상 차이 기준 초과”를 눌러 그 위치를 확인하세요(6.2절).</li>
+  <li>배선을 선으로 되돌린 결과가 기준을 넘으면 프로그램이 그 배선을 자동으로 영역 출력으로 바꾸고 “영역으로 출력(대체)”에 올립니다. 그래서 보통은 기준 초과가 남지 않습니다.</li>
+  <li>둥근 꺾임이나 타원처럼 곡선이 있는 곳은 0.001mm 안팎의 차이가 나오는 것이 정상입니다.</li>
+</ul>
+
+<h2 id="c6-2">6.2 경고 목록</h2>
+<div class="pair">
+  <figure><img src="img/13_warnings.png" style="width:84mm" alt=""></figure>
+  <div>
+    <p>종류별로 묶여 있고, 제목 앞 숫자는 개수입니다. 딱지 색으로 중요도를 구분합니다.</p>
+    <p><span class="tag i">초록</span> 알림: 프로그램이 이렇게 처리했다는 기록</p>
+    <p><span class="tag w">주황</span> 확인: 의도와 맞는지 볼 것</p>
+    <p><span class="tag e">빨강</span> 조치: 도면이나 판정을 고칠 것</p>
+    <p>항목을 누르면 그 위치로 확대되고 빨간 상자가 잠깐 표시됩니다. 항목의 첫 줄은 층, 객체 번호(#), 위치 좌표입니다. 종류마다 400개까지만 나열합니다.</p>
+  </div>
+</div>
+<table>
+  <thead><tr><th style="width:44mm">경고</th><th>뜻</th><th style="width:60mm">조치</th></tr></thead>
+  <tr><td><span class="tag i">알림</span> 배선과 합쳐진 패드를 떼어 냄</td><td>패드와 배선이 한 폴리선이어서 사각 패드를 떼어 플래시로 냈습니다.</td><td>패드가 아닌 곳이 떼어졌으면 그 객체를 눌러 “배선(선)”이나 “영역”으로 바꾸거나, 옵션을 끕니다.</td></tr>
+  <tr><td><span class="tag i">알림</span> TEXT·MTEXT를 내장 글꼴로 근사</td><td>글자를 프로그램의 단순한 글꼴로 그렸습니다. 글자 모양은 오토캐드와 다릅니다. 글꼴에 없는 글자는 네모로 나옵니다.</td><td>위치·크기가 괜찮은지 확인. 모양이 같아야 하면 7.6절.</td></tr>
+  <tr><td><span class="tag i">알림</span> 열린 선을 선으로 냄</td><td>동박·마스크 층의 열린 선을 “열린 선 선폭”의 선으로 냈습니다.</td><td>나오면 안 되는 선이면 도면에서 지우거나 옵션을 끕니다.</td></tr>
+  <tr><td><span class="tag w">확인</span> 영역으로 출력(대체)</td><td>배선이나 패드로 내지 못해 외곽선 그대로 영역으로 냈습니다. 모양은 원본과 같습니다. 이유가 함께 나옵니다(아래 표).</td><td>넓은 동박면이면 정상. 배선이어야 하는 객체라면 CAM에서 선폭 보정이 되지 않으므로 이유를 보고 도면을 확인합니다.</td></tr>
+  <tr><td><span class="tag w">확인</span> 좁은 패드 → 직각 마감</td><td>배선이 닿는 패드가 배선보다 좁아 둥근 선 끝을 패드 안에 넣을 수 없어, 선 끝을 직각으로 마감했습니다.</td><td>모양은 원본과 같습니다. 패드와 배선의 폭이 의도대로인지만 확인합니다.</td></tr>
+  <tr><td><span class="tag e">조치</span> 같은 층 겹침</td><td>같은 층에서 두 객체가 겹쳐 있습니다.</td><td>도면 오류일 가능성이 큽니다. 위치를 확인하고 도면을 고치거나, 의도한 것이면 그대로 둡니다(출력은 겹친 그대로 나옵니다).</td></tr>
+  <tr><td><span class="tag w">확인</span> 다른 객체 안의 폴리선</td><td>어떤 객체 안에 또 폴리선이 있습니다. “동박으로 처리” 또는 “빈 곳으로 처리”라고 나옵니다.</td><td>구멍이어야 하면 눌러서 “빈 곳으로”(5.5절).</td></tr>
+  <tr><td><span class="tag e">조치</span> 형상 차이 기준 초과</td><td>출력과 원본의 차이가 기준을 넘습니다. 외형 선·글자·열린 선이 원본과 다를 때도 여기에 나옵니다.</td><td>그 객체를 눌러 “영역”으로 바꾸면 외곽선 그대로 나갑니다. 패드라면 “매크로 대신 영역” 옵션도 방법입니다. 그래도 남으면 문의해 주세요.</td></tr>
+  <tr><td><span class="tag w">확인</span> 중복 객체</td><td>같은 자리에 같은 모양이 또 있어 하나만 출력했습니다.</td><td>보통 조치가 필요 없습니다.</td></tr>
+  <tr><td><span class="tag w">확인</span> 폭 있는 폴리선</td><td>폭이 있는 폴리선의 폭을 무시하고 외곽선만 썼습니다.</td><td>폭으로 선을 표현한 도면이면 결과가 의도와 다릅니다. 외곽선으로 다시 그려야 합니다.</td></tr>
+  <tr><td><span class="tag w">확인</span> 블록 배율로 호를 꺾은선으로 바꿈</td><td>가로·세로 배율이 다른 블록 안의 호(찌그러진 호)를 꺾은선으로 바꿨습니다.</td><td>모양만 확인합니다.</td></tr>
+  <tr><td><span class="tag w">확인</span> 타원 근사 오차</td><td>타원을 다각형으로 근사한 오차가 기준을 넘습니다.</td><td>“타원 다각형 분할 수”를 늘립니다.</td></tr>
+</table>
+<h3 id="c6-2a">“영역으로 출력(대체)”의 이유</h3>
+<table>
+  <tr><th style="width:68mm">이유</th><th>뜻</th></tr>
+  <tr><td>마주 보는 평행 변이 없음 / 선으로 바꿀 수 있는 구간이 없음 / 꼭짓점이 4개 미만</td><td>배선처럼 폭이 일정한 띠 모양이 아닙니다.</td></tr>
+  <tr><td>배선 모양이 아님(가장 긴 구간도 길이÷폭 1.5 미만)</td><td>길쭉하지 않고 면에 가까운 모양입니다(패드 사이의 아주 짧은 이음 등).</td></tr>
+  <tr><td>안에 다른 객체가 있는 면</td><td>안쪽에 다른 폴리선을 품은 동박면입니다.</td></tr>
+  <tr><td>꼭짓점이 너무 많음</td><td>매우 복잡한 외곽선입니다.</td></tr>
+  <tr><td>복원 결과와 원본의 차이 …</td><td>선으로 되돌려 보았으나 원본과의 차이가 기준을 넘어 영역으로 바꿨습니다.</td></tr>
+  <tr><td>솔더마스크 개구부(패드 모양 아님)</td><td>솔더마스크 층에서 패드 모양이 아닌 도형은 영역으로 냅니다(정상).</td></tr>
+  <tr><td>사용자 지정 / 빈 곳</td><td>눌러서 “영역”으로 바꿨거나 빈 곳으로 지정한 객체입니다.</td></tr>
+</table>
+
+<h2 id="c6-3">6.3 조리개 목록 · 무시한 객체</h2>
+<div class="row">
+  <figure><img src="img/36_apertures.png" alt=""><figcaption>조리개 목록: 층(파일)마다 D코드, 모양·크기, 쓰인 횟수</figcaption></figure>
+  <figure><img src="img/37_ignored.png" alt=""><figcaption>무시한 객체: 종류별 개수와 목록. 누르면 그 위치로 이동</figcaption></figure>
+</div>
+<ul>
+  <li><b>조리개 목록</b>에서 배선 폭과 패드 크기의 종류가 도면 의도와 맞는지 볼 수 있습니다. 같은 폭이어야 할 배선이 0.1999, 0.2001처럼 여러 조리개로 갈렸다면 도면 좌표가 조금씩 어긋난 것입니다. “(매크로)” 표시는 조리개 매크로로 낸 모양이며, 타원에는 근사 오차도 나옵니다.</li>
+  <li><b>무시한 객체</b>는 출력에 들어가지 않은 도면 객체입니다(2.3절). 300개까지만 나열합니다.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h1 id="c7">7. 변환 규칙 요약</h1>
+<p>프로그램이 도면 객체를 어떻게 바꾸는지 알아 두면 결과를 확인하기 쉽습니다. 사진에서 흰 선은 원본 외곽선, 색칠된 면은 출력 결과입니다.</p>
+
+<h2 id="c7-1">7.1 배선: 외곽선 → 둥근 조리개 선</h2>
+<figure>
+<svg viewBox="0 0 660 190" style="width:100%;background:#10151b;border-radius:3px" xmlns="http://www.w3.org/2000/svg">
+  <g font-size="12" fill="#d5dee8">
+    <text x="20" y="22">① 원본: 폭 0 닫힌 외곽선</text>
+    <text x="240" y="22">② 마주 보는 평행 변 → 폭 w, 중심선</text>
+    <text x="465" y="22">③ 출력: 둥근 선 + 채움 영역</text>
+  </g>
+  <!-- 1 -->
+  <path d="M30 60 H170 V165 H140 V90 H30 Z" fill="none" stroke="#fff" stroke-width="1.5"/>
+  <!-- 2 -->
+  <g transform="translate(220,0)">
+    <path d="M30 60 H170 V165 H140 V90 H30 Z" fill="none" stroke="#7d8b99" stroke-width="1.2"/>
+    <path d="M30 75 H155 V165" fill="none" stroke="#f7e463" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <path d="M70 60 V90" stroke="#ff6b6b" stroke-width="1.5"/><path d="M66 60 h8 M66 90 h8" stroke="#ff6b6b" stroke-width="1.5"/>
+    <text x="78" y="80" font-size="12" fill="#ff6b6b">w</text>
+    <circle cx="155" cy="75" r="3.5" fill="#f7e463"/>
+    <text x="100" y="125" font-size="11" fill="#f7e463" text-anchor="end">중심선</text>
+    <text x="150" y="50" font-size="11" fill="#f7e463" text-anchor="middle">꺾임점</text>
+  </g>
+  <!-- 3 -->
+  <g transform="translate(440,0)">
+    <path d="M155 60 H170 V75 H155 Z" fill="#3fc1ff"/>
+    <path d="M30 60 H45 V90 H30 Z" fill="#3fc1ff"/>
+    <path d="M140 150 H170 V165 H140 Z" fill="#3fc1ff"/>
+    <path d="M45 75 H155 V150" fill="none" stroke="#34d17a" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M45 75 H155 V150" fill="none" stroke="#06301a" stroke-width="1.2"/>
+    <circle cx="45" cy="75" r="2.6" fill="#06301a"/><circle cx="155" cy="150" r="2.6" fill="#06301a"/><circle cx="155" cy="75" r="2.6" fill="#06301a"/>
+    <path d="M30 60 H170 V165 H140 V90 H30 Z" fill="none" stroke="#fff" stroke-width="1.2"/>
+    <text x="178" y="64" font-size="11" fill="#3fc1ff">모서리</text><text x="178" y="78" font-size="11" fill="#3fc1ff">채움</text>
+    <text x="178" y="158" font-size="11" fill="#3fc1ff">끝 채움</text>
+  </g>
+</svg>
+<figcaption>배선을 선으로 되돌리는 원리(끝이 떠 있는 ㄱ자 배선의 예)</figcaption></figure>
+<ol>
+  <li>외곽선에서 <b>마주 보는 평행한 두 변</b>을 찾습니다. 두 변 사이의 거리가 <b>선폭</b>, 가운데가 <b>중심선</b>입니다.</li>
+  <li>중심선을 꺾임점·분기점에서 이어, 폭이 같은 구간을 <b>지름 = 선폭인 둥근 조리개의 선</b>으로 냅니다.</li>
+  <li>둥근 선만으로는 원본과 달라지는 곳을 작은 <b>채움 영역</b>(하늘색)으로 메워, 결과 외형이 원본 외곽선과 같아지게 합니다.</li>
+</ol>
+<figure><img src="img/14_traces.png" alt=""><figcaption>예제 도면의 배선: <span class="n">1</span> 직각 꺾임 <span class="n">2</span> 45° 꺾임 <span class="n">3</span> T자 분기 <span class="n">4</span> 폭이 계단처럼 바뀜(끝은 떠 있음) <span class="n">5</span> 폭이 서서히 바뀜(테이퍼)</figcaption></figure>
+<table>
+  <tr><th style="width:36mm">곳</th><th>처리</th></tr>
+  <tr><td>뾰족한 꺾임</td><td>둥근 선으로는 바깥 모서리가 둥글게 빠지므로, 그 모서리를 작은 영역으로 채웁니다.</td></tr>
+  <tr><td>둥근 꺾임(R)</td><td>꺾임 부분을 원본 호를 따라가는 영역으로 채웁니다.</td></tr>
+  <tr><td>분기(T자 등)</td><td>가지마다 선을 나눠 분기점까지 긋고, 모자라는 모서리는 채웁니다.</td></tr>
+  <tr><td>폭이 바뀌는 곳</td><td>폭이 같은 구간끼리 선으로 나누고, 테이퍼 부분은 영역으로 냅니다.</td></tr>
+  <tr><td>패드에 닿는 끝</td><td>선 끝을 패드 변에서 선폭의 절반만큼 패드 안으로 넣어, 둥근 끝이 패드에 가려지게 합니다. 패드가 좁아 들어가지 않으면 직각으로 마감하고 경고합니다.</td></tr>
+  <tr><td>떠 있는 끝</td><td>선을 선폭의 절반만큼 줄이고 그만큼을 사각 영역으로 채워 직각으로 마감합니다.</td></tr>
+</table>
+<div class="row">
+  <figure><img src="img/15_corner.png" alt=""><figcaption>직각 꺾임 확대: 바깥 모서리의 하늘색 채움</figcaption></figure>
+  <figure><img src="img/16_tee.png" alt=""><figcaption>T자 분기 확대: 가지별 선과 중심선</figcaption></figure>
+</div>
+<div class="row">
+  <figure><img src="img/18_step_end.png" alt=""><figcaption>폭이 계단처럼 바뀌는 배선, 오른쪽 끝은 직각 마감</figcaption></figure>
+  <figure><img src="img/18_taper.png" alt=""><figcaption>테이퍼: 폭이 바뀌는 부분은 영역(하늘색)</figcaption></figure>
+</div>
+
+<h2 id="c7-2">7.2 패드: 플래시</h2>
+<figure><img src="img/17_pads.png" alt=""><figcaption>예제 도면의 패드: 사각, 원(CIRCLE), 원(폴리선), 오블롱(가로·세로), 둥근 모서리 사각, 타원, 회전 사각, 회전 오블롱, 회전 둥근 모서리 사각</figcaption></figure>
+<table>
+  <tr><th style="width:52mm">모양</th><th>출력</th></tr>
+  <tr><td>직사각형(0°/90°), 원, 오블롱(0°/90°)</td><td>표준 조리개 플래시</td></tr>
+  <tr><td>둥근 모서리 사각형, 회전된 사각형·오블롱</td><td>조리개 매크로 플래시</td></tr>
+  <tr><td>타원</td><td>다각형으로 근사한 매크로 플래시(근사 오차를 조리개 목록에 표시)</td></tr>
+</table>
+<div style="break-inside:avoid"><p><b>패드냐 배선이냐</b>는 모양과 주변 관계로 정합니다.</p>
+<ul>
+  <li>원·오블롱·둥근 모서리 사각형·타원은 항상 패드입니다.</li>
+  <li>사각형은 긴 변÷짧은 변이 <b>“패드 판정 비율”(기본 4) 이하</b>이면 패드 후보입니다.</li>
+  <li>비율이 기준을 넘는 길쭉한 사각형이라도 <b>더 좁은 객체가 변에 맞닿아 있으면 패드</b>로 봅니다.</li>
+  <li>비율이 기준 이하라도 <b>짧은 변 전체에 다른 객체가 이어져 있으면 배선 토막</b>으로 봅니다.</li>
+</ul></div>
+<div class="row">
+  <figure><img src="img/21_stub.png" alt=""><figcaption>패드 사이의 짧은 토막(비율 2)은 배선으로 판정</figcaption></figure>
+  <figure><img src="img/21_narrow.png" alt=""><figcaption>왼쪽의 좁은 객체는 패드로 판정되고, 배선 끝은 직각 마감(경고 “좁은 패드 → 직각 마감”)</figcaption></figure>
+</div>
+<p>같은 모양·크기의 패드는 조리개 하나를 같이 씁니다(“조리개 공유 허용 오차” 이내). 자동 판정의 이유는 객체를 눌렀을 때 창의 “자동 판정” 옆 괄호에 나옵니다.</p>
+
+<h2 id="c7-3">7.3 영역: 외곽선 그대로</h2>
+<p>선으로도 플래시로도 낼 수 없는 객체(넓은 동박면, 모양이 복잡한 도형, 되돌린 결과가 원본과 기준 넘게 다른 배선)는 <b>외곽선 그대로 영역</b>으로 냅니다. 분홍색으로 보이며, 경고 목록 “영역으로 출력(대체)”에 이유와 함께 나옵니다. 모양은 원본과 같지만 선이 아니므로 CAM에서 선폭 보정 대상이 되지 않습니다.</p>
+<figure><img src="img/27_nested_before.png" style="width:80mm" alt=""><figcaption>넓은 동박면은 영역(분홍)으로 출력</figcaption></figure>
+
+<h2 id="c7-4">7.4 배선과 합쳐진 패드 떼기</h2>
+<div class="pair">
+  <figure><img src="img/19_padcut.png" style="width:62mm" alt=""></figure>
+  <div>
+    <p>패드와 배선을 <b>한 닫힌 폴리선</b>으로 그린 도면에서는, 옵션 <span class="ui">배선과 합쳐진 사각 패드 떼어내기</span>(기본 켜짐)가 패드 부분을 찾아 떼어 냅니다. 떼어 낸 패드는 플래시로, 남은 부분은 배선으로 냅니다.</p>
+    <p>패드로 보는 조건: 네 모서리가 직각인 가로세로(0°/90°) 사각형이고, 배선이 들어오는 입구가 모서리에 닿지 않으며, 긴 변÷짧은 변이 패드 판정 비율 이하.</p>
+    <p>동박 층에서만 동작합니다. 둥근 모서리 패드와 회전된 패드는 떼지 않으며, 이런 경우에는 전체가 배선 복원 또는 영역으로 처리됩니다.</p>
+    <p>떼어 낸 패드는 경고 목록(초록)에 하나씩 나옵니다.</p>
+  </div>
+</div>
+
+<h2 id="c7-5">7.5 솔더마스크와 외형</h2>
+<ul>
+  <li><b>솔더마스크</b>: 그린 도형이 개구부입니다. 패드 모양이면 플래시, 그 밖의 모양은 영역으로 냅니다. 배선 복원은 하지 않습니다.</li>
+  <li><b>외형</b>: 닫힌 외곽선과 열린 선을 “외형 선폭”(기본 0.1mm)의 둥근 선으로 따라 그립니다. 호는 호로 냅니다. 선의 중심이 원본 선 위에 놓입니다.</li>
+</ul>
+
+<h2 id="c7-6">7.6 글자와 열린 선</h2>
+<figure><img src="img/20_text.png" style="width:120mm" alt=""><figcaption>동박 층의 TEXT “LED-01 R2”를 프로그램 안의 글꼴로 그린 결과(노랑)</figcaption></figure>
+<ul>
+  <li>출력 대상 층에 있는 TEXT·MTEXT는 프로그램 안의 <b>단순한 획 글꼴</b>로 그려 선으로 냅니다. 위치·높이·회전·맞춤·줄바꿈은 도면을 따르지만 <b>글자 모양은 오토캐드 글꼴과 다릅니다.</b></li>
+  <li>쓸 수 있는 글자는 영문·숫자·기호입니다. <b>한글은 나오지 않으며</b>, 글꼴에 없는 글자는 네모로 나옵니다.</li>
+  <li>선폭은 글자 높이 × “글자 선폭(%)”입니다.</li>
+  <li><b>글자 모양이 오토캐드와 똑같아야 하면</b> 오토캐드에서 글자를 분해(TXTEXP 또는 EXPLODE)해서 저장하세요. 분해된 글자가 열린 선이면 “열린 선 선폭”의 선으로, 닫힌 외곽선이면 일반 동박 객체로 나옵니다. 구멍이 있는 외곽선 글자(O, A 등)는 “안쪽 폴리선을 빈 곳·동박 번갈아” 옵션이 필요합니다.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h1 id="c8">8. ODB++ 출력</h1>
+<p>ODB++는 층·스텝·심벌을 폴더 구조로 담는 형식입니다. 이 프로그램에서는 <b>똑같이 반복되는 부분을 스텝 하나로 묶어 반복 배치</b>할 수 있어, 같은 무늬가 수만 번 반복되는 도면에서 파일이 크게 줄어듭니다.</p>
+
+<h2 id="c8-1">8.1 만드는 순서</h2>
+<div class="pair">
+  <figure><img src="img/38_output_odb.png" style="width:90mm" alt=""></figure>
+  <div>
+    <p><span class="n">1</span> <span class="ui">출력 형식</span>을 ODB++로 바꾸고 <span class="ui">변환</span>을 누릅니다.</p>
+    <p><span class="n">2</span> <span class="ui">단위·형식</span>을 고릅니다.</p>
+    <p><span class="n">3</span> <span class="ui">반복되는 부분을 스텝으로 묶기</span>(기본 켜짐).</p>
+    <p><span class="n">4</span> <span class="ui">ODB++ 내려받기 (.tgz)</span> 또는 <span class="ui">ODB++ (.zip)</span>을 누릅니다. 이때 ODB++를 만들고, 다시 읽어 대조한 뒤 내려받습니다.</p>
+    <p><span class="n">5</span> 결과 줄(8.3절).</p>
+  </div>
+</div>
+<ul>
+  <li>내려받는 파일은 “원본이름_odb.tgz” 또는 “원본이름_odb.zip”입니다. ODB++ 안의 작업 이름은 DXF 파일 이름(확장자 제외)입니다.</li>
+  <li>좌우 반전은 위 표의 체크칸을 따릅니다.</li>
+  <li>층 이름은 l1, l2(동박), sm, sm2(솔더마스크), outline(외형)입니다.</li>
+</ul>
+
+<h2 id="c8-2">8.2 단위·형식과 스텝 묶기</h2>
+<table>
+  <tr><th style="width:32mm">단위·형식</th><th>내용</th></tr>
+  <tr><td>inch (7.0, 호환)</td><td>기본값. 단위 표시 없이 inch·mil로 적는 옛 형식입니다. 오래된 CAM을 고려한 선택이지만 <b>실제 CAM에서 열어 확인한 적은 없습니다.</b></td></tr>
+  <tr><td>mm (8.1)</td><td>mm 단위임을 파일에 적는 형식입니다. <b>CoreCAM에서 열리는 것이 확인된 형식</b>입니다(스텝 구조 포함, 11장).</td></tr>
+</table>
+<p><span class="ui">반복되는 부분을 스텝으로 묶기</span>를 켜면 다음 순서로 묶습니다.</p>
+<ol>
+  <li><b>DXF 블록 삽입 기준</b>: 같은 블록이 이동만으로(회전·반전·배율 없이) 2번 이상 놓였고 변환 결과가 서로 똑같으면 스텝 하나로 묶습니다. 블록 안의 블록도 살펴봅니다.</li>
+  <li><b>반복 칸 자동</b>: 동박이 블록 안에 들어 있지 않아 위 방법으로 절반도 묶이지 않으면, 패드 간격에서 반복 간격(피치)을 찾아 도면을 칸으로 나누고 내용이 똑같은 칸끼리 스텝으로 묶습니다.</li>
+</ol>
+<ul>
+  <li>가장자리 칸처럼 이웃이 달라 결과가 다른 곳은 저절로 다른 스텝이 되고, 한 번만 나오는 내용은 패널에 그대로 적습니다.</li>
+  <li>끄면 모든 요소를 패널 스텝 하나에 풀어 적습니다(파일이 큽니다).</li>
+  <li>회전·반전·배율이 있는 블록 삽입, 좌우 반전을 켠 출력은 블록 기준으로 묶이지 않습니다. 반복 칸 자동은 패드가 한 가지 간격의 격자로 놓인 도면에서만 동작합니다.</li>
+</ul>
+
+<h2 id="c8-3">8.3 결과 줄 읽는 법</h2>
+<p>예제 도면의 결과입니다(사진의 <span class="n">5</span>).</p>
+<table>
+  <thead><tr><th style="width:62mm">표시</th><th>뜻</th></tr></thead>
+  <tr><td>작업 이름 · 단위 · 파일 n개 · n MB(압축 전)</td><td>만든 ODB++의 기본 정보. 스텝이 잘 묶이면 이 용량이 크게 줄어듭니다.</td></tr>
+  <tr><td>스텝 기준: DXF 블록 삽입 / 반복 칸 자동</td><td>어느 방법으로 묶었는지. 반복 칸 자동이면 칸 크기(가로 × 세로 mm), 내용이 있는 칸 수, 요소 중 스텝 안에 든 비율이 함께 나옵니다.</td></tr>
+  <tr><td>스텝 n종을 m곳에 반복(반복 줄 k개): 이름×횟수 …</td><td>스텝 종류 수와 놓인 횟수. <b>종수가 적고 횟수가 많을수록</b> 잘 묶인 것입니다. 반복 무늬 도면인데 종수가 지나치게 많으면 도면 좌표가 칸마다 미세하게 다른 것일 수 있습니다.</td></tr>
+  <tr><td>스텝 묶음 없음 (이유) — 전부 panel 스텝에 적음</td><td>묶지 못해 전부 풀어 적었습니다. 괄호 안에 이유가 나옵니다.</td></tr>
+  <tr><td>피치 진단(패드 기준 / 작은 요소 전부 기준)</td><td>반복 칸 자동일 때만. 가로·세로 각각 찾은 피치(또는 “못 찾음”), 값 수, 서로 다른 값 수, 가장 흔한 간격과 그 비율. 비율이 높을수록 간격이 일정한 도면입니다. “한 번뿐이라 패널에 둔 칸” 수도 나옵니다.</td></tr>
+  <tr><td>블록 진단</td><td>도면의 블록 삽입 수(블록 종류, 맨 위/블록 안, 회전·반전·배율 있는 것), 많이 쓴 블록, 스텝 후보 수, 내용이 달라 혼자 남은 후보 수, 출력 요소 중 블록 후보 안/밖 개수. “밖”이 대부분이면 동박이 블록 없이 그려진 도면입니다.</td></tr>
+  <tr><td>다시 읽기 대조</td><td>만든 ODB++를 다시 읽어 변환 결과와 요소 하나하나를 견준 결과. <span style="color:#2e7d32;font-weight:700">요소 n개 모두 Gerber 결과와 일치</span>(초록)여야 정상입니다. 빨간 “불일치”가 나오면 그 파일은 쓰지 말고 문의해 주세요.</td></tr>
+</table>
+<div class="note"><b>참고</b>스텝이 묶이지 않거나 종수가 이상하게 많을 때는 결과 줄 전체(특히 피치 진단·블록 진단)를 그대로 알려 주시면 원인을 가릴 수 있습니다. 도면 자체를 보내실 필요는 없습니다.</div>
+
+<!-- ============================================================ -->
+<h1 id="c9">9. 큰 도면 사용 요령</h1>
+
+<h2 id="c9-1">9.1 작업 순서</h2>
+<ul>
+  <li><span class="ui">설정을 바꾸면 바로 변환</span>은 <b>꺼 둔 채</b>, 레이어 지정과 옵션을 모두 정한 뒤 <span class="ui">변환</span>을 한 번만 누릅니다.</li>
+  <li>출력 형식(Gerber / ODB++)을 먼저 정합니다. 나중에 바꾸면 눌러 바꾼 판정이 지워집니다.</li>
+  <li>설정을 바꿔 다시 변환할 때는 바뀐 층만 다시 계산합니다. 객체를 눌러 바꿀 때는 그 객체와 주변만 다시 계산합니다.</li>
+  <li>변환 중에는 화면 가운데에 진행 단계가 표시됩니다. 브라우저 탭을 닫지 말고 기다려 주세요.</li>
+</ul>
+
+<h2 id="c9-2">9.2 여러 코어 사용</h2>
+<ul>
+  <li><span class="ui">여러 코어 사용</span>(기본 켜짐)은 배선 복원과 형상 비교를 CPU 코어 여러 개에 나눠 계산합니다. 옆의 괄호가 쓸 코어 수이며 최대 4개입니다.</li>
+  <li>객체가 적은 도면에서는 나누지 않습니다(예제 도면은 “코어 1개 사용”으로 나옵니다).</li>
+  <li>결과는 한 코어로 계산할 때와 같습니다. 메모리 부족 등 문제가 생기면 끄고 다시 변환해 보세요.</li>
+</ul>
+
+<h2 id="c9-3">9.3 걸리는 시간과 메모리의 기준</h2>
+<p>아래는 개발 중 4코어 PC의 크롬 계열 브라우저에서 잰 값입니다. PC 성능과 도면에 따라 달라집니다.</p>
+<table>
+  <tr><th>도면</th><th style="width:36mm">변환 시간</th><th style="width:48mm">비고</th></tr>
+  <tr><td>예제 도면(닫힌 도형 96개)</td><td>1초 미만</td><td></td></tr>
+  <tr><td>시험 도면(도형 약 11만 개, 긴 레일에 패드가 한 외곽선으로 붙은 형태)</td><td>여러 코어 약 15초, 한 코어 약 16초</td><td>브라우저 전체 메모리 최고 약 2.6GB(여러 코어), 1.8GB(한 코어). 객체 하나를 눌러 바꾸기 약 1.7초</td></tr>
+  <tr><td>LED 패널 도면(닫힌 도형 약 37만 개)</td><td>여러 코어 약 63초, 한 코어 약 107초</td><td>Gerber 한 층 약 180MB, zip 약 24MB</td></tr>
+  <tr><td>사용자 실제 도면(동박 객체 약 13만 개)</td><td>여러 코어 약 51초, 한 코어 약 71초</td><td>메모리 오류 없음</td></tr>
+</table>
+<ul>
+  <li>수십만 개 규모의 도면은 메모리를 수 GB 씁니다. 다른 프로그램과 브라우저 탭을 닫고 실행하면 안전합니다.</li>
+  <li>변환 버튼 아래의 <b>단계별 시간</b>을 보면 어느 단계가 오래 걸리는지 알 수 있습니다.</li>
+</ul>
+
+<h2 id="c9-4">9.4 출력 파일이 클 때</h2>
+<ul>
+  <li><b>Gerber</b>: <span class="ui">전체 zip 내려받기</span>는 압축해서 저장합니다(위 LED 패널 도면에서 약 180MB → 24MB).</li>
+  <li><b>ODB++ + 스텝 묶기</b>: 반복 무늬 도면이라면 가장 크게 줄어듭니다. 사용자 실제 도면에서 풀어 적으면 약 135MB인 것이 스텝으로 묶어 0.73MB가 되었습니다.</li>
+  <li>“채움 영역의 호를 꺾은선으로 내기”와 “매크로 대신 영역으로 내기”는 켜면 파일이 커집니다. 필요할 때만 켭니다.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h1 id="c10">10. 문제 해결</h1>
+
+<h2 id="c10-1">10.1 도면이 열리지 않을 때</h2>
+<table>
+  <thead><tr><th style="width:62mm">증상(화면의 글)</th><th>원인과 조치</th></tr></thead>
+  <tr><td>바이너리 DXF는 읽을 수 없습니다 …</td><td>오토캐드에서 <b>다른 이름으로 저장 → AutoCAD 2000 DXF</b>(글자 형식)로 다시 저장합니다. 저장 옵션에서 형식이 “ASCII”인지 확인합니다.</td></tr>
+  <tr><td>DXF를 읽지 못했습니다: … / 파일을 읽지 못했습니다: …</td><td>DXF가 아니거나 손상된 파일입니다. DWG 파일은 열 수 없으므로 DXF로 저장해 주세요.</td></tr>
+  <tr><td>닫힌 도형(폴리선·원 등)을 찾지 못했습니다 …</td><td>도면이 선·호·글자뿐이거나 폴리선이 모두 열려 있습니다. <span class="ui">무시한 객체</span>를 확인하고, 오토캐드에서 외곽선을 닫힌 폴리선으로 만들어 주세요. 끝점이 정확히 맞닿은 열린 선은 자동으로 이어 주지만, 조금이라도 떨어져 있으면 이어지지 않습니다.</td></tr>
+  <tr><td>참고: 이 파일은 AC… 형식입니다</td><td>오토캐드 2000 형식이 아니지만 읽기는 시도한 것입니다. 결과가 이상하면 2000 형식으로 다시 저장해 보세요.</td></tr>
+  <tr><td>파일을 끌어다 놓아도 반응이 없음</td><td>.dxf 파일인지 확인하고, <span class="ui">파일 선택</span> 버튼으로 열어 보세요.</td></tr>
+</table>
+
+<h2 id="c10-2">10.2 결과가 비어 있거나 이상할 때</h2>
+<table>
+  <thead><tr><th style="width:62mm">증상</th><th>원인과 조치</th></tr></thead>
+  <tr><td>도면을 열었는데 미리보기가 비어 있음</td><td>아직 변환하지 않은 것입니다. <span class="ui">변환</span>을 누르세요.</td></tr>
+  <tr><td>“출력 대상 레이어가 없습니다”</td><td>모든 레이어가 “출력 안 함”입니다. 레이어 표에서 출력 대상을 고르세요. 레이어 이름으로 추정하지 못하면 이렇게 됩니다.</td></tr>
+  <tr><td>어떤 층이 통째로 빠짐 / 내려받기 버튼이 눌리지 않음</td><td>그 출력 대상으로 지정된 레이어가 없거나, 설정을 바꾼 뒤 아직 변환하지 않았습니다(주황색 띠 확인).</td></tr>
+  <tr><td>레이어 표의 객체 수가 0</td><td>그 레이어에 닫힌 도형이 없습니다. 객체가 블록 안에 있으면 블록을 삽입한 레이어가 아니라 블록 안에서 그린 레이어로 집계될 수 있습니다. <span class="ui">무시한 객체</span>도 확인하세요.</td></tr>
+  <tr><td>크기가 25.4배 크거나 작음</td><td><span class="ui">도면 단위</span>를 mm 또는 inch로 직접 고릅니다. 요약의 “전체 크기”로 확인합니다.</td></tr>
+  <tr><td>패드가 배선으로(또는 반대로) 나옴</td><td>몇 개뿐이면 눌러서 바꿉니다(5.4절). 같은 종류가 많으면 “패드 판정 비율”을 조정합니다.</td></tr>
+  <tr><td>배선이 분홍색(영역)으로 나옴</td><td>경고 “영역으로 출력(대체)”의 이유를 봅니다(6.2절). 모양은 원본과 같습니다.</td></tr>
+  <tr><td>동박면의 구멍이 메워져 나옴</td><td>안쪽 폴리선을 “빈 곳으로” 지정하거나 “번갈아” 옵션을 켭니다(5.5절).</td></tr>
+  <tr><td>글자가 안 나오거나 네모로 나옴</td><td>글자 레이어가 출력 대상인지, 글자 옵션이 켜져 있는지 확인합니다. 한글 등 글꼴에 없는 글자는 네모로 나옵니다(7.6절).</td></tr>
+  <tr><td>눌러서 바꾼 판정이 사라짐</td><td>출력 형식을 바꾸었거나 ODB++의 스텝 묶기를 켜고 껐거나, 도면을 다시 열었기 때문입니다.</td></tr>
+</table>
+
+<h2 id="c10-3">10.3 CAM에서 열 때</h2>
+<table>
+  <thead><tr><th style="width:62mm">증상</th><th>조치</th></tr></thead>
+  <tr><td>회전된 패드·둥근 모서리 패드·타원이 안 보이거나 모양이 틀림(CAM이 매크로를 못 읽음)</td><td><span class="ui">매크로(AM) 대신 영역으로 내기</span>를 켜고 다시 변환합니다. 그 패드는 플래시가 아니라 영역이 됩니다.</td></tr>
+  <tr><td>둥근 꺾임 주변의 작은 조각이 깨지거나 엉뚱한 원이 생김(CAM이 영역 안의 호를 잘못 읽음)</td><td><span class="ui">채움 영역의 호를 꺾은선으로 내기</span>를 켜고 다시 변환합니다.</td></tr>
+  <tr><td>크기가 다르게 열림</td><td>Gerber는 mm, 소수 6자리입니다. CAM의 가져오기 설정이 자동 인식이 아니면 단위 mm, 자릿수 4.6, 앞자리 0 생략으로 맞춥니다. ODB++라면 <span class="ui">단위·형식</span>을 다른 쪽으로 바꿔 보세요.</td></tr>
+  <tr><td>구멍(빈 곳)이 메워져 보임</td><td>빈 곳은 음극성으로 냅니다. CAM에서 음극성 표시가 꺼져 있지 않은지 확인합니다.</td></tr>
+  <tr><td>ODB++가 열리지 않음</td><td><span class="ui">단위·형식</span>을 mm (8.1)로 바꿔 보거나(.tgz가 안 되면 .zip), <span class="ui">반복되는 부분을 스텝으로 묶기</span>를 끄고 만들어 봅니다.</td></tr>
+</table>
+
+<h2 id="c10-4">10.4 느리거나 멈출 때, 파일이 너무 클 때</h2>
+<ul>
+  <li><b>변환이 오래 걸림</b>: 9장의 기준과 비교해 보세요. “설정을 바꾸면 바로 변환”이 켜져 있으면 끕니다.</li>
+  <li><b>브라우저가 “메모리 부족” 또는 페이지 오류를 냄</b>: 다른 탭과 프로그램을 닫고 다시 시도합니다. 그래도 같으면 <span class="ui">여러 코어 사용</span>을 끄고 변환합니다.</li>
+  <li><b>파일이 너무 큼</b>: Gerber는 <span class="ui">전체 zip 내려받기</span>, 반복 무늬 도면은 ODB++ 스텝 묶기를 씁니다(9.4절).</li>
+  <li><b>옛 판을 쓰고 있는지 확인</b>: 제목 옆 빌드 번호가 이 설명서의 기준 빌드(<span class="build">—</span>)와 다르면 화면이나 동작이 설명과 다를 수 있습니다.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h1 id="c11">11. 알려진 한계와 확인 여부</h1>
+<p>이 프로그램은 개발자가 사용자의 실제 도면을 볼 수 없는 조건에서, 직접 만든 예제·시험 도면으로 검증하며 만들었습니다. 아래는 빌드 <span class="build">—</span> 기준으로 <b>실제로 확인된 것과 아직 확인하지 못한 것</b>입니다.</p>
+
+<h2 id="c11-1">11.1 확인된 것</h2>
+<ul>
+  <li>사용자의 실제 도면(동박 객체 약 13만 개)이 메모리 오류 없이 변환되었습니다.</li>
+  <li><b>ODB++ mm (8.1)</b> 출력이 <b>CoreCAM에서 열립니다</b>(풀어 적은 것, 스텝으로 묶은 것 모두). 스텝 반복 구조와 빈 곳(음극성 요소)이 CoreCAM에서 통하는 것이 확인되었습니다.</li>
+  <li>같은 도면에서 스텝 묶기(반복 칸 자동)로 약 135MB가 0.73MB로 줄었고, 다시 읽기 대조에서 요소가 모두 일치했습니다.</li>
+  <li>예제 도면과 개발용 시험 도면에서는 형상 비교가 모두 기준 이내입니다.</li>
+</ul>
+
+<h2 id="c11-2">11.2 아직 확인하지 못한 것</h2>
+<ul>
+  <li><b>Gerber 출력을 실제 CAM(CoreCAM, 자이크론)에서 열어 본 결과</b>는 아직 받지 못했습니다. 특히 조리개 매크로와 영역 안의 호를 CAM이 바르게 읽는지는 확인되지 않았습니다. 문제가 있으면 10.3절의 두 옵션으로 피할 수 있습니다.</li>
+  <li><b>ODB++ inch (7.0)</b> 형식은 실제 CAM에서 확인하지 못했습니다. <b>자이크론</b>에서는 어느 형식도 확인하지 못했습니다.</li>
+  <li>CoreCAM에서 스텝(칸) 단위의 <b>편집·보정이 실제로 되는지</b>는 확인을 기다리는 중입니다.</li>
+  <li>수백 MB 크기의 Gerber 파일을 실제 CAM에서 열어 본 적이 없습니다. 크롬 계열 이외의 브라우저에서는 동작을 확인하지 않았습니다.</li>
+</ul>
+<p><b>권장:</b> 처음 쓰는 CAM이나 처음 쓰는 형식이라면, 작은 도면(또는 예제 도면)의 출력부터 CAM에서 열어 모양·크기·층을 확인한 뒤 큰 도면에 쓰시기 바랍니다.</p>
+
+<h2 id="c11-3">11.3 알려진 한계</h2>
+<table>
+  <tr><th style="width:36mm">구분</th><th>한계</th></tr>
+  <tr><td>입력</td><td>바이너리 DXF·DWG는 읽지 못합니다. 타원·스플라인으로 된 HATCH 경계, 폴리선으로 그린 타원은 인식하지 않습니다(영역 또는 무시 목록).</td></tr>
+  <tr><td>글자</td><td>내장 글꼴은 영문·숫자·기호뿐이며 한글은 안 됩니다. 글자 모양은 오토캐드와 다릅니다. MTEXT의 서식 코드는 지우고, 폭에 맞춘 자동 줄바꿈은 하지 않습니다.</td></tr>
+  <tr><td>패드 떼기·겹침 검사</td><td>배선과 합쳐진 패드 중 직각 사각(0°/90°) 패드만 뗍니다(둥근 모서리·회전 패드는 떼지 않음). 같은 층 안의 겹침만 검사합니다. 다른 층끼리의 관계(패드와 마스크 개구부의 어긋남 등)는 검사하지 않으므로 미리보기에서 눈으로 확인해야 합니다.</td></tr>
+  <tr><td>Gerber</td><td>X2 속성과 반복 배치(SR)를 쓰지 않습니다. 반복 무늬가 많은 도면은 파일이 큽니다(둥근 꺾임마다 채움 영역이 생깁니다).</td></tr>
+  <tr><td>ODB++ 스텝</td><td>회전·반전·배율이 있는 블록 삽입은 스텝으로 묶지 못합니다. 반복 칸 자동은 패드가 한 가지 간격의 격자로 놓인 도면에서만 동작하며, 좌표가 칸마다 미세하게 다르면 스텝 종류가 많아질 수 있습니다.</td></tr>
+  <tr><td>검증 범위</td><td>프로그램의 형상 비교는 “출력 파일의 모양이 원본 도면과 같은가”를 봅니다. 도면 자체의 설계 오류나 제조 규칙(최소 선폭·간격 등)은 검사하지 않습니다.</td></tr>
+</table>
+
+<script>
+// 목차는 제목(h1, h2)에서 만든다. 빌드 번호와 쪽 번호는 test/make_manual.js 가 넣는다.
+(function () {
+  var list = document.getElementById('tocList'), hs = document.querySelectorAll('h1[id],h2[id]');
+  for (var i = 0; i < hs.length; i++) {
+    var h = hs[i], a = document.createElement('a');
+    a.href = '#' + h.id; a.className = h.tagName === 'H1' ? 'c' : 's';
+    a.innerHTML = '<span></span><i></i><span class="pg" data-ref="' + h.id + '"></span>';
+    a.firstChild.textContent = h.textContent; list.appendChild(a);
+  }
+  window.setManual = function (o) {
+    if (o.build) { var b = document.querySelectorAll('.build'); for (var k = 0; k < b.length; k++) b[k].textContent = o.build; }
+    if (o.pages) { var p = document.querySelectorAll('.pg'); for (var j = 0; j < p.length; j++) p[j].textContent = o.pages[p[j].getAttribute('data-ref')] || ''; }
+  };
+})();
+</script>
+</body>
+</html>
