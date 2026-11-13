@@ -125,6 +125,8 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
       <label for="oOdbUnit" title="inch: 단위 표시 없이 inch·mil로 적는 옛 형식(7.0). 오래된 CAM도 읽습니다. mm: UNITS=MM을 적는 8.1 형식.">단위·형식</label>
       <select id="oOdbUnit"><option value="inch">inch (7.0, 호환)</option><option value="mm">mm (8.1)</option></select>
       <label for="oOdbStep" title="내용이 똑같이 반복되는 부분을 스텝 하나로 묶고 패널에서 반복 배치합니다. 먼저 DXF 블록 삽입 기준으로 묶고, 동박이 블록에 들어 있지 않으면 패드 간격에서 반복 칸을 자동으로 찾아 묶습니다. 끄면 전부 패널 스텝에 풀어 적습니다.">반복되는 부분을 스텝으로 묶기</label><input type="checkbox" id="oOdbStep" checked>
+      <label for="oOdbMin" title="같은 스텝이 한 배열로 이만큼 이상 반복될 때만 스텝으로 둡니다. 그보다 적게 반복되는 조각(가장자리 칸 등)은 스텝으로 두지 않고 패널에 풀어 적습니다. CAM에서는 반복 배치 줄 하나가 블록 패드 한 줄이 되므로, 값을 키우면 블록 패드 목록이 짧아집니다(파일은 조금 커짐).">스텝으로 둘 최소 반복 수</label><input type="number" id="oOdbMin" value="100" min="2" step="1">
+      <label for="oOdbArc" title="영역(모서리 채움·대체 영역·회전 패드 심벌)의 호를 짧은 직선 여러 개로 바꿔 적습니다(차이 0.0002mm 이하). CoreCAM은 영역 안의 호를 0.001mm쯤의 선분 수백 개로 쪼개 읽어서(Import 보고서의 Sectorize Arc) 호가 많으면 불러오기가 끝나지 않으므로 켜 두는 것을 권합니다. 끄면 호(OC)로 적습니다.">영역의 호를 꺾은선으로 적기</label><input type="checkbox" id="oOdbArc" checked>
     </div>
     <div style="margin-top:8px"><button id="btnOdbTgz" class="primary" disabled>ODB++ 내려받기 (.tgz)</button> <button id="btnOdbZip" disabled>ODB++ (.zip)</button></div>
     <div id="odbMsg" class="muted" style="margin-top:6px;line-height:1.5">변환 결과(선·플래시·영역)를 ODB++ 폴더 구조로 적습니다. 만든 뒤 다시 읽어 변환 결과와 요소 하나하나 대조합니다. 파일 이름·좌우 반전은 위 표를 따릅니다(이름은 작업 이름에만 쓰임).</div>
@@ -156,7 +158,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1113-1620';
+const BUILD = '1114-0940';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1422,7 +1424,44 @@ function chainStrokes(strokes) {
   return out;
 }
 function ellipseApproxErr(rx, ry, n) { let m = 0; for (let i = 0; i < n; i++) { const t0 = 2 * Math.PI * i / n, t1 = 2 * Math.PI * (i + 1) / n, tm = (t0 + t1) / 2; const d = dSeg(rx * Math.cos(tm), ry * Math.sin(tm), rx * Math.cos(t0), ry * Math.sin(t0), rx * Math.cos(t1), ry * Math.sin(t1)); if (d > m) m = d; } return m; }
+// 같은 자리 같은 요소 찾기: 도형(꼭짓점)이 달라도 출력 요소(플래시·선·영역)가 0.0001mm 안에서 똑같으면 뒤의 것은 내지 않는다.
+// (원 엔티티 + 호로 그린 원, 방향이 반대인 도형, 서로 다른 외곽선에서 나온 같은 선·채움 등. CAM의 중복 객체 검사에 걸리는 것)
+// 표시만 한다: s.sk(도형 전체), s.skS·s.skF(선·채움 번호 모음). Gerber·ODB++ 쓰기가 같이 본다. 부를 때마다 처음부터 다시 매긴다.
+function markSameFeatures(L) {
+  const R = v => Math.round(v * 1e4), S = L.shapes, seen = new Map(), res = { n: 0, flash: 0, line: 0, area: 0, list: [] };
+  const padSig = p => [p.type, p.d, p.w, p.h, p.r, p.rx, p.ry, p.rot].map(v => v === undefined ? '' : typeof v === 'number' ? R(v) : v).join(',');
+  const ptsKey = (lv, a) => { a.sort(); return 'S' + lv + '|' + a.join(';'); };
+  const canon = (s, kind, i) => {
+    if (kind === 0) return 'F' + s.level + '|' + padSig(s.pad) + '|' + R(s.pad.cx) + ',' + R(s.pad.cy);
+    if (kind === 1) { const k = s.strokes[i], a = R(k.x1) + ',' + R(k.y1), b = R(k.x2) + ',' + R(k.y2); return 'L' + s.level + '|' + R(k.w) + '|' + (a < b ? a + ';' + b : b + ';' + a); }
+    if (kind === 2) { const d = s.fills[i], a = []; for (let j = 0; j < d.length; j += 3) a.push(R(d[j]) + ',' + R(d[j + 1]) + ',' + Math.abs(R(d[j + 2]))); return ptsKey(s.level, a); }
+    const a = []; for (const p of s.pts) a.push(R(p.x) + ',' + R(p.y) + ',' + Math.abs(R(p.b || 0))); return ptsKey(s.level, a);
+  };
+  const hash = c => { let h1 = 0x811c9dc5, h2 = 0x1b873593; for (let i = 0; i < c.length; i++) { const v = c.charCodeAt(i); h1 = Math.imul(h1 ^ v, 0x01000193); h2 = Math.imul(h2 + v, 0x85ebca6b) ^ (h2 >>> 15); } return (h1 >>> 0) * 1048576 + ((h2 >>> 0) & 1048575); };
+  const hit = (si, kind, i) => { // 앞에 똑같은 요소가 있으면 true
+    const s = S[si], c = canon(s, kind, i), h = hash(c), r = seen.get(h);
+    if (r === undefined) { seen.set(h, si * 4194304 + kind * 1048576 + i); return false; }
+    const s0 = S[Math.floor(r / 4194304)], k0 = Math.floor(r / 1048576) % 4, i0 = r % 1048576;
+    if (canon(s0, k0, i0) !== c) return false; // 지문만 같고 내용이 다름 → 그대로 둔다
+    res.n++; if (kind === 0) res.flash++; else if (kind === 1) res.line++; else res.area++;
+    if (res.list.length < 200) res.list.push({ id: s.id, kind, bbox: kind === 1 ? [Math.min(s.strokes[i].x1, s.strokes[i].x2), Math.min(s.strokes[i].y1, s.strokes[i].y2), Math.max(s.strokes[i].x1, s.strokes[i].x2), Math.max(s.strokes[i].y1, s.strokes[i].y2)] : s.bbox });
+    return true;
+  };
+  for (let si = 0; si < S.length; si++) {
+    const s = S[si]; s.sk = false; s.skS = s.skF = null; if (s.dup) continue;
+    if (s.role === 'pad') { if (hit(si, 0, 0)) s.sk = true; }
+    else if (s.role === 'trace' && s.strokes) {
+      for (let i = 0; i < s.strokes.length && i < 1048576; i++) if (hit(si, 1, i)) (s.skS || (s.skS = new Set())).add(i);
+      for (let i = 0; i < s.fills.length && i < 1048576; i++) if (hit(si, 2, i)) (s.skF || (s.skF = new Set())).add(i);
+    } else if (hit(si, 3, 0)) s.sk = true;
+  }
+  return res;
+}
 function buildGerber(L, cfg) {
+  const same = markSameFeatures(L);
+  if (L.warnings) { for (let i = L.warnings.length - 1; i >= 0; i--) if (L.warnings[i].type === 'same') L.warnings.splice(i, 1);
+    for (const q of same.list) L.warnings.push({ type: 'same', target: L.target, id: q.id, msg: '같은 자리에 같은 ' + (q.kind === 0 ? '패드' : q.kind === 1 ? '선' : '영역') + '가 또 있음 → 하나만 출력', bbox: q.bbox });
+    if (same.n > same.list.length) L.warnings.push({ type: 'same', target: L.target, id: null, msg: '… 그 밖에 ' + (same.n - same.list.length) + '개 (모두 ' + same.n + '개: 패드 ' + same.flash + ', 선 ' + same.line + ', 영역 ' + same.area + ')', bbox: null }); }
   const tol = cfg.apTol, snap = v => Math.round(Math.round(v / tol) * tol * 1e6) / 1e6;
   const aps = [], apMap = new Map(), macros = [];
   const ap = (key, def, desc, extra) => { let a = apMap.get(key); if (!a) { a = Object.assign({ code: 10 + aps.length, def, desc, count: 0 }, extra || {}); aps.push(a); apMap.set(key, a); } return a; };
@@ -1462,9 +1501,10 @@ function buildGerber(L, cfg) {
   }
   const levels = new Map();
   const lv = k => { let o = levels.get(k); if (!o) { o = { areas: [], fills: [], strokes: new Map(), flashes: new Map() }; levels.set(k, o); } return o; };
-  const st = { pads: 0, padAreas: 0, traces: 0, segs: 0, areas: 0, fills: 0, voids: 0 };
+  const st = { pads: 0, padAreas: 0, traces: 0, segs: 0, areas: 0, fills: 0, voids: 0, same: same.n, sameFlash: same.flash, sameLine: same.line, sameArea: same.area };
   for (const s of L.shapes) {
     if (s.dup) continue;
+    if (s.sk) { s.out = 'same'; continue; }
     const o = lv(s.level); if (s.isVoid) st.voids++;
     if (s.role === 'pad') {
       const a = padAp(s.pad); st.pads++;
@@ -1472,8 +1512,8 @@ function buildGerber(L, cfg) {
       else { o.areas.push(s.ell ? ellipsePts(s.ell, cfg.ellN) : s.pts); st.padAreas++; s.out = 'padarea'; }
     } else if (s.role === 'trace' && s.strokes) {
       st.traces++; s.out = 'line';
-      for (const pl of chainStrokes(s.strokes)) { const a = circ(pl.w); a.count += pl.pts.length - 1; st.segs += pl.pts.length - 1; let arr = o.strokes.get(a.code); if (!arr) o.strokes.set(a.code, arr = []); arr.push(pl.pts); }
-      for (const f of s.fills) { o.fills.push(f); st.fills++; }
+      for (const pl of chainStrokes(s.skS ? s.strokes.filter((_, i) => !s.skS.has(i)) : s.strokes)) { const a = circ(pl.w); a.count += pl.pts.length - 1; st.segs += pl.pts.length - 1; let arr = o.strokes.get(a.code); if (!arr) o.strokes.set(a.code, arr = []); arr.push(pl.pts); }
+      for (let i = 0; i < s.fills.length; i++) if (!s.skF || !s.skF.has(i)) { o.fills.push(s.fills[i]); st.fills++; }
     } else { o.areas.push(s.pts); st.areas++; s.out = 'area'; }
   }
   const o = [], parts = [], xy = p => 'X' + fmtC(p[0]) + 'Y' + fmtC(p[1]);
@@ -2058,6 +2098,18 @@ const ODB_SEP = '\u0001';
 function odbNum(v, dec) { let s = v.toFixed(dec); if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, ''); return (s === '-0' || s === '') ? '0' : s; }
 function odbName(t) { return (String(t).toLowerCase().replace(/[^a-z0-9_+\-.]/g, '_').replace(/^[^a-z0-9]+/, '') || 'x').slice(0, 40); }
 // 다각형([{x,y,b}], 닫힘)을 ODB++ 윤곽 줄로. 섬은 시계 방향이어야 하므로 반시계면 뒤집어 적는다.
+// 다각형의 호 구간을 꺾은선으로 편다(활꼴 높이 tol 이하). CoreCAM은 영역 안의 호(OC)를 0.001mm쯤의 선분 수백 개로 쪼개 읽어서
+// (Import 보고서 "Sectorize Arc"), 호가 든 영역이 많으면 불러오기가 끝나지 않는다. 그래서 우리 쪽에서 적당한 간격으로 펴서 적는다.
+function odbPolyArcs(P, tol) {
+  let any = false; for (const p of P) if (p.b) { any = true; break; } if (!any) return P;
+  const o = [], n = P.length;
+  for (let i = 0; i < n; i++) {
+    const p = P[i], q = P[(i + 1) % n]; o.push({ x: p.x, y: p.y, b: 0 }); if (!p.b) continue;
+    const a = arcOf(p.x, p.y, q.x, q.y, p.b), st = a.r > tol ? 2 * Math.acos(1 - tol / a.r) : Math.PI / 2, m = Math.max(2, Math.ceil(Math.abs(a.sweep) / st));
+    for (let j = 1; j < m; j++) { const th = a.a1 + a.sweep * j / m; o.push({ x: a.cx + a.r * Math.cos(th), y: a.cy + a.r * Math.sin(th), b: 0 }); }
+  }
+  return o;
+}
 function odbContour(P, dx, dy, C) {
   let a = 0; const n = P.length;
   for (let i = 0; i < n; i++) {
@@ -2144,9 +2196,10 @@ function buildOdb1(R, base, opt) {
   // 요소 하나를 줄(문자열)로. 심벌 이름은 ODB_SEP 사이에 넣어 두었다가 파일을 쓸 때 번호로 바꾼다.
   const fLine = (x1, y1, x2, y2, w, pol, dx, dy) => 'L ' + C(x1 - dx) + ' ' + C(y1 - dy) + ' ' + C(x2 - dx) + ' ' + C(y2 - dy) + ' ' + ODB_SEP + 'r' + Zs(w) + ODB_SEP + ' ' + pol + ' 0';
   const fPad = (x, y, sym, pol, dx, dy) => 'P ' + C(x - dx) + ' ' + C(y - dy) + ' ' + ODB_SEP + sym + ODB_SEP + ' ' + pol + ' 0 0';
-  const fSurf = (P, pol, dx, dy) => ['S ' + pol + ' 0'].concat(odbContour(P, dx, dy, C), ['SE']).join('\n');
+  const arcPoly = opt.arcPoly !== false, AT = 2e-4, noArc = P => arcPoly ? odbPolyArcs(P, AT) : P; // 영역의 호를 꺾은선으로(기본)
+  const fSurf = (P, pol, dx, dy) => ['S ' + pol + ' 0'].concat(odbContour(noArc(P), dx, dy, C), ['SE']).join('\n');
   const triP = d => { const P = []; for (let i = 0; i < d.length; i += 3) P.push({ x: d[i], y: d[i + 1], b: d[i + 2] }); return P; };
-  const layers = R.layers.slice().sort((a, b) => ODB_ORDER.indexOf(a.target) - ODB_ORDER.indexOf(b.target)).map(L => ({ L, name: ODB_LAYER[L.target].name, type: ODB_LAYER[L.target].type, flat: L.shapes.some(s => !s.dup && s.level > 0) }));
+  const layers = R.layers.slice().sort((a, b) => ODB_ORDER.indexOf(a.target) - ODB_ORDER.indexOf(b.target)).map(L => ({ L, name: ODB_LAYER[L.target].name, type: ODB_LAYER[L.target].type, flat: L.shapes.some(s => !s.dup && !s.sk && s.level > 0) }));
   const ox = R.offset[0], oy = R.offset[1];
   const cellMode = !!opt.steps && opt.mode === 'cell';
   let useSteps = !!opt.steps && (cellMode || (base.insts.length > 1 && !R.layers.some(L => L.mirror && L.target !== 'outline')));
@@ -2156,14 +2209,14 @@ function buildOdb1(R, base, opt) {
   const stat = { lines: 0, pads: 0, surfs: 0 };
   const each = cb => layers.forEach((ly, li) => {
     if (ly.L.target === 'outline') return;
-    const sh = ly.L.shapes.filter(s => !s.dup).sort((a, b) => a.level - b.level);
+    const sh = ly.L.shapes.filter(s => !s.dup && !s.sk).sort((a, b) => a.level - b.level);
     for (const s of sh) {
       const pol = s.level % 2 ? 'N' : 'P', b = s.bbox;
       const surf = P => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const p of P) { if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y; } cb(li, ly, s, 'surfs', x0, y0, x1, y1, (dx, dy) => fSurf(P, pol, dx, dy)); };
       if (s.out === 'flash') { const sym = padSym(s.pad, s); if (sym) cb(li, ly, s, 'pads', b[0], b[1], b[2], b[3], (dx, dy) => fPad(s.pad.cx, s.pad.cy, sym, pol, dx, dy)); else surf(s.pts); }
       else if (s.out === 'line') {
-        for (const k of s.strokes) cb(li, ly, s, 'lines', Math.min(k.x1, k.x2), Math.min(k.y1, k.y2), Math.max(k.x1, k.x2), Math.max(k.y1, k.y2), (dx, dy) => fLine(k.x1, k.y1, k.x2, k.y2, k.w, pol, dx, dy));
-        for (const d of s.fills) surf(triP(d));
+        for (let i = 0; i < s.strokes.length; i++) { if (s.skS && s.skS.has(i)) continue; const k = s.strokes[i]; cb(li, ly, s, 'lines', Math.min(k.x1, k.x2), Math.min(k.y1, k.y2), Math.max(k.x1, k.x2), Math.max(k.y1, k.y2), (dx, dy) => fLine(k.x1, k.y1, k.x2, k.y2, k.w, pol, dx, dy)); }
+        for (let i = 0; i < s.fills.length; i++) if (!s.skF || !s.skF.has(i)) surf(triP(s.fills[i]));
       } else surf(s.ell ? ellipsePts(s.ell, opt.ellN || 48) : s.pts);
     }
   });
@@ -2233,10 +2286,38 @@ function buildOdb1(R, base, opt) {
   let nFeatIn = 0, nFeatOut = 0, nSingle = 0, nFilled = 0; for (const a of panel) nFeatOut += a.length;
   for (const g of groups.values()) { nFilled += g.insts.length; if (g.insts.length < 2) nSingle++; let c = 0; for (const a of g.lines) c += a.length; nFeatIn += c * g.insts.length; }
   let steps = [...groups.values()].sort((a, b) => b.insts.length - a.insts.length);
-  const flatten = g => { for (const i of g.insts) { const dx = instX[i], dy = instY[i]; g.lines.forEach((arr, li) => { for (const t of arr) panel[li].push(odbShift(t, dx, dy, inch)); }); } };
-  const keep = []; for (const g of steps) { if (g.insts.length < 2 || keep.length >= 1500) flatten(g); else keep.push(g); }
-  steps = keep;
-  let featStep = 0; for (const g of steps) { let c = 0; for (const a of g.lines) c += a.length; featStep += c * g.insts.length; }
+  const flatAt = (g, dx, dy) => g.lines.forEach((arr, li) => { for (const t of arr) panel[li].push(odbShift(t, dx, dy, inch)); });
+  // 같은 스텝이 놓인 자리를 배열 조각으로 접는다: 같은 높이에서 간격이 일정하면 NX로, 같은 줄이 일정 간격으로 쌓이면 NY로
+  const E = 2e-6;
+  const recsOf = g => {
+    const pos = g.insts.map(i => [instX[i], instY[i]]).sort((a, b) => a[1] - b[1] || a[0] - b[0]), rows = [], out = [];
+    for (let i = 0; i < pos.length;) {
+      let j = i + 1, dx = 0;
+      if (j < pos.length && Math.abs(pos[j][1] - pos[i][1]) < E) { dx = pos[j][0] - pos[i][0]; j++; while (j < pos.length && Math.abs(pos[j][1] - pos[i][1]) < E && Math.abs(pos[j][0] - pos[j - 1][0] - dx) < E) j++; }
+      rows.push({ x: pos[i][0], y: pos[i][1], dx, nx: j - i }); i = j;
+    }
+    rows.sort((a, b) => a.x - b.x || a.nx - b.nx || a.dx - b.dx || a.y - b.y);
+    for (let i = 0; i < rows.length;) {
+      const a = rows[i]; let j = i + 1, dy = 0; const same = r => Math.abs(r.x - a.x) < E && r.nx === a.nx && Math.abs(r.dx - a.dx) < E;
+      if (j < rows.length && same(rows[j])) { dy = rows[j].y - a.y; j++; while (j < rows.length && same(rows[j]) && Math.abs(rows[j].y - rows[j - 1].y - dy) < E) j++; }
+      out.push({ x: a.x, y: a.y, dx: a.dx, dy, nx: a.nx, ny: j - i }); i = j;
+    }
+    return out.sort((a, b) => b.nx * b.ny - a.nx * a.ny);
+  };
+  // 배열 조각 하나 = 스텝 하나. CAM(CoreCAM)은 반복 줄마다 블록 패드 한 줄을 만들기 때문에, 같은 스텝을 여러 조각으로 두면 목록에 같은 이름이 여러 번 나온다.
+  // → 조각마다 이름을 따로 주고, 반복 수가 적은 조각(minRep 미만)은 스텝으로 두지 않고 패널에 풀어 적는다.
+  const minRep = Math.max(2, Math.round(opt.minRep) || 2), keep = []; let nFlatCell = 0, nKinds = 0;
+  for (const g of steps) {
+    let used = false;
+    for (const r of (g.insts.length < 2 ? [{ x: instX[g.insts[0]], y: instY[g.insts[0]], dx: 0, dy: 0, nx: 1, ny: 1 }] : recsOf(g))) {
+      const n = r.nx * r.ny;
+      if (n < minRep || keep.length >= 1500) { for (let b = 0; b < r.ny; b++) for (let a = 0; a < r.nx; a++) flatAt(g, r.x + a * r.dx, r.y + b * r.dy); if (g.insts.length > 1) nFlatCell += n; }
+      else { keep.push({ lines: g.lines, blk: g.blk, rec: r, count: n, part: used }); used = true; }
+    }
+    if (used) nKinds++;
+  }
+  steps = keep.sort((a, b) => b.count - a.count);
+  let featStep = 0; for (const g of steps) { let c = 0; for (const a of g.lines) c += a.length; featStep += c * g.count; }
   if (cell) cell.n = nFilled;
   const usedNames = new Set(['panel']);
   for (const g of steps) { let nm = odbName(g.blk), k = 1; while (usedNames.has(nm + (k > 1 ? '_' + k : ''))) k++; g.name = nm + (k > 1 ? '_' + k : ''); usedNames.add(g.name); }
@@ -2258,25 +2339,8 @@ function buildOdb1(R, base, opt) {
   layers.forEach((ly, i) => mx.push('LAYER {', '    ROW=' + (i + 1), '    CONTEXT=BOARD', '    TYPE=' + ly.type, '    NAME=' + up(ly.name), '    POLARITY=POSITIVE', '    START_NAME=', '    END_NAME=', '    OLD_NAME=', '}', ''));
   put('matrix/matrix', mx);
   put('fonts/standard', ['XSIZE 0.302000', 'YSIZE 0.302000', 'OFFSET 0.000000']);
-  // 스텝 반복: 같은 높이에서 간격이 일정한 삽입은 NX로, 같은 줄이 일정 간격으로 쌓이면 NY로 묶는다
   const sr = []; let nSr = 0;
-  const E = 2e-6;
-  for (const g of steps) {
-    const pos = g.insts.map(i => [instX[i], instY[i]]).sort((a, b) => a[1] - b[1] || a[0] - b[0]);
-    const rows = []; // {x, y, dx, nx}
-    for (let i = 0; i < pos.length;) {
-      let j = i + 1, dx = 0;
-      if (j < pos.length && Math.abs(pos[j][1] - pos[i][1]) < E) { dx = pos[j][0] - pos[i][0]; j++; while (j < pos.length && Math.abs(pos[j][1] - pos[i][1]) < E && Math.abs(pos[j][0] - pos[j - 1][0] - dx) < E) j++; }
-      rows.push({ x: pos[i][0], y: pos[i][1], dx, nx: j - i }); i = j;
-    }
-    rows.sort((a, b) => a.x - b.x || a.nx - b.nx || a.dx - b.dx || a.y - b.y);
-    for (let i = 0; i < rows.length;) {
-      const a = rows[i]; let j = i + 1, dy = 0; const same = r => Math.abs(r.x - a.x) < E && r.nx === a.nx && Math.abs(r.dx - a.dx) < E;
-      if (j < rows.length && same(rows[j])) { dy = rows[j].y - a.y; j++; while (j < rows.length && same(rows[j]) && Math.abs(rows[j].y - rows[j - 1].y - dy) < E) j++; }
-      sr.push('', 'STEP-REPEAT {', '    NAME=' + up(g.name), '    X=' + C(a.x), '    Y=' + C(a.y), '    DX=' + C(a.dx), '    DY=' + C(dy), '    NX=' + a.nx, '    NY=' + (j - i), '    ANGLE=0', '    MIRROR=NO', '}'); nSr++;
-      i = j;
-    }
-  }
+  for (const g of steps) { const a = g.rec; sr.push('', 'STEP-REPEAT {', '    NAME=' + up(g.name), '    X=' + C(a.x), '    Y=' + C(a.y), '    DX=' + C(a.dx), '    DY=' + C(a.dy), '    NX=' + a.nx, '    NY=' + a.ny, '    ANGLE=0', '    MIRROR=NO', '}'); nSr++; }
   const pb = R.bbox || [0, 0, 1, 1];
   // 패널 외형(profile): 외형 층에 닫힌 외곽선이 있으면 가장 큰 것, 없으면 전체 둘레 상자
   const OLy = R.layers.find(L => L.target === 'outline'), big = OLy ? OLy.shapes.slice().sort((a, b) => Math.abs(b.area) - Math.abs(a.area))[0] : null;
@@ -2290,9 +2354,9 @@ function buildOdb1(R, base, opt) {
     put('steps/' + g.name + '/stephdr', hdr()); put('steps/' + g.name + '/profile', rectProfile(b));
     layers.forEach((ly, li) => put('steps/' + g.name + '/layers/' + ly.name + '/features', featFile(g.lines[li])));
   }
-  for (const u of usr.values()) put('symbols/' + u.name + '/features', head.concat(['#', '#Layer features', '#', 'S P 0'], odbContour(u.pts, 0, 0, C), ['SE']));
+  for (const u of usr.values()) put('symbols/' + u.name + '/features', head.concat(['#', '#Layer features', '#', 'S P 0'], odbContour(arcPoly ? odbPolyArcs(u.pts, 2e-5) : u.pts, 0, 0, C), ['SE'])); // 심벌은 한 번만 적으므로 더 곱게 편다(패드 크기가 달라 보이지 않게)
   let bytes = 0; for (const t of files.values()) bytes += t.length;
-  return { job, files, bytes, units: inch ? 'inch' : 'mm', steps: steps.map(g => ({ name: g.name, count: g.insts.length })), nSr, nInst: steps.reduce((a, g) => a + g.insts.length, 0), stat, layers: layers.map(l => l.name), mode: cellMode ? 'cell' : 'block', cell, pitchInfo, diag: { stat: base.instStat, cand: base.insts.length, filled: nFilled, single: nSingle, featIn: nFeatIn, featOut: nFeatOut, featStep }, noStepWhy: useSteps ? '' : cellMode ? '패드 간격에서 반복 피치를 찾지 못함' : (!opt.steps ? '스텝 묶기 꺼짐' : base.insts.length < 2 ? '블록 삽입이 없음' : '좌우 반전을 쓴 층이 있음') };
+  return { job, files, bytes, units: inch ? 'inch' : 'mm', steps: steps.map(g => { const q = { name: g.name, count: g.count, nx: g.rec.nx, ny: g.rec.ny, L: 0, P: 0, S: 0 }; for (const a of g.lines) for (const l of a) q[l[0]]++; return q; }), nSr, nInst: steps.reduce((a, g) => a + g.count, 0), nKinds, nFlatCell, minRep, stat, layers: layers.map(l => l.name), mode: cellMode ? 'cell' : 'block', cell, pitchInfo, diag: { stat: base.instStat, cand: base.insts.length, filled: nFilled, single: nSingle, featIn: nFeatIn, featOut: nFeatOut, featStep }, noStepWhy: useSteps ? '' : cellMode ? '패드 간격에서 반복 피치를 찾지 못함' : (!opt.steps ? '스텝 묶기 꺼짐' : base.insts.length < 2 ? '블록 삽입이 없음' : '좌우 반전을 쓴 층이 있음') };
 }
 // 스텝 좌표로 적은 줄을 패널 좌표로 옮긴다(한 번만 나오는 삽입을 패널에 풀어 넣을 때)
 function odbShift(t, dx, dy, inch) {
@@ -2529,7 +2593,7 @@ if (typeof document !== 'undefined') (function () {
   const KC = {}, kindCol = (tg, kind) => KC[tg + kind] || (KC[tg + kind] = tg === 'outline' ? '#e8e8e8' : tg === 'cu2' ? shade(KIND_COL[kind], 0.5, 0) : tg === 'mask' ? shade(KIND_COL[kind], 0.4, 0.6) : tg === 'mask2' ? shade(KIND_COL[kind], 0.25, 0.3) : KIND_COL[kind]);
   const MASK_LINE_COL = '#c77dff', MASK2_LINE_COL = '#4dd0e1'; // '마스크 선으로 보기'의 테두리 색(솔더마스크 1, 2)
   const LAYER_COL = { cu1: '#ff5a5a', cu2: '#4f8dff', mask: '#3ccf6e', mask2: '#ffd23f', outline: '#e8e8e8' };
-  const WT = { padcut: ['배선과 합쳐진 패드를 떼어 냄', 'i'], text: ['TEXT·MTEXT를 내장 글꼴로 근사', 'i'], open: ['열린 선을 선으로 냄', 'i'], fallback: ['영역으로 출력(대체)', 'w'], narrow: ['좁은 패드 → 직각 마감', 'w'], overlap: ['같은 층 겹침', 'e'], nested: ['다른 객체 안의 폴리선', 'w'], diff: ['형상 차이 기준 초과', 'e'], dup: ['중복 객체', 'w'], width: ['폭 있는 폴리선', 'w'], arcflat: ['블록 배율로 호를 꺾은선으로 바꿈', 'w'], ellipse: ['타원 근사 오차', 'w'] };
+  const WT = { padcut: ['배선과 합쳐진 패드를 떼어 냄', 'i'], text: ['TEXT·MTEXT를 내장 글꼴로 근사', 'i'], open: ['열린 선을 선으로 냄', 'i'], fallback: ['영역으로 출력(대체)', 'w'], narrow: ['좁은 패드 → 직각 마감', 'w'], overlap: ['같은 층 겹침', 'e'], nested: ['다른 객체 안의 폴리선', 'w'], diff: ['형상 차이 기준 초과', 'e'], dup: ['중복 객체', 'w'], same: ['같은 자리 같은 요소(하나만 출력)', 'w'], width: ['폭 있는 폴리선', 'w'], arcflat: ['블록 배율로 호를 꺾은선으로 바꿈', 'w'], ellipse: ['타원 근사 오차', 'w'] };
 
   /* ---------- 파일 ---------- */
   function setMsg(html, err) { const m = $('fileMsg'); m.innerHTML = html; m.className = err ? 'err' : 'muted'; }
@@ -2905,7 +2969,7 @@ if (typeof document !== 'undefined') (function () {
   function showPop(s, tg, ev) {
     const pop = $('pop'), L = layerOf(tg);
     let out;
-    if (s.out === 'outline') out = '외형 선 (선폭 ' + fmtN(s.lineW) + ', D' + s.apCode + ')'; else if (s.out === 'flash') out = '플래시 D' + s.apCode; else if (s.out === 'padarea') out = '영역(패드, 매크로 대신)'; else if (s.out === 'line') out = '선 ' + s.strokes.length + '개' + (s.fills.length ? ' + 채움 ' + s.fills.length + '개' : '') + ' (폭 ' + [...new Set(s.strokes.map(k => fmtN(k.w)))].join(', ') + ')'; else out = '영역' + (s.why ? ' — ' + s.why : '');
+    if (s.out === 'outline') out = '외형 선 (선폭 ' + fmtN(s.lineW) + ', D' + s.apCode + ')'; else if (s.out === 'same') out = '출력 안 함 (같은 자리에 같은 요소가 있음)'; else if (s.out === 'flash') out = '플래시 D' + s.apCode; else if (s.out === 'padarea') out = '영역(패드, 매크로 대신)'; else if (s.out === 'line') out = '선 ' + s.strokes.length + '개' + (s.fills.length ? ' + 채움 ' + s.fills.length + '개' : '') + ' (폭 ' + [...new Set(s.strokes.map(k => fmtN(k.w)))].join(', ') + ')'; else out = '영역' + (s.why ? ' — ' + s.why : '');
     let h = '<b>' + L.label + ' · 객체 #' + s.id + '</b>원본: ' + esc(s.src) + ' / 레이어 ' + esc(s.layer) + '<br>모양: ' + esc(shapeText(s)) + '<br>자동 판정: ' + ROLE_T[s.auto] + (s.autoWhy ? ' <small class="muted">(' + esc(s.autoWhy) + ')</small>' : '') + '<br>현재 출력: ' + esc(out);
     if (s.padCut) h += '<br><small class="muted">배선과 한 외곽선이던 패드를 떼어 낸 것</small>';
     if (s.diff) h += '<br>형상 차이: 최대 ' + s.diff.maxDev.toFixed(4) + 'mm';
@@ -2958,13 +3022,16 @@ if (typeof document !== 'undefined') (function () {
     bs.forEach(b => b.disabled = true); msg.className = 'muted'; msg.textContent = 'ODB++ 만드는 중…';
     await new Promise(r => setTimeout(r, 30));
     try {
-      const t0 = performance.now(), odb = buildOdb(S.result, S.base, { job: stem, units: $('oOdbUnit').value, steps: $('oOdbStep').checked, apTol: cfgNow().apTol, ellN: cfgNow().ellN });
+      const t0 = performance.now(), odb = buildOdb(S.result, S.base, { job: stem, units: $('oOdbUnit').value, steps: $('oOdbStep').checked, minRep: +$('oOdbMin').value || 100, arcPoly: $('oOdbArc').checked, apTol: cfgNow().apTol, ellN: cfgNow().ellN });
       msg.textContent = 'ODB++ 다시 읽어 대조하는 중…'; await new Promise(r => setTimeout(r, 30));
       const c = checkOdb(odb, S.result);
       let h = '작업 이름 <b>' + esc(odb.job) + '</b> · ' + odb.units + ' · 파일 ' + odb.files.size + '개 · ' + (odb.bytes / 1e6).toFixed(2) + 'MB(압축 전)<br>';
       if (odb.mode === 'cell' && odb.cell) h += '스텝 기준: <b>반복 칸 자동</b>(동박이 블록 안에 없어 패드 간격으로 찾음) — 칸 ' + odb.cell.px.toFixed(4) + ' × ' + odb.cell.py.toFixed(4) + 'mm, 내용이 있는 칸 ' + odb.cell.n + '개, 요소의 ' + (100 * odb.diag.featStep / Math.max(1, odb.diag.featIn + odb.diag.featOut)).toFixed(1) + '%가 스텝 안<br>';
       else if (odb.steps.length) h += '스텝 기준: <b>DXF 블록 삽입</b><br>';
-      h += odb.steps.length ? '스텝 ' + odb.steps.length + '종을 ' + odb.nInst + '곳에 반복(반복 줄 ' + odb.nSr + '개): ' + esc(odb.steps.slice(0, 6).map(q => q.name + '×' + q.count).join(', ')) + (odb.steps.length > 6 ? ' …' : '') : '스텝 묶음 없음' + (odb.noStepWhy ? ' (' + odb.noStepWhy + ')' : ' (똑같이 반복되는 블록 삽입이 없음)') + ' — 전부 panel 스텝에 적음';
+      h += odb.steps.length ? '스텝 <b>' + odb.steps.length + '개</b>(내용 ' + odb.nKinds + '종, 스텝 하나 = 배열 하나 = CAM 블록 패드 한 줄)를 ' + odb.nInst + '곳에 반복: ' + esc(odb.steps.slice(0, 6).map(q => q.name + ' ' + q.nx + '×' + q.ny).join(', ')) + (odb.steps.length > 6 ? ' …' : '') + (odb.nFlatCell ? '<br>반복이 ' + odb.minRep + '번 미만인 조각 ' + odb.nFlatCell + '칸은 스텝으로 두지 않고 패널에 풀어 적음' : '') : '스텝 묶음 없음' + (odb.noStepWhy ? ' (' + odb.noStepWhy + ')' : odb.nFlatCell ? ' (한 배열로 ' + odb.minRep + '번 이상 반복되는 것이 없음 — "스텝으로 둘 최소 반복 수"를 낮추면 묶입니다)' : ' (똑같이 반복되는 부분이 없음)') + ' — 전부 panel 스텝에 적음';
+      if (odb.steps.length) { const q = odb.steps[0]; h += '<br><span class="muted">가장 많이 반복되는 스텝 <b>' + esc(q.name) + '</b>의 내용: 선 ' + q.L + '개, 패드 ' + q.P + '개, 영역(모서리 채움 등) ' + q.S + '개</span>'; }
+      { let ns = 0, nf = 0, nl = 0, na = 0; for (const L of S.result.layers) if (L.stats && L.stats.same) { ns += L.stats.same; nf += L.stats.sameFlash; nl += L.stats.sameLine; na += L.stats.sameArea; }
+        h += '<br><span class="muted">같은 자리 같은 요소(완전히 겹친 것): ' + (ns ? '<b>' + ns + '개를 빼고 하나만 냄</b> (패드 ' + nf + ', 선 ' + nl + ', 영역 ' + na + ')' : '없음') + '</span>'; }
       if (odb.mode === 'cell' && odb.pitchInfo) {
         const q = odb.pitchInfo, one = (nm, a, p) => nm + ' ' + (p ? p.toFixed(4) + 'mm' : '못 찾음') + '(값 ' + a.n + '개, 서로 다른 값 ' + a.kinds + '개, 가장 흔한 간격 ' + a.best.toFixed(4) + 'mm가 ' + (100 * a.share).toFixed(0) + '%)';
         h += '<br><span class="muted">피치 진단(' + (q.all ? '작은 요소 전부' : '패드') + ' 기준): ' + one('가로', q.x, q.px) + ' / ' + one('세로', q.y, q.py) + (odb.steps.length ? ' · 한 번뿐이라 패널에 둔 칸 ' + odb.diag.single + '개' : '') + '</span>';
