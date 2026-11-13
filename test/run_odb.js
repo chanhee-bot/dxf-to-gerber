@@ -68,6 +68,16 @@ async function one(label, dxfText, layers, extra, expectSteps) {
       check('  피치 4.2 × 3.9, 칸 108개가 스텝 하나(레일 끝 칸은 따로)', odb.mode === 'cell' && odb.cell && Math.abs(odb.cell.px - 4.2) < 1e-9 && Math.abs(odb.cell.py - 3.9) < 1e-9 && odb.steps.length <= 3 && odb.steps[0].count === 108 && odb.nSr <= 3, JSON.stringify(odb.cell) + ' ' + odb.steps.map(s => s.name + '×' + s.count).join(' ') + ' 반복 줄 ' + odb.nSr);
     }
     const flat = buildOdb(R5, base5, { job: 'test', units: 'mm', steps: false, apTol: 0.0001, ellN: 48 }); check('  스텝 끄면 평면', flat.steps.length === 0 && checkOdb(flat, R5).ok);
+    // 최소 반복 수: CAM은 반복 배치 줄마다 블록 패드 한 줄을 만든다 → 스텝 하나 = 배열 하나(이름이 겹치지 않음), 적게 반복되는 조각은 패널에 푼다
+    { const o100 = buildOdb(R5, base5, { job: 'test', units: 'mm', steps: true, minRep: 100, apTol: 0.0001, ellN: 48 }), c100 = checkOdb(o100, R5);
+      check('  최소 반복 100: 108칸 배열만 스텝, 나머지는 패널에', c100.ok && o100.steps.length === 1 && o100.steps[0].count === 108 && o100.steps[0].nx * o100.steps[0].ny === 108 && o100.nFlatCell === 24, o100.steps.map(s => s.name + ' ' + s.nx + '×' + s.ny).join(' ') + ' 푼 칸 ' + o100.nFlatCell);
+      // 가운데 칸 하나에 다른 도형을 넣어 배열이 여러 조각으로 갈리게 한다 → 조각마다 이름이 달라야 한다
+      const o9 = o2.slice(0, o2.length - 4), n9 = o2.length; const keepO2 = o2.slice(); o2.length = 0; for (const q of o9) o2.push(q); pl2([[7.3 + 5 * 4.2 + 2.2, 11.7 + 4 * 3.9 + 0.2], [7.3 + 5 * 4.2 + 2.6, 11.7 + 4 * 3.9 + 0.2], [7.3 + 5 * 4.2 + 2.6, 11.7 + 4 * 3.9 + 0.6], [7.3 + 5 * 4.2 + 2.2, 11.7 + 4 * 3.9 + 0.6]]); w2(0, 'ENDSEC'); w2(0, 'EOF');
+      const b9 = buildBase(parseDxf(o2.join('\n')), 'auto', true), R9 = await convertAll(b9, cfg({ COPPER: 'cu1' }, {})); o2.length = 0; for (const q of keepO2) o2.push(q);
+      const s9 = buildOdb(R9, b9, { job: 'test', units: 'mm', steps: true, apTol: 0.0001, ellN: 48 }), k9 = checkOdb(s9, R9), names = s9.steps.map(s => s.name);
+      const hdr = s9.files.get('steps/panel/stephdr'), nrec = (hdr.match(/STEP-REPEAT \{/g) || []).length;
+      check('  배열이 갈려도 스텝 이름이 겹치지 않고 반복 줄 = 스텝 수', k9.ok && new Set(names).size === names.length && nrec === names.length && s9.nKinds < names.length, '스텝 ' + names.length + '개(내용 ' + s9.nKinds + '종), 반복 줄 ' + nrec + ' | ' + s9.steps.slice(0, 6).map(s => s.name + ' ' + s.nx + '×' + s.ny).join(' '));
+    }
     { const o7 = buildOdb(R5, base5, { job: 'test', units: 'mm', steps: true, apTol: 0.0001, ellN: 48, pitchAll: true }), c7 = checkOdb(o7, R5);
       check('  패드 없이 선·영역 중심만으로도 같은 피치', c7.ok && o7.pitchInfo.all && Math.abs(o7.cell.px - 4.2) < 1e-9 && Math.abs(o7.cell.py - 3.9) < 1e-9 && o7.steps[0].count === 108, JSON.stringify(o7.pitchInfo)); }
     // 빈 곳(음각)이 있는 층: 칸마다 큰 사각 안에 빈 곳, 그 안에 섬. "번갈아" 옵션을 켜도 스텝으로 묶이고 그리는 순서(동박 → 빈 곳 → 섬)가 지켜져야 한다

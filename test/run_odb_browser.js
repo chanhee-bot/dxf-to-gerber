@@ -16,6 +16,10 @@ let fails = 0; const check = (name, cond, info) => { if (!cond) fails++; console
   check('처음에는 Gerber 형식(ODB++ 묶음 숨김)', await page.isVisible('#btnZip') && !(await page.isVisible('#btnOdbTgz')));
   await page.selectOption('#oFormat', 'odb'); await page.waitForTimeout(100); await done(); await page.waitForTimeout(300);
   check('ODB++ 형식을 고르면 ODB++ 묶음 표시', await page.isVisible('#btnOdbTgz') && !(await page.isVisible('#btnZip')) && !(await page.isVisible('#dl_cu1')));
+  { // 기본값(최소 반복 100)에서는 작은 도면이 스텝으로 안 묶이고 그 이유를 알려 준다
+    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 600000 }), page.click('#btnOdbTgz')]); await dl.saveAs(path.join(out, 'b_min100.tgz')); const msg = await page.textContent('#odbMsg');
+    if (!file || /odb_cells/.test(file)) check('최소 반복 100: 작은 도면은 안 묶이고 안내', msg.includes('모두 Gerber 결과와 일치') && (msg.includes('최소 반복 수') || msg.includes('반복되는 부분이 없음')), msg.slice(0, 200)); }
+  await page.fill('#oOdbMin', '2');
   for (const [sel, ext] of [['#btnOdbTgz', '.tgz'], ['#btnOdbZip', '.zip']]) {
     const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 600000 }), page.click(sel)]);
     const f = path.join(out, 'b_' + dl.suggestedFilename()); await dl.saveAs(f);
@@ -26,6 +30,7 @@ let fails = 0; const check = (name, cond, info) => { if (!cond) fails++; console
     const msg = await page.textContent('#odbMsg');
     check('  다시 읽기 대조 일치 표시', msg.includes('모두 Gerber 결과와 일치'), msg.slice(0, 160));
   }
+  await page.evaluate(() => document.getElementById('btnOdbTgz').scrollIntoView({ block: 'center' })); await page.screenshot({ path: path.join(shots, 'odb_steps.png') });
   await page.selectOption('#oOdbUnit', 'mm'); await page.uncheck('#oOdbStep'); await page.waitForTimeout(100); await done(); await page.waitForTimeout(300);
   { const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnOdbTgz')]); await dl.saveAs(path.join(out, 'b_mm_flat.tgz')); const msg = await page.textContent('#odbMsg'); check('mm · 스텝 끔', msg.includes('모두 Gerber 결과와 일치') && msg.includes('스텝 묶기 꺼짐'), msg.slice(0, 140)); }
   await page.evaluate(() => document.getElementById('btnOdbTgz').scrollIntoView({ block: 'center' }));
