@@ -96,8 +96,15 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
       <label for="oAllVoid" title="동박 안의 폴리선은 빈 곳, 그 안은 다시 동박… 처럼 바깥 객체와 반대로 번갈아 처리합니다. 객체마다 눌러서 바꿀 수 있습니다.">안쪽 폴리선을 빈 곳·동박 번갈아</label><input type="checkbox" id="oAllVoid">
       <label for="oPadCut" title="패드와 배선이 한 닫힌 폴리선으로 그려져 있으면, 네 모서리가 직각인 사각 패드(0/90°)를 떼어 내 플래시로 냅니다. 남은 부분은 배선으로 복원합니다.">배선과 합쳐진 사각 패드 떼어내기</label><input type="checkbox" id="oPadCut" checked>
       <label for="oOutW">외형 선폭 (mm)</label><input type="number" id="oOutW" value="0.1" min="0.001" step="0.05">
-      <label for="oTextOn" title="TEXT·MTEXT·속성을 변환기 안의 단순한 획 글꼴(영문·숫자·기호)로 그려 선으로 냅니다. 위치·높이·회전·맞춤은 도면을 따르지만 글자 모양은 오토캐드 글꼴과 다릅니다. 똑같아야 하면 오토캐드에서 TXTEXP/EXPLODE로 분해해서 넣으세요.">TEXT·MTEXT를 내장 획 글꼴로 내기(근사)</label><input type="checkbox" id="oTextOn" checked>
-      <label for="oTextPct">글자 선폭 (글자 높이의 %)</label><input type="number" id="oTextPct" value="10" min="1" max="50" step="1">
+      <label for="oTextOn" title="TEXT·MTEXT·속성 글자를 출력합니다. 아래에서 트루타입 글꼴(.ttf)을 불러오면 그 글꼴의 글자 윤곽을 그대로 채워진 영역으로 냅니다(굵기·모양이 캐드와 같음). 글꼴을 불러오지 않으면 변환기 안의 단순한 획 글꼴(영문·숫자·기호)로 그려 선으로 냅니다(위치·높이는 같지만 모양이 다름).">TEXT·MTEXT 글자 내기</label><input type="checkbox" id="oTextOn" checked>
+      <label for="oTextPct" title="글꼴을 불러오지 않았을 때(내장 획 글꼴)만 쓰입니다.">글자 선폭 (내장 획 글꼴, 높이의 %)</label><input type="number" id="oTextPct" value="10" min="1" max="50" step="1">
+      <div style="grid-column:1/-1;border:1px solid #d5dbe5;border-radius:4px;padding:5px 6px;background:#fafbfd">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><b title="도면의 글자와 같은 트루타입 글꼴 파일(.ttf)을 불러오면 글자 윤곽을 그대로 냅니다. 굵은 Arial이면 C:\Windows\Fonts 의 arialbd.ttf(Arial 굵게)입니다. 한 번 불러오면 이 PC의 브라우저에 기억됩니다.">글자 글꼴(트루타입)</b>
+          <button id="btnFont" type="button">글꼴 파일(.ttf) 열기</button><button id="btnFontSys" type="button" style="display:none">설치된 글꼴에서 고르기</button><button id="btnFontClr" type="button" style="display:none">글꼴 지움</button>
+          <select id="fontPick" style="display:none;max-width:210px"></select><button id="btnFontUse" type="button" style="display:none">이 글꼴 쓰기</button></div>
+        <div id="fontMsg" class="muted" style="margin-top:4px;line-height:1.45">글꼴 없음 — 글자는 내장 획 글꼴(선)로 냅니다.</div>
+        <input type="file" id="fontFile" accept=".ttf,.ttc,.TTF,.TTC" style="display:none">
+      </div>
       <label for="oOpenOn" title="오토캐드에서 분해한 글자처럼, 동박·솔더마스크 층의 열린 선(선·호·열린 폴리선)을 둥근 조리개 선으로 냅니다. 끄면 무시 목록에 남습니다.">동박·마스크 층의 열린 선을 선으로 내기</label><input type="checkbox" id="oOpenOn" checked>
       <label for="oOpenW">열린 선 선폭 (mm)</label><input type="number" id="oOpenW" value="0.1" min="0.001" step="0.05">
     </div>
@@ -158,7 +165,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1114-0940';
+const BUILD = '1114-1530';
 
 /* ================================================================
  * 1. 기하 기본
@@ -498,13 +505,104 @@ function strokeLine(str) {
   }
   return { strokes, width: Math.max(0, x - 2), unknown };
 }
-// TEXT·ATTRIB·MTEXT → 엔터티 좌표의 획 목록 + 글자 높이
-function layoutText(g) {
-  const out = [], H = g.h > 0 ? g.h : 2.5; let unknown = 0, str = '';
-  const put = (strokes, M) => { for (const pl of strokes) out.push(pl.map(q => mAp(M, q[0], q[1]))); };
+/* ---------- 2-2. 트루타입 글꼴(.ttf) 읽기: 글자 윤곽을 그대로 뽑는다 ---------- */
+// 반환: { name, upm(칸 수), cap(대문자 높이), desc(아래로 내려가는 깊이), gid(코드), adv(글리프), glyph(글리프) → 윤곽 [[ [x, y, on] … ] … ] }
+function parseTtf(buf) {
+  const dv = buf instanceof ArrayBuffer ? new DataView(buf) : new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const u8 = o => dv.getUint8(o), i8 = o => dv.getInt8(o), u16 = o => dv.getUint16(o), i16 = o => dv.getInt16(o), u32 = o => dv.getUint32(o), tag = o => String.fromCharCode(u8(o), u8(o + 1), u8(o + 2), u8(o + 3));
+  if (dv.byteLength < 12) throw new Error('글꼴 파일이 아닙니다');
+  let off = 0; if (tag(0) === 'ttcf') off = u32(12); // 글꼴 묶음(.ttc)은 첫 글꼴
+  if (tag(off) === 'OTTO') throw new Error('OpenType(CFF) 글꼴은 읽지 못합니다. 트루타입(.ttf) 글꼴을 써 주세요');
+  if (u32(off) !== 0x00010000 && tag(off) !== 'true') throw new Error('트루타입(.ttf) 글꼴 파일이 아닙니다');
+  const T = {}, nT = u16(off + 4); for (let i = 0; i < nT; i++) { const p = off + 12 + i * 16; T[tag(p)] = { o: u32(p + 8), l: u32(p + 12) }; }
+  for (const k of ['head', 'maxp', 'cmap', 'loca', 'glyf', 'hhea', 'hmtx']) if (!T[k]) throw new Error('글꼴에 ' + k + ' 표가 없습니다(트루타입 윤곽 글꼴이 아님)');
+  const upm = u16(T.head.o + 18), locFmt = i16(T.head.o + 50), nG = u16(T.maxp.o + 4), nH = u16(T.hhea.o + 34);
+  const loca = g => locFmt ? u32(T.loca.o + g * 4) : u16(T.loca.o + g * 2) * 2;
+  const adv = g => u16(T.hmtx.o + Math.min(g, nH - 1) * 4);
+  // 글자 코드 → 글리프 번호(cmap). 유니코드 표를 고른다: (3,10) > (0,*) > (3,1)
+  let cm = null, best = -1;
+  { const o = T.cmap.o, n = u16(o + 2); for (let i = 0; i < n; i++) { const pl = u16(o + 4 + i * 8), en = u16(o + 6 + i * 8), so = o + u32(o + 8 + i * 8), fm = u16(so), sc = pl === 3 && en === 10 ? 4 : pl === 0 ? 3 : pl === 3 && en === 1 ? 2 : pl === 3 && en === 0 ? 1 : 0; if ((fm === 4 || fm === 12) && sc > best) { best = sc; cm = { o: so, f: fm, sym: pl === 3 && en === 0 }; } } }
+  if (!cm) throw new Error('글꼴에서 글자 표(cmap)를 읽지 못했습니다');
+  const gidMap = new Map();
+  const gid = cp => {
+    let g = gidMap.get(cp); if (g !== undefined) return g; g = 0;
+    if (cm.f === 12) { const n = u32(cm.o + 12); let lo = 0, hi = n - 1; while (lo <= hi) { const m = (lo + hi) >> 1, p = cm.o + 16 + m * 12, s = u32(p), e = u32(p + 4); if (cp < s) hi = m - 1; else if (cp > e) lo = m + 1; else { g = u32(p + 8) + cp - s; break; } } }
+    else if (cp <= 0xffff) {
+      const c = cm.sym && cp < 0x100 ? cp + 0xf000 : cp, sx = u16(cm.o + 6), n = sx >> 1, eO = cm.o + 14, sO = eO + sx + 2, dO = sO + sx, rO = dO + sx;
+      let lo = 0, hi = n - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (u16(eO + m * 2) < c) lo = m + 1; else hi = m; }
+      if (n && u16(sO + lo * 2) <= c && c <= u16(eO + lo * 2)) { const ro = u16(rO + lo * 2), d = u16(dO + lo * 2); if (!ro) g = (c + d) & 0xffff; else { const q = u16(rO + lo * 2 + ro + (c - u16(sO + lo * 2)) * 2); g = q ? (q + d) & 0xffff : 0; } }
+    }
+    if (g >= nG) g = 0; gidMap.set(cp, g); return g;
+  };
+  const gCache = new Map();
+  function glyph(g, depth) {
+    if (!depth && gCache.has(g)) return gCache.get(g);
+    const out = [], a = T.glyf.o + loca(g), z = T.glyf.o + loca(g + 1);
+    if (g >= 0 && g < nG && z > a) {
+      const nc = i16(a);
+      if (nc >= 0) { // 단순 글리프
+        const ends = []; for (let i = 0; i < nc; i++) ends.push(u16(a + 10 + i * 2));
+        const np = nc ? ends[nc - 1] + 1 : 0; let p = a + 10 + nc * 2; p += 2 + u16(p);
+        const fl = new Uint8Array(np); for (let i = 0; i < np;) { const f = u8(p++); fl[i++] = f; if (f & 8) { let r = u8(p++); while (r-- > 0 && i < np) fl[i++] = f; } }
+        const X = new Int32Array(np), Y = new Int32Array(np); let v = 0;
+        for (let i = 0; i < np; i++) { const f = fl[i]; if (f & 2) { const d = u8(p++); v += f & 16 ? d : -d; } else if (!(f & 16)) { v += i16(p); p += 2; } X[i] = v; }
+        v = 0; for (let i = 0; i < np; i++) { const f = fl[i]; if (f & 4) { const d = u8(p++); v += f & 32 ? d : -d; } else if (!(f & 32)) { v += i16(p); p += 2; } Y[i] = v; }
+        let s = 0; for (const e of ends) { const c = []; for (let i = s; i <= e; i++) c.push([X[i], Y[i], fl[i] & 1]); if (c.length > 1) out.push(c); s = e + 1; }
+      } else if ((depth || 0) < 6) { // 합성 글리프(악센트 글자 등)
+        let p = a + 10, more = true;
+        while (more) {
+          const f = u16(p), gi = u16(p + 2); p += 4; let dx = 0, dy = 0, m = [1, 0, 0, 1];
+          if (f & 1) { if (f & 2) { dx = i16(p); dy = i16(p + 2); } p += 4; } else { if (f & 2) { dx = i8(p); dy = i8(p + 1); } p += 2; }
+          const F = o => i16(o) / 16384;
+          if (f & 8) { m[0] = m[3] = F(p); p += 2; } else if (f & 0x40) { m[0] = F(p); m[3] = F(p + 2); p += 4; } else if (f & 0x80) { m = [F(p), F(p + 2), F(p + 4), F(p + 6)]; p += 8; }
+          for (const c of glyph(gi, (depth || 0) + 1)) out.push(c.map(q => [m[0] * q[0] + m[2] * q[1] + dx, m[1] * q[0] + m[3] * q[1] + dy, q[2]]));
+          more = !!(f & 0x20);
+        }
+      }
+    }
+    if (!depth) gCache.set(g, out); return out;
+  }
+  // 대문자 높이: OS/2 표의 값, 없으면 H의 높이. 오토캐드의 글자 높이 = 대문자 높이
+  let cap = 0; if (T['OS/2'] && u16(T['OS/2'].o) >= 2 && T['OS/2'].l >= 90) cap = i16(T['OS/2'].o + 88);
+  if (!(cap > 0)) { let y = 0; for (const c of glyph(gid(72))) for (const q of c) if (q[1] > y) y = q[1]; cap = y || upm * 0.7; }
+  let name = ''; if (T.name) { const o = T.name.o, n = u16(o + 2), so = o + u16(o + 4); let fb = ''; for (let i = 0; i < n; i++) { const p = o + 6 + i * 12, pl = u16(p), id = u16(p + 6), ln = u16(p + 8), st = so + u16(p + 10); if (id !== 4 && id !== 1) continue; let s = ''; if (pl === 3 || pl === 0) for (let k = 0; k + 1 < ln; k += 2) s += String.fromCharCode(u16(st + k)); else for (let k = 0; k < ln; k++) s += String.fromCharCode(u8(st + k)); if (id === 4 && s) { name = s; if (pl === 3) break; } else if (!fb) fb = s; } if (!name) name = fb; }
+  return { name: name || '이름 없는 글꼴', upm, cap, desc: Math.max(0, -i16(T.hhea.o + 6)), nGlyphs: nG, gid, adv, glyph };
+}
+// 글리프 윤곽(2차 곡선)을 꺾은선으로. tol = 곡선과의 최대 차이(글꼴 칸)
+function ttfFlatten(c, tol) {
+  // 곡선 위의 점(on)에서 시작하도록 돌린다. 그런 점이 없으면(모두 조절점) 첫 두 조절점의 가운뎃점을 시작점으로 끼운다
+  let pts = c, s = c.findIndex(p => p[2]);
+  if (s < 0) { const a = c[c.length - 1], b = c[0]; pts = [[(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, 1]].concat(c); s = 0; }
+  const m = pts.length, seq = []; for (let i = 0; i <= m; i++) seq.push(pts[(s + i) % m]); // 시작점 … 시작점(닫음)
+  const P = [[seq[0][0], seq[0][1]]]; let cur = seq[0];
+  const quad = (p0, p1, p2) => { const ax = p0[0] - 2 * p1[0] + p2[0], ay = p0[1] - 2 * p1[1] + p2[1], k = Math.min(32, Math.max(1, Math.ceil(Math.sqrt(Math.hypot(ax, ay) / (4 * tol))))); for (let i = 1; i <= k; i++) { const u = i / k, v = 1 - u; P.push([v * v * p0[0] + 2 * u * v * p1[0] + u * u * p2[0], v * v * p0[1] + 2 * u * v * p1[1] + u * u * p2[1]]); } };
+  for (let i = 1; i < seq.length; i++) {
+    const p = seq[i]; if (p[2]) { P.push([p[0], p[1]]); cur = p; continue; }
+    const q = seq[i + 1], end = q[2] ? q : [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2, 1]; // 조절점이 잇달아 오면 그 가운데가 곡선 위의 점
+    quad(cur, p, end); cur = end; if (q[2]) i++;
+  }
+  const a = P[0], b = P[P.length - 1]; if (P.length > 1 && Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9) P.pop();
+  return P;
+}
+// 한 줄을 글꼴 윤곽으로. 원점 = 왼쪽 기준선, 단위 = 대문자 높이가 6인 칸(내장 획 글꼴과 같은 단위). 반환 { strokes: [], outl: [{ pts, hole }], width, unknown }
+function fontLine(str, font, tolCell) {
+  const k = 6 / font.cap, outl = []; let x = 0, unknown = 0;
+  for (const ch of str) {
+    const cp = ch.codePointAt(0); let g = font.gid(cp); if (!g && cp !== 32 && cp !== 160) unknown++;
+    const cs = font.glyph(g).map(c => ttfFlatten(c, Math.max(1e-3, tolCell / k))).filter(c => c.length >= 3);
+    cs.forEach((c, i) => { let d = 0; for (let j = 0; j < cs.length; j++) if (j !== i && pip(cs[j], c[0][0], c[0][1])) d++; outl.push({ pts: c.map(q => [q[0] * k + x, q[1] * k]), hole: d % 2 === 1 }); });
+    x += font.adv(g) * k;
+  }
+  return { strokes: [], outl, width: x, unknown };
+}
+// TEXT·ATTRIB·MTEXT → 엔터티 좌표의 획 목록(내장 획 글꼴) 또는 윤곽 목록(font를 주면) + 글자 높이. tolW = 윤곽을 펼 때의 허용 차이(엔터티 단위)
+function layoutText(g, font, tolW) {
+  const out = [], outl = [], H = g.h > 0 ? g.h : 2.5; let unknown = 0, str = '';
+  const strokeLine_ = s0 => font ? fontLine(s0, font, (tolW > 0 ? tolW : 5e-4) / (H / 6)) : strokeLine(s0), descC = font ? font.desc * 6 / font.cap : 2;
+  const put = (L, M) => { for (const pl of L.strokes) out.push(pl.map(q => mAp(M, q[0], q[1]))); if (L.outl) for (const c of L.outl) outl.push({ pts: c.pts.map(q => mAp(M, q[0], q[1])), hole: c.hole }); };
   if (g.t === 'text') {
     str = decodeTextCodes(g.str);
-    const L = strokeLine(str); unknown += L.unknown;
+    const L = strokeLine_(str); unknown += L.unknown;
     let s = H / 6, wf = g.wf > 0 ? g.wf : 1, rot = (g.rot || 0) * Math.PI / 180, W = L.width * s * wf, P = [g.x, g.y], dx = 0, dy = 0;
     const hal = g.hal || 0, val = g.val || 0, two = (hal !== 0 || val !== 0) && isFinite(g.x2);
     if (two) P = [g.x2, g.y2];
@@ -513,23 +611,23 @@ function layoutText(g) {
       if (W > 0 && d > 0) { if (hal === 3) s *= d / W; else wf *= d / W; W = d; }
     } else if (hal === 1 || hal === 4) dx = -W / 2; else if (hal === 2) dx = -W;
     const Hs = 6 * s;
-    if (hal === 4) dy = -Hs / 2; else if (val === 1) dy = 2 * s; else if (val === 2) dy = -Hs / 2; else if (val === 3) dy = -Hs;
+    if (hal === 4) dy = -Hs / 2; else if (val === 1) dy = descC * s; else if (val === 2) dy = -Hs / 2; else if (val === 3) dy = -Hs;
     const tan = Math.tan((g.obl || 0) * Math.PI / 180), fx = (g.gen & 2) ? -1 : 1, fy = (g.gen & 4) ? -1 : 1;
     // 칸 → 엔터티: 기울임, 반전, 맞춤 이동, 회전, 기준점
     const M = mMul(mMul(mMul(mT(P[0], P[1]), mR(rot * 180 / Math.PI)), mT(dx, dy)), [s * wf * fx, 0, s * tan * fx, s * fy, 0, 0]);
-    put(L.strokes, M);
+    put(L, M);
   } else {
     str = stripMtext(g.str);
     const lines = str.split('\n'), s = H / 6, pitch = H * 5 / 3 * (g.lsf > 0 ? g.lsf : 1), a = g.att >= 1 && g.att <= 9 ? g.att : 1, col = (a - 1) % 3, row = Math.floor((a - 1) / 3);
     const T = (lines.length - 1) * pitch + H, top = row === 0 ? 0 : row === 1 ? T / 2 : T;
     const rot = isFinite(g.dx) && (g.dx || g.dy) ? Math.atan2(g.dy, g.dx) : (g.rot || 0);
     lines.forEach((ln, i) => {
-      const L = strokeLine(ln); unknown += L.unknown;
+      const L = strokeLine_(ln); unknown += L.unknown;
       const W = L.width * s, dx = col === 0 ? 0 : col === 1 ? -W / 2 : -W, base = top - H - i * pitch;
-      put(L.strokes, mMul(mMul(mMul(mT(g.x, g.y), mR(rot * 180 / Math.PI)), mT(dx, base)), [s, 0, 0, s, 0, 0]));
+      put(L, mMul(mMul(mMul(mT(g.x, g.y), mR(rot * 180 / Math.PI)), mT(dx, base)), [s, 0, 0, s, 0, 0]));
     });
   }
-  return { strokes: out, h: H, str, unknown };
+  return { strokes: out, outl: font ? outl : null, h: H, str, unknown };
 }
 function parseDxf(text) {
   const L = text.split(/\r\n|\r|\n/), C = [], V = [];
@@ -582,7 +680,7 @@ function parseDxf(text) {
 
 // 블록을 펼쳐 닫힌 도형 목록(mm)으로 만든다
 // cutBlocks: 여러 블록 삽입에 걸친 외곽선을 블록 경계에서 다시 자른다(ODB++ 스텝 묶기용). Gerber만 낼 때는 자르지 않는다.
-function buildBase(dxf, unitMode, cutBlocks) {
+function buildBase(dxf, unitMode, cutBlocks, font) {
   const U = { 1: 25.4, 2: 304.8, 4: 1, 5: 10, 6: 1000, 8: 25.4e-6, 9: 0.0254, 10: 914.4, 13: 1e-3, 14: 100 };
   let scale = 1, unitText = 'mm';
   if (unitMode === 'inch') { scale = 25.4; unitText = 'inch(지정)'; }
@@ -603,7 +701,7 @@ function buildBase(dxf, unitMode, cutBlocks) {
     const s = makeShape(T, meta);
     if (s) add(s, layer); else ign(meta.src + ' (넓이 0)', layer, M, pts[0] ? pts[0].x : NaN, pts[0] ? pts[0].y : NaN);
   }
-  const opens = []; base.texts = [];
+  const opens = []; base.texts = []; base.gtexts = []; base.fontName = font ? font.name : '';
   function walk(ents, M, layerOv, depth) {
     for (const e of ents) {
       const g = e._g || (e._g = entGeom(e));
@@ -621,7 +719,16 @@ function buildBase(dxf, unitMode, cutBlocks) {
         }
         addPoly(pts, Me, layer, { src: e.type, handle: g.handle, hasW: g.hasW });
       } else if (g.t === 'text' || g.t === 'mtext') { // 글자: 내장 획 글꼴로 획을 만들어 둔다(층에 따라 출력)
-        const r = layoutText(g), k = Math.sqrt(Math.abs(mDet(Me)));
+        const k = Math.sqrt(Math.abs(mDet(Me))), r = layoutText(g, font || null, 5e-4 / (k || 1));
+        if (font) { // 불러온 트루타입 글꼴: 글자 윤곽을 닫힌 도형으로 넣는다(안쪽 윤곽은 빈 곳). 층에 따라 영역으로 출력
+          let n = 0; const bb = [Infinity, Infinity, -Infinity, -Infinity];
+          for (const c of r.outl) {
+            const sh = makeShape(c.pts.map(q => { const z = mAp(Me, q[0], q[1]); return { x: z[0], y: z[1], b: 0 }; }), { src: e.type + ' 글자', handle: g.handle, glyph: true, gv: c.hole });
+            if (!sh) continue; add(sh, layer); n++; if (sh.bbox[0] < bb[0]) bb[0] = sh.bbox[0]; if (sh.bbox[1] < bb[1]) bb[1] = sh.bbox[1]; if (sh.bbox[2] > bb[2]) bb[2] = sh.bbox[2]; if (sh.bbox[3] > bb[3]) bb[3] = sh.bbox[3];
+          }
+          if (n) base.gtexts.push({ layer, type: e.type, str: r.str, unknown: r.unknown, h: r.h * k, n, bbox: bb });
+          continue;
+        }
         if (!r.strokes.length) continue;
         const st = r.strokes.map(pl => pl.map(q => { const z = mAp(Me, q[0], q[1]); return { x: z[0], y: z[1], b: 0 }; }));
         const fl = []; for (const pl of st) for (const q of pl) fl.push([q.x, q.y]);
@@ -1669,7 +1776,7 @@ const TARGETS = { cu1: { label: '동박 1', suffix: '_L1' }, cu2: { label: '동�
 const isMaskT = tg => tg === 'mask' || tg === 'mask2';
 function workShape(s, ox, oy, mir) {
   const pts = s.pts.map(p => ({ x: mir == null ? p.x - ox : mir - (p.x - ox), y: p.y - oy, b: mir == null ? p.b : -p.b }));
-  const w = makeShape(pts, { id: s.id, layer: s.layer, src: s.src, handle: s.handle, hasW: s.hasW, arcFlat: s.arcFlat, cuts: s.cuts ? s.cuts.map(c => c.map(q => [mir == null ? q[0] - ox : mir - (q[0] - ox), q[1] - oy])) : undefined, inst: s.inst, part: s.part });
+  const w = makeShape(pts, { id: s.id, layer: s.layer, src: s.src, handle: s.handle, hasW: s.hasW, arcFlat: s.arcFlat, glyph: s.glyph, gv: s.gv, cuts: s.cuts ? s.cuts.map(c => c.map(q => [mir == null ? q[0] - ox : mir - (q[0] - ox), q[1] - oy])) : undefined, inst: s.inst, part: s.part });
   if (w && s.ell) w.ell = { cx: mir == null ? s.ell.cx - ox : mir - (s.ell.cx - ox), cy: s.ell.cy - oy, rx: s.ell.rx, ry: s.ell.ry, rot: mir == null ? s.ell.rot : Math.PI - s.ell.rot };
   return w;
 }
@@ -1735,6 +1842,7 @@ function decideRole(s, target, cfg, warn) {
   let role = au.role, why = au.why || '', quiet = !!au.quiet; const ov = cfg.overrides[s.id];
   const canTrace = !s.ell;
   if (ov === 'pad' && s.pad) role = 'pad'; else if (ov === 'trace' && canTrace) role = 'trace'; else if (ov === 'region') { role = 'region'; why = '사용자 지정'; quiet = true; }
+  else if (s.glyph && ov === undefined) { role = 'region'; why = '글자 윤곽(글꼴)'; quiet = true; } // 글꼴에서 뽑은 글자는 모양 그대로 영역으로
   if (s.isVoid && role === 'trace') { role = 'region'; why = '빈 곳'; quiet = true; }
   if (s.hasChild && role === 'trace' && ov !== 'trace') { role = 'region'; why = '안에 다른 객체가 있는 면'; quiet = false; }
   s.canTrace = canTrace; s.role = role; s.why = role === 'region' ? why : ''; s.overridden = role !== au.role;
@@ -1753,11 +1861,11 @@ async function convertLayerInc(L, cfg, chg, tick) {
   if (chg.voids.size) { // 빈 곳 지정: 안쪽 폴리선의 상태·깊이를 다시 매기고, 바뀐 것과 거기 맞닿은 배선을 다시 한다
     const vch = [];
     for (const s of act.filter(q => q.parent).sort((a, b) => a.depth - b.depth)) {
-      const v = cfg.voids[s.id], parentVoid = s.parent.level % 2 === 1, nv = v === undefined ? (cfg.allVoid ? !parentVoid : false) : !!v, nl = s.parent.level + (parentVoid !== nv ? 1 : 0);
+      const v = cfg.voids[s.id], parentVoid = s.parent.level % 2 === 1, nv = v === undefined ? (s.glyph ? !!s.gv : cfg.allVoid ? !parentVoid : false) : !!v, nl = s.parent.level + (parentVoid !== nv ? 1 : 0);
       if (nv === s.isVoid && nl === s.level && !chg.voids.has(s.id)) continue;
       s.isVoid = nv; s.level = nl; A.add(s); vch.push(s);
       for (let i = W.length - 1; i >= 0; i--) if (W[i].type === 'nested' && W[i].id === s.id) W.splice(i, 1);
-      warn('nested', s, '다른 객체 안의 폴리선(' + s.depth + '겹째): ' + (s.level % 2 ? '빈 곳' : '동박') + (cfg.allVoid || v !== undefined ? '으로 처리' : '으로 처리(빈 곳이면 눌러서 바꾸세요)'));
+      if (!s.glyph) warn('nested', s, '다른 객체 안의 폴리선(' + s.depth + '겹째): ' + (s.level % 2 ? '빈 곳' : '동박') + (cfg.allVoid || v !== undefined ? '으로 처리' : '으로 처리(빈 곳이면 눌러서 바꾸세요)'));
     }
     for (const s of vch) { contactsOf(s); for (const c of s.contacts) if (c.o.canTrace && (c.o.role === 'trace' || c.o.fallback)) A.add(c.o); }
   }
@@ -1838,10 +1946,10 @@ async function convertLayer(L, cfg, tick, pool) {
     s.parent = s.containers.reduce((m, c) => (c.area < m.area ? c : m)); s.parent.hasChild = true;
     // 옵션을 켜면 바깥 객체와 반대로(동박 안 → 빈 곳, 빈 곳 안 → 동박) 번갈아 처리한다. 객체마다 눌러서 바꿀 수 있다.
     s.depth = s.parent.depth + 1;
-    const v = cfg.voids[s.id], parentVoid = s.parent.level % 2 === 1; s.isVoid = v === undefined ? (cfg.allVoid ? !parentVoid : false) : !!v;
+    const v = cfg.voids[s.id], parentVoid = s.parent.level % 2 === 1; s.isVoid = v === undefined ? (s.glyph ? !!s.gv : cfg.allVoid ? !parentVoid : false) : !!v; // 글자 윤곽은 안쪽 윤곽이 빈 곳
     s.level = s.parent.level + (parentVoid !== s.isVoid ? 1 : 0);
     const state = s.level % 2 ? '빈 곳' : '동박';
-    warn('nested', s, '다른 객체 안의 폴리선(' + s.depth + '겹째): ' + state + (cfg.allVoid || v !== undefined ? '으로 처리' : '으로 처리(빈 곳이면 눌러서 바꾸세요)'));
+    if (!s.glyph) warn('nested', s, '다른 객체 안의 폴리선(' + s.depth + '겹째): ' + state + (cfg.allVoid || v !== undefined ? '으로 처리' : '으로 처리(빈 곳이면 눌러서 바꾸세요)'));
   }
   for (const s of act) decideRole(s, L.target, cfg, warn);
   L.cs = cs;
@@ -1997,7 +2105,7 @@ async function convertAll(base, cfg, prog, prev, pool) {
     const idx = tgs.indexOf(tg); let nid = nBase + idx * ID_SPAN;
     const mine = id => id < nBase ? !!base.shapes[id] && cfg.layers[base.shapes[id].layer] === tg : Math.floor((id - nBase) / ID_SPAN) === idx;
     const pick = o => { const r = {}; for (const k of Object.keys(o || {}).filter(k => mine(+k)).sort()) r[k] = o[k]; return r; };
-    const src = base.shapes.filter(s => cfg.layers[s.layer] === tg), srcP = tg === 'outline' || cfg.openOn !== false ? (base.paths || []).filter(q => cfg.layers[q.layer] === tg) : [];
+    const src = base.shapes.filter(s => cfg.layers[s.layer] === tg && (!s.glyph || cfg.textOn !== false)), srcP = tg === 'outline' || cfg.openOn !== false ? (base.paths || []).filter(q => cfg.layers[q.layer] === tg) : [];
     const srcT = cfg.textOn !== false ? (base.texts || []).filter(q => cfg.layers[q.layer] === tg) : [];
     if (!src.length && !srcP.length && !srcT.length) continue;
     const mir = cfg.mirror[tg] ? gb[0] + gb[2] - 2 * ox : null;
@@ -2024,12 +2132,14 @@ async function convertAll(base, cfg, prog, prev, pool) {
     const snapW = v => Math.max(cfg.apTol, Math.round(Math.round(v / cfg.apTol) * cfg.apTol * 1e6) / 1e6), tbb = st => { const f = []; for (const P of st) for (const q of flattenPath(P, 1e-3)) f.push(q); return bboxOf(f); };
     L.tpaths = [];
     for (const t of srcT) { const st = t.strokes.map(tf), w = snapW(t.h * (cfg.textPct > 0 ? cfg.textPct : 10) / 100); L.tpaths.push({ kind: 'text', w, strokes: st, bbox: tbb(st) }); L.warnings.push({ type: 'text', target: tg, id: null, msg: t.type + ' "' + t.str.replace(/\n/g, ' ').slice(0, 40) + '" → 내장 획 글꼴로 근사(높이 ' + fmtN(t.h) + ', 선폭 ' + fmtN(w) + 'mm)' + (t.unknown ? ', 글꼴에 없는 글자 ' + t.unknown + '개는 네모로' : ''), bbox: tbb(st) }); }
+    if (cfg.textOn !== false) for (const t of (base.gtexts || [])) if (cfg.layers[t.layer] === tg) { const c = tf([{ x: t.bbox[0], y: t.bbox[1], b: 0 }, { x: t.bbox[2], y: t.bbox[3], b: 0 }]); L.warnings.push({ type: 'gtext', target: tg, id: null, msg: t.type + ' "' + t.str.replace(/\n/g, ' ').slice(0, 40) + '" → 글꼴 ' + (base.fontName || '') + '의 윤곽 ' + t.n + '개를 영역으로 냄(높이 ' + fmtN(t.h) + 'mm)' + (t.unknown ? ', 글꼴에 없는 글자 ' + t.unknown + '개' : ''), bbox: [Math.min(c[0].x, c[1].x), c[0].y, Math.max(c[0].x, c[1].x), c[1].y] }); }
     for (const q of srcP) { const st = [tf(q.pts)], w = snapW(cfg.openW > 0 ? cfg.openW : 0.1); L.tpaths.push({ kind: 'open', w, strokes: st, bbox: tbb(st) }); L.warnings.push({ type: 'open', target: tg, id: null, msg: q.type + ' 열린 선 → 선폭 ' + fmtN(w) + 'mm 선으로 냄', bbox: tbb(st) }); }
     const cu = tg === 'cu1' || tg === 'cu2', Tp = Date.now(); let nDone = 0;
     for (const s of src) {
       if (++nDone % 500 === 0) await tick(L.label + ': 패드 떼어내기·토막 내기 ' + nDone + '/' + src.length);
       const w = workShape(s, ox, oy, mir); if (!w) continue;
       let ws = [w], pads = [];
+      if (w.glyph) { L.shapes.push(w); continue; }
       if (cu && cfg.padCut !== false) { const r = extractPads(w, cfg.ratio || 4); if (r.pads.length) { ws = r.shapes; pads = r.pads; } }
       const all = []; for (const q of ws) for (const z of splitShape(q, SPLIT_N)) all.push(z);
       if (all.length === 1) { L.shapes.push(w); continue; }
@@ -2593,7 +2703,7 @@ if (typeof document !== 'undefined') (function () {
   const KC = {}, kindCol = (tg, kind) => KC[tg + kind] || (KC[tg + kind] = tg === 'outline' ? '#e8e8e8' : tg === 'cu2' ? shade(KIND_COL[kind], 0.5, 0) : tg === 'mask' ? shade(KIND_COL[kind], 0.4, 0.6) : tg === 'mask2' ? shade(KIND_COL[kind], 0.25, 0.3) : KIND_COL[kind]);
   const MASK_LINE_COL = '#c77dff', MASK2_LINE_COL = '#4dd0e1'; // '마스크 선으로 보기'의 테두리 색(솔더마스크 1, 2)
   const LAYER_COL = { cu1: '#ff5a5a', cu2: '#4f8dff', mask: '#3ccf6e', mask2: '#ffd23f', outline: '#e8e8e8' };
-  const WT = { padcut: ['배선과 합쳐진 패드를 떼어 냄', 'i'], text: ['TEXT·MTEXT를 내장 글꼴로 근사', 'i'], open: ['열린 선을 선으로 냄', 'i'], fallback: ['영역으로 출력(대체)', 'w'], narrow: ['좁은 패드 → 직각 마감', 'w'], overlap: ['같은 층 겹침', 'e'], nested: ['다른 객체 안의 폴리선', 'w'], diff: ['형상 차이 기준 초과', 'e'], dup: ['중복 객체', 'w'], same: ['같은 자리 같은 요소(하나만 출력)', 'w'], width: ['폭 있는 폴리선', 'w'], arcflat: ['블록 배율로 호를 꺾은선으로 바꿈', 'w'], ellipse: ['타원 근사 오차', 'w'] };
+  const WT = { padcut: ['배선과 합쳐진 패드를 떼어 냄', 'i'], text: ['TEXT·MTEXT를 내장 글꼴로 근사', 'i'], gtext: ['TEXT·MTEXT를 불러온 글꼴 윤곽으로 냄', 'i'], open: ['열린 선을 선으로 냄', 'i'], fallback: ['영역으로 출력(대체)', 'w'], narrow: ['좁은 패드 → 직각 마감', 'w'], overlap: ['같은 층 겹침', 'e'], nested: ['다른 객체 안의 폴리선', 'w'], diff: ['형상 차이 기준 초과', 'e'], dup: ['중복 객체', 'w'], same: ['같은 자리 같은 요소(하나만 출력)', 'w'], width: ['폭 있는 폴리선', 'w'], arcflat: ['블록 배율로 호를 꺾은선으로 바꿈', 'w'], ellipse: ['타원 근사 오차', 'w'] };
 
   /* ---------- 파일 ---------- */
   function setMsg(html, err) { const m = $('fileMsg'); m.innerHTML = html; m.className = err ? 'err' : 'muted'; }
@@ -2611,7 +2721,7 @@ if (typeof document !== 'undefined') (function () {
   }
   function rebuildBase(fresh) {
     if (!S.dxf) return;
-    S.base = buildBase(S.dxf, $('oUnit').value, $('oFormat').value === 'odb' && $('oOdbStep').checked);
+    S.base = buildBase(S.dxf, $('oUnit').value, $('oFormat').value === 'odb' && $('oOdbStep').checked, S.font || null);
     const b = S.base, stem = S.fileName.replace(/\.[^.]*$/, '') || 'output';
     if (fresh) {
       // 이름으로 추정: 마스크 → 솔더마스크, 동박처럼 보이는 이름 우선, 외형·치수·부품 같은 이름은 출력 안 함
@@ -3001,6 +3111,39 @@ if (typeof document !== 'undefined') (function () {
   ['dragleave', 'drop'].forEach(n => document.addEventListener(n, ev => { ev.preventDefault(); dz.classList.remove('over'); }));
   document.addEventListener('drop', ev => { const f = ev.dataTransfer && ev.dataTransfer.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => loadBuffer(rd.result, f.name); rd.readAsArrayBuffer(f); });
   $('btnExample').onclick = () => loadText(makeExampleDxf(), 'example.dxf');
+  /* ---------- 글자 글꼴(트루타입) ---------- */
+  const FONT_KEY = 'dxf2gerber_font';
+  function fontStatus(err) {
+    const m = $('fontMsg'), f = S.font;
+    if (err) { m.innerHTML = '<span class="bad">' + esc(err) + '</span>'; return; }
+    $('btnFontClr').style.display = f ? '' : 'none';
+    m.innerHTML = f ? '쓰는 글꼴: <b>' + esc(f.name) + '</b> — 글자 윤곽을 그대로 채워진 영역으로 냅니다(글자 높이 = 대문자 높이).' + (S.fontSaved ? '' : ' <span class="muted">(브라우저에 기억하지 못함 — 다음에 다시 불러와야 합니다)</span>') : '글꼴 없음 — 글자는 내장 획 글꼴(선)로 냅니다. 굵은 Arial은 <b>C:\\Windows\\Fonts\\arialbd.ttf</b> 를 여세요.';
+  }
+  function setFont(buf, save) {
+    let f; try { f = parseTtf(buf); } catch (e) { fontStatus('글꼴을 읽지 못했습니다: ' + e.message); return false; }
+    S.font = f;
+    if (save) { S.fontSaved = false; try { const u = new Uint8Array(buf); let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); localStorage.setItem(FONT_KEY, btoa(s)); S.fontSaved = true; } catch (e) { try { localStorage.removeItem(FONT_KEY); } catch (e2) {} } }
+    fontStatus();
+    if (S.dxf) { S.overrides = {}; S.voids = {}; rebuildBase(false); } // 글자가 도형으로 바뀌어 객체 번호가 달라진다
+    return true;
+  }
+  $('btnFont').onclick = () => $('fontFile').click();
+  $('fontFile').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (f) setFont(await f.arrayBuffer(), true); };
+  $('btnFontClr').onclick = () => { S.font = null; try { localStorage.removeItem(FONT_KEY); } catch (e) {} fontStatus(); if (S.dxf) { S.overrides = {}; S.voids = {}; rebuildBase(false); } };
+  if (typeof window.queryLocalFonts === 'function') {
+    $('btnFontSys').style.display = '';
+    let sysFonts = [];
+    $('btnFontSys').onclick = async () => {
+      try { sysFonts = await window.queryLocalFonts(); } catch (e) { fontStatus('설치된 글꼴 목록을 받지 못했습니다(권한이 거부됨). "글꼴 파일(.ttf) 열기"를 쓰세요.'); return; }
+      if (!sysFonts.length) { fontStatus('설치된 글꼴 목록이 비어 있습니다. "글꼴 파일(.ttf) 열기"를 쓰세요.'); return; }
+      const sel = $('fontPick'); sel.innerHTML = sysFonts.map((q, i) => '<option value="' + i + '">' + esc(q.fullName || q.postscriptName || q.family) + '</option>').join('');
+      const k = sysFonts.findIndex(q => /^arial bold$/i.test(q.fullName || '')); if (k >= 0) sel.value = String(k);
+      sel.style.display = ''; $('btnFontUse').style.display = '';
+    };
+    $('btnFontUse').onclick = async () => { const q = sysFonts[+$('fontPick').value]; if (!q) return; try { const b = await (await q.blob()).arrayBuffer(); if (setFont(b, true)) { $('fontPick').style.display = 'none'; $('btnFontUse').style.display = 'none'; } } catch (e) { fontStatus('글꼴을 읽지 못했습니다: ' + e.message); } };
+  }
+  try { const s = localStorage.getItem(FONT_KEY); if (s) { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); S.font = parseTtf(u.buffer); S.fontSaved = true; } } catch (e) { S.font = null; }
+  fontStatus();
   $('oUnit').onchange = () => rebuildBase(false);
   // 출력 형식: Gerber / ODB++. ODB++에서 스텝 묶기를 쓰면 블록 경계에서 외곽선을 잘라야 해서 도면을 다시 펼친다(객체 번호가 바뀌므로 눌러서 바꾼 것은 지운다)
   const applyFormat = () => { const odb = $('oFormat').value === 'odb'; $('gerberOut').style.display = odb ? 'none' : ''; $('odbOut').style.display = odb ? '' : 'none'; $('outTbl').classList.toggle('odb', odb); };

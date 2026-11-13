@@ -197,6 +197,39 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
     L9.prims = p9; const o9 = buildOdb(R9, b9, { job: 't', units: 'mm', steps: false, apTol: 1e-4, ellN: 48 }), k9 = checkOdb(o9, R9);
     check('ODB++도 같은 요소를 빼고 대조 일치', k9.ok, '요소 ' + k9.total + ' 빠짐 ' + k9.miss + ' 남음 ' + k9.extra);
   }
+  { // 트루타입 글꼴: 글자 윤곽을 그대로 영역으로(안쪽 윤곽은 빈 곳)
+    console.log('\n== 트루타입 글꼴로 글자 내기');
+    const fp = ['/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf', 'C:\\Windows\\Fonts\\arialbd.ttf', '/System/Library/Fonts/Supplemental/Arial Bold.ttf', '/Library/Fonts/Arial Bold.ttf'].find(p => fs.existsSync(p));
+    if (!fp) console.log('  (시험할 글꼴 파일이 없어 건너뜀)');
+    else {
+      const font = parseTtf(new Uint8Array(fs.readFileSync(fp))), o = [], w = (c, v) => o.push(String(c), String(v));
+      check('글꼴 읽기', font.cap > 0 && font.upm >= 1000 && font.gid(65) > 0, font.name + ' 칸 ' + font.upm + ' 대문자 높이 ' + font.cap);
+      const one = fontLine('H', font, 0.001), ys = one.outl[0].pts.map(q => q[1]);
+      check('H의 높이 = 글자 높이(6칸)', one.outl.length === 1 && Math.abs(Math.max(...ys) - 6) < 0.02 && Math.abs(Math.min(...ys)) < 0.02, Math.min(...ys).toFixed(3) + '~' + Math.max(...ys).toFixed(3));
+      const B8 = fontLine('B8O', font, 0.001); check('B·8·O의 안쪽 윤곽은 빈 곳', B8.outl.length === 8 && B8.outl.filter(q => q.hole).length === 5, '윤곽 ' + B8.outl.length + ' 빈 곳 ' + B8.outl.filter(q => q.hole).length);
+      w(0, 'SECTION'); w(2, 'ENTITIES');
+      w(0, 'TEXT'); w(8, 'CU'); w(10, 10); w(20, 20); w(40, 2); w(1, 'LED-08 Rev.B');
+      w(0, 'TEXT'); w(8, 'CU'); w(10, 10); w(20, 30); w(40, 3); w(50, 90); w(1, 'HO');
+      w(0, 'MTEXT'); w(8, 'CU'); w(10, 30); w(20, 40); w(40, 1.5); w(71, 1); w(1, 'AB\\PCD 80%');
+      w(0, 'POLYLINE'); w(8, 'CU'); w(66, 1); w(70, 1); for (const p of [[40, 20], [42, 20], [42, 21], [40, 21]]) { w(0, 'VERTEX'); w(8, 'CU'); w(10, p[0]); w(20, p[1]); } w(0, 'SEQEND');
+      w(0, 'ENDSEC'); w(0, 'EOF');
+      const dxf = parseDxf(o.join('\n')), bF = buildBase(dxf, 'auto', false, font), b0 = buildBase(dxf, 'auto', false);
+      const cF = { layers: { CU: 'cu1' }, files: {}, mirror: {}, origin: 'dxf', ratio: 4, grid: 0.002, thr: 0.005, apTol: 0.0001, noMacro: false, ellN: 48, allVoid: false, padCut: true, textOn: true, textPct: 10, overrides: {}, voids: {} };
+      check('글꼴 없으면 예전처럼 획(선)', b0.texts.length === 3 && b0.shapes.length === 1 && b0.gtexts.length === 0);
+      check('글꼴 있으면 글자가 닫힌 도형', bF.texts.length === 0 && bF.gtexts.length === 3 && bF.shapes.filter(s => s.glyph).length > 20, '글자 도형 ' + bF.shapes.filter(s => s.glyph).length + ' (빈 곳 ' + bF.shapes.filter(s => s.gv).length + ')');
+      const hs = bF.shapes.filter(s => s.glyph && !s.gv), H1 = hs.find(s => Math.abs(s.bbox[0] - 10) < 0.6 && s.bbox[1] > 19.9 && s.bbox[3] < 22.1);
+      check('첫 글자 L: 기준점 (10, 20), 높이 2mm', !!H1 && Math.abs(H1.bbox[1] - 20) < 0.01 && Math.abs(H1.bbox[3] - 22) < 0.01, H1 ? H1.bbox.map(v => v.toFixed(3)).join(' ') : '없음');
+      const RF = await convertAll(bF, cF), LF = RF.layers[0], gs = LF.shapes.filter(s => s.glyph);
+      check('글자 윤곽은 모두 영역, 안쪽은 빈 곳(LPC)', gs.every(s => s.role === 'region') && gs.filter(s => s.gv).every(s => s.isVoid && s.level === 1) && gs.filter(s => !s.gv).every(s => !s.isVoid && s.level === 0) && /%LPC\*%/.test(LF.text), '영역 ' + gs.length + ' 빈 곳 ' + gs.filter(s => s.isVoid).length);
+      check('사각 패드는 그대로 플래시', LF.shapes.some(s => !s.glyph && s.role === 'pad'));
+      check('형상 비교 기준 이내', LF.verify.nBad === 0, '최대 ' + LF.verify.worst.toFixed(5));
+      check('경고 목록: 글꼴 윤곽으로 냄 3건, 안쪽 폴리선 경고 없음', LF.warnings.filter(q => q.type === 'gtext').length === 3 && LF.warnings.filter(q => q.type === 'nested').length === 0, LF.warnings.map(q => q.type).join(','));
+      const R0 = await convertAll(bF, Object.assign({}, cF, { textOn: false })); check('"글자 내기"를 끄면 글자 도형을 뺌', R0.layers[0].shapes.every(s => !s.glyph) && R0.layers[0].shapes.length === 1);
+      const od = buildOdb(RF, bF, { job: 't', units: 'mm', steps: false, apTol: 1e-4, ellN: 48 }), kc = checkOdb(od, RF);
+      check('ODB++ 대조 일치(빈 곳은 음극성)', kc.ok && / N 0/.test(od.files.get('steps/panel/layers/l1/features')), '요소 ' + kc.total + ' 빠짐 ' + kc.miss + ' 남음 ' + kc.extra);
+      const RM = await convertAll(bF, Object.assign({}, cF, { mirror: { cu1: true }, origin: 'll' })); check('좌우 반전·원점 이동에서도 기준 이내', RM.layers[0].verify.nBad === 0 && RM.layers[0].shapes.filter(s => s.glyph).length === gs.length, '최대 ' + RM.layers[0].verify.worst.toFixed(5));
+    }
+  }
   console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과');
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });
