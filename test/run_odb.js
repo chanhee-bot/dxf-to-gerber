@@ -103,8 +103,11 @@ async function one(label, dxfText, layers, extra, expectSteps) {
     w8(0, 'ENDSEC'); w8(0, 'EOF');
     const base8 = buildBase(parseDxf(o8.join('\n')), 'auto', true), R8 = await convertAll(base8, cfg({ COPPER: 'cu1' }, {}));
     console.log('\n== 큰 호가 있는 영역 6×4');
-    for (const steps of [false, true]) { const odb = buildOdb(R8, base8, { job: 'test', units: 'mm', steps, apTol: 0.0001, ellN: 48 }), c = checkOdb(odb, R8);
-      check('ODB++ ' + (steps ? '스텝' : '평면') + ' 다시 읽기 대조(윤곽 방향 포함)', c.ok && c.errors === 0, '요소 ' + c.total + ' 빠짐 ' + c.miss + ' 남음 ' + c.extra + ' 오류 ' + c.errors + ' | ' + odb.steps.map(s => s.name + '×' + s.count).join(' ')); }
+    { const oa = buildOdb(R8, base8, { job: 'test', units: 'mm', steps: true, apTol: 0.0001, ellN: 48 }), ob = buildOdb(R8, base8, { job: 'test', units: 'mm', steps: true, arcPoly: false, apTol: 0.0001, ellN: 48 });
+      const nOC = o => { let n = 0; for (const [p, x] of o.files) if (p.indexOf('/features') > 0) n += (x.match(/^OC /gm) || []).length; return n; };
+      check('영역의 호를 꺾은선으로(기본): 영역·심벌에 OC 없음, 끄면 OC 있음', nOC(oa) === 0 && nOC(ob) > 0 && checkOdb(oa, R8).ok && checkOdb(ob, R8).ok, 'OC ' + nOC(oa) + ' / 끄면 ' + nOC(ob) + ' | ' + (oa.bytes / 1e3).toFixed(1) + 'KB / ' + (ob.bytes / 1e3).toFixed(1) + 'KB'); }
+    for (const arcPoly of [true, false]) for (const steps of [false, true]) { const odb = buildOdb(R8, base8, { job: 'test', units: 'mm', steps, arcPoly, apTol: 0.0001, ellN: 48 }), c = checkOdb(odb, R8);
+      check('ODB++ ' + (steps ? '스텝' : '평면') + (arcPoly ? '' : ' · 호 그대로') + ' 다시 읽기 대조(윤곽 방향 포함)', c.ok && c.errors === 0, '요소 ' + c.total + ' 빠짐 ' + c.miss + ' 남음 ' + c.extra + ' 오류 ' + c.errors + ' | ' + odb.steps.map(s => s.name + '×' + s.count).join(' ')); }
   }
   // tar.gz 묶음을 실제로 풀어 본다
   for (const [nm, r] of [['odb_example', ex], ['odb_cells', r2]]) {

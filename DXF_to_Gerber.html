@@ -126,6 +126,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
       <select id="oOdbUnit"><option value="inch">inch (7.0, 호환)</option><option value="mm">mm (8.1)</option></select>
       <label for="oOdbStep" title="내용이 똑같이 반복되는 부분을 스텝 하나로 묶고 패널에서 반복 배치합니다. 먼저 DXF 블록 삽입 기준으로 묶고, 동박이 블록에 들어 있지 않으면 패드 간격에서 반복 칸을 자동으로 찾아 묶습니다. 끄면 전부 패널 스텝에 풀어 적습니다.">반복되는 부분을 스텝으로 묶기</label><input type="checkbox" id="oOdbStep" checked>
       <label for="oOdbMin" title="같은 스텝이 한 배열로 이만큼 이상 반복될 때만 스텝으로 둡니다. 그보다 적게 반복되는 조각(가장자리 칸 등)은 스텝으로 두지 않고 패널에 풀어 적습니다. CAM에서는 반복 배치 줄 하나가 블록 패드 한 줄이 되므로, 값을 키우면 블록 패드 목록이 짧아집니다(파일은 조금 커짐).">스텝으로 둘 최소 반복 수</label><input type="number" id="oOdbMin" value="100" min="2" step="1">
+      <label for="oOdbArc" title="영역(모서리 채움·대체 영역·회전 패드 심벌)의 호를 짧은 직선 여러 개로 바꿔 적습니다(차이 0.0002mm 이하). CoreCAM은 영역 안의 호를 0.001mm쯤의 선분 수백 개로 쪼개 읽어서(Import 보고서의 Sectorize Arc) 호가 많으면 불러오기가 끝나지 않으므로 켜 두는 것을 권합니다. 끄면 호(OC)로 적습니다.">영역의 호를 꺾은선으로 적기</label><input type="checkbox" id="oOdbArc" checked>
     </div>
     <div style="margin-top:8px"><button id="btnOdbTgz" class="primary" disabled>ODB++ 내려받기 (.tgz)</button> <button id="btnOdbZip" disabled>ODB++ (.zip)</button></div>
     <div id="odbMsg" class="muted" style="margin-top:6px;line-height:1.5">변환 결과(선·플래시·영역)를 ODB++ 폴더 구조로 적습니다. 만든 뒤 다시 읽어 변환 결과와 요소 하나하나 대조합니다. 파일 이름·좌우 반전은 위 표를 따릅니다(이름은 작업 이름에만 쓰임).</div>
@@ -157,7 +158,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1113-2140';
+const BUILD = '1114-0940';
 
 /* ================================================================
  * 1. 기하 기본
@@ -2097,6 +2098,18 @@ const ODB_SEP = '\u0001';
 function odbNum(v, dec) { let s = v.toFixed(dec); if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, ''); return (s === '-0' || s === '') ? '0' : s; }
 function odbName(t) { return (String(t).toLowerCase().replace(/[^a-z0-9_+\-.]/g, '_').replace(/^[^a-z0-9]+/, '') || 'x').slice(0, 40); }
 // 다각형([{x,y,b}], 닫힘)을 ODB++ 윤곽 줄로. 섬은 시계 방향이어야 하므로 반시계면 뒤집어 적는다.
+// 다각형의 호 구간을 꺾은선으로 편다(활꼴 높이 tol 이하). CoreCAM은 영역 안의 호(OC)를 0.001mm쯤의 선분 수백 개로 쪼개 읽어서
+// (Import 보고서 "Sectorize Arc"), 호가 든 영역이 많으면 불러오기가 끝나지 않는다. 그래서 우리 쪽에서 적당한 간격으로 펴서 적는다.
+function odbPolyArcs(P, tol) {
+  let any = false; for (const p of P) if (p.b) { any = true; break; } if (!any) return P;
+  const o = [], n = P.length;
+  for (let i = 0; i < n; i++) {
+    const p = P[i], q = P[(i + 1) % n]; o.push({ x: p.x, y: p.y, b: 0 }); if (!p.b) continue;
+    const a = arcOf(p.x, p.y, q.x, q.y, p.b), st = a.r > tol ? 2 * Math.acos(1 - tol / a.r) : Math.PI / 2, m = Math.max(2, Math.ceil(Math.abs(a.sweep) / st));
+    for (let j = 1; j < m; j++) { const th = a.a1 + a.sweep * j / m; o.push({ x: a.cx + a.r * Math.cos(th), y: a.cy + a.r * Math.sin(th), b: 0 }); }
+  }
+  return o;
+}
 function odbContour(P, dx, dy, C) {
   let a = 0; const n = P.length;
   for (let i = 0; i < n; i++) {
@@ -2183,7 +2196,8 @@ function buildOdb1(R, base, opt) {
   // 요소 하나를 줄(문자열)로. 심벌 이름은 ODB_SEP 사이에 넣어 두었다가 파일을 쓸 때 번호로 바꾼다.
   const fLine = (x1, y1, x2, y2, w, pol, dx, dy) => 'L ' + C(x1 - dx) + ' ' + C(y1 - dy) + ' ' + C(x2 - dx) + ' ' + C(y2 - dy) + ' ' + ODB_SEP + 'r' + Zs(w) + ODB_SEP + ' ' + pol + ' 0';
   const fPad = (x, y, sym, pol, dx, dy) => 'P ' + C(x - dx) + ' ' + C(y - dy) + ' ' + ODB_SEP + sym + ODB_SEP + ' ' + pol + ' 0 0';
-  const fSurf = (P, pol, dx, dy) => ['S ' + pol + ' 0'].concat(odbContour(P, dx, dy, C), ['SE']).join('\n');
+  const arcPoly = opt.arcPoly !== false, AT = 2e-4, noArc = P => arcPoly ? odbPolyArcs(P, AT) : P; // 영역의 호를 꺾은선으로(기본)
+  const fSurf = (P, pol, dx, dy) => ['S ' + pol + ' 0'].concat(odbContour(noArc(P), dx, dy, C), ['SE']).join('\n');
   const triP = d => { const P = []; for (let i = 0; i < d.length; i += 3) P.push({ x: d[i], y: d[i + 1], b: d[i + 2] }); return P; };
   const layers = R.layers.slice().sort((a, b) => ODB_ORDER.indexOf(a.target) - ODB_ORDER.indexOf(b.target)).map(L => ({ L, name: ODB_LAYER[L.target].name, type: ODB_LAYER[L.target].type, flat: L.shapes.some(s => !s.dup && !s.sk && s.level > 0) }));
   const ox = R.offset[0], oy = R.offset[1];
@@ -2340,7 +2354,7 @@ function buildOdb1(R, base, opt) {
     put('steps/' + g.name + '/stephdr', hdr()); put('steps/' + g.name + '/profile', rectProfile(b));
     layers.forEach((ly, li) => put('steps/' + g.name + '/layers/' + ly.name + '/features', featFile(g.lines[li])));
   }
-  for (const u of usr.values()) put('symbols/' + u.name + '/features', head.concat(['#', '#Layer features', '#', 'S P 0'], odbContour(u.pts, 0, 0, C), ['SE']));
+  for (const u of usr.values()) put('symbols/' + u.name + '/features', head.concat(['#', '#Layer features', '#', 'S P 0'], odbContour(arcPoly ? odbPolyArcs(u.pts, 2e-5) : u.pts, 0, 0, C), ['SE'])); // 심벌은 한 번만 적으므로 더 곱게 편다(패드 크기가 달라 보이지 않게)
   let bytes = 0; for (const t of files.values()) bytes += t.length;
   return { job, files, bytes, units: inch ? 'inch' : 'mm', steps: steps.map(g => { const q = { name: g.name, count: g.count, nx: g.rec.nx, ny: g.rec.ny, L: 0, P: 0, S: 0 }; for (const a of g.lines) for (const l of a) q[l[0]]++; return q; }), nSr, nInst: steps.reduce((a, g) => a + g.count, 0), nKinds, nFlatCell, minRep, stat, layers: layers.map(l => l.name), mode: cellMode ? 'cell' : 'block', cell, pitchInfo, diag: { stat: base.instStat, cand: base.insts.length, filled: nFilled, single: nSingle, featIn: nFeatIn, featOut: nFeatOut, featStep }, noStepWhy: useSteps ? '' : cellMode ? '패드 간격에서 반복 피치를 찾지 못함' : (!opt.steps ? '스텝 묶기 꺼짐' : base.insts.length < 2 ? '블록 삽입이 없음' : '좌우 반전을 쓴 층이 있음') };
 }
@@ -3008,7 +3022,7 @@ if (typeof document !== 'undefined') (function () {
     bs.forEach(b => b.disabled = true); msg.className = 'muted'; msg.textContent = 'ODB++ 만드는 중…';
     await new Promise(r => setTimeout(r, 30));
     try {
-      const t0 = performance.now(), odb = buildOdb(S.result, S.base, { job: stem, units: $('oOdbUnit').value, steps: $('oOdbStep').checked, minRep: +$('oOdbMin').value || 100, apTol: cfgNow().apTol, ellN: cfgNow().ellN });
+      const t0 = performance.now(), odb = buildOdb(S.result, S.base, { job: stem, units: $('oOdbUnit').value, steps: $('oOdbStep').checked, minRep: +$('oOdbMin').value || 100, arcPoly: $('oOdbArc').checked, apTol: cfgNow().apTol, ellN: cfgNow().ellN });
       msg.textContent = 'ODB++ 다시 읽어 대조하는 중…'; await new Promise(r => setTimeout(r, 30));
       const c = checkOdb(odb, S.result);
       let h = '작업 이름 <b>' + esc(odb.job) + '</b> · ' + odb.units + ' · 파일 ' + odb.files.size + '개 · ' + (odb.bytes / 1e6).toFixed(2) + 'MB(압축 전)<br>';
