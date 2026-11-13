@@ -183,6 +183,20 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
     check('형상 비교 기준 이내', L5.verify.nBad === 0, '최대 ' + L5.verify.worst.toFixed(5));
     check('영역 대체 없음', L5.stats.areas === 0, L5.warnings.filter(q => q.type === 'fallback').map(q => q.msg).join(' | '));
   }
+  { // 같은 자리 같은 요소: 서로 다른 도형이 똑같은 플래시·선·채움·영역을 내면 하나만 출력
+    console.log('\n== 같은 자리 같은 요소');
+    const b9 = buildBase(parseDxf(makeExampleDxf()), 'auto', false), c9 = { layers: { L1_TOP: 'cu1' }, files: {}, mirror: {}, origin: 'dxf', ratio: 4, grid: 0.002, thr: 0.005, apTol: 0.0001, noMacro: false, ellN: 48, allVoid: false, padCut: true, overrides: {}, voids: {} };
+    const R9 = await convertAll(b9, c9), L9 = R9.layers[0], n0 = L9.prims.length;
+    check('예제 도면에는 없음', L9.stats.same === 0, '제거 ' + L9.stats.same);
+    const pick = r => L9.shapes.find(s => !s.dup && s.role === r && (r !== 'trace' || (s.strokes && s.fills.length)));
+    const add = [pick('pad'), pick('trace'), pick('region')].map((s, i) => Object.assign(Object.create(Object.getPrototypeOf(s)), s, { id: 900000 + i }));
+    const want = 2 + add[1].strokes.length + add[1].fills.length; L9.shapes.push(...add);
+    const g9 = buildGerber(L9, c9), p9 = parseGerber(g9.text);
+    check('복사한 도형 3개의 요소를 모두 뺌', g9.stats.same === want && g9.stats.sameFlash === 1 && g9.stats.sameLine === add[1].strokes.length && p9.length === n0, '제거 ' + g9.stats.same + ' (기대 ' + want + '), Gerber 요소 ' + n0 + ' → ' + p9.length);
+    check('경고 목록에 표시', L9.warnings.filter(q => q.type === 'same').length === want);
+    L9.prims = p9; const o9 = buildOdb(R9, b9, { job: 't', units: 'mm', steps: false, apTol: 1e-4, ellN: 48 }), k9 = checkOdb(o9, R9);
+    check('ODB++도 같은 요소를 빼고 대조 일치', k9.ok, '요소 ' + k9.total + ' 빠짐 ' + k9.miss + ' 남음 ' + k9.extra);
+  }
   console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과');
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });
