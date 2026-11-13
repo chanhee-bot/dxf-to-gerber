@@ -165,7 +165,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1114-1530';
+const BUILD = '1114-1900';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1220,11 +1220,17 @@ function reconstructTrace(poly, inAllowed, inNeighbor) {
     if (k0 < 1e-7) k0 = 0; if (k1 > f.len - 1e-7) k1 = f.len;
     c.k0 = k0; c.k1 = k1; c.ux = e.dx; c.uy = e.dy;
     c.a = [(A[0] + D[0]) / 2, (A[1] + D[1]) / 2]; c.b = [(B[0] + C[0]) / 2, (B[1] + C[1]) / 2];
+    // 쌍을 이루는 두 변 중 하나가 이웃 객체(패드, 이웃 토막)에 맞닿은 면이면 배선의 옆 벽이 아니다.
+    // (레일에서 패드로 가는 짧은 목: 목의 위·아래 변 대신 "레일 바깥 변 ↔ 패드에 닿은 면"이 뽑혀 레일과 목이 한 덩어리 영역이 되던 것)
+    // 쌍의 구간 전체가 맞닿아 있을 때만(좁은 배선이 변 가운데에 닿은 패드 같은 경우는 해당 없음). 버리지는 않고 뒤 순서로 미룬다.
+    const whole = (g, a, b) => { for (const u of [0.1, 0.3, 0.5, 0.7, 0.9]) { const tt = a + (b - a) * u; if (!inNeighbor(g.px + g.dx * tt - g.nx * 1e-4, g.py + g.dy * tt - g.ny * 1e-4)) return false; } return true; };
+    c.touch = whole(e, c.t0, c.t1) || whole(f, k0, k1);
   }
   // (2) 길쭉한 것부터 고르고, 이미 고른 구간과 겹치는 후보는 버린다
-  cands.sort((p, q) => q.len / q.w - p.len / p.w);
+  cands.sort((p, q) => (p.touch ? 1 : 0) - (q.touch ? 1 : 0) || q.len / q.w - p.len / p.w); // 맞닿은 면으로 만든 쌍은 맨 뒤
   const S = [];
   for (const c of cands) { let ok = true; for (const s of S) if (convexClipArea(c.rect, s.rect) > 1e-4 * Math.min(c.area, s.area)) { ok = false; break; } if (ok) S.push(c); }
+  { let b = S[0]; for (const s of S) if (s.len / s.w > b.len / b.w) b = s; if (b !== S[0]) { S.splice(S.indexOf(b), 1); S.unshift(b); } } // S[0] = 가장 길쭉한 구간
   if (n > 4 && S[0].len / S[0].w < 1.5) return { ok: false, why: '배선 모양이 아님(가장 긴 구간도 길이÷폭 1.5 미만)' };
   // (3) 구간 양 끝의 현(chord)으로 외곽선을 나눠, 구간 사이에 남는 조각(꺾임·분기·테이퍼·끝단)을 구한다
   const IV = [];
@@ -1255,19 +1261,35 @@ function reconstructTrace(poly, inAllowed, inNeighbor) {
     const s = S[en.sec];
     en.pt = en.end === 'A' ? { x: s.a[0], y: s.a[1], ox: -s.ux, oy: -s.uy } : { x: s.b[0], y: s.b[1], ox: s.ux, oy: s.uy };
     en.terminal = cell.ends.length === 1 && cell.deg;
-    let ext = null;
+    let ext = null, col = null, extW = 0;
     if (en.terminal) ext = s.w / 2;
     else if (cell.pts.length > 2) for (const o of cell.ends) {
       if (o === en) continue;
       const t = S[o.sec], den = en.pt.ox * t.uy - en.pt.oy * t.ux;
-      if (Math.abs(den) < 1e-6) continue;
+      if (Math.abs(den) < 1e-6) { // 평행: 같은 직선 위에서 서로 마주 보는 같은 폭의 끝이면(가지가 붙은 자리를 지나가는 레일) 가운데에서 만나게 늘린다
+        const op = o.end === 'A' ? { x: t.a[0], y: t.a[1], ox: -t.ux, oy: -t.uy } : { x: t.b[0], y: t.b[1], ox: t.ux, oy: t.uy };
+        const dxp = op.x - en.pt.x, dyp = op.y - en.pt.y, along = dxp * en.pt.ox + dyp * en.pt.oy, off = Math.abs(dxp * en.pt.oy - dyp * en.pt.ox);
+        if (off < 1e-6 && along > 1e-7 && en.pt.ox * op.ox + en.pt.oy * op.oy < 0 && Math.abs(t.w - s.w) < 1e-6) {
+          const tt = along / 2, X = [en.pt.x + en.pt.ox * tt, en.pt.y + en.pt.oy * tt];
+          if ((pip(cell.pts, X[0], X[1]) || dBoundary(cell.pts, X[0], X[1]) < 1e-6) && (col === null || tt < col)) col = tt;
+        }
+        continue;
+      }
       const tt = ((t.a[0] - en.pt.x) * t.uy - (t.a[1] - en.pt.y) * t.ux) / den;
       if (tt < -1e-7) continue;
       const X = [en.pt.x + en.pt.ox * tt, en.pt.y + en.pt.oy * tt];
       if (!(pip(cell.pts, X[0], X[1]) || dBoundary(cell.pts, X[0], X[1]) < 1e-6)) continue;
-      if (ext === null || tt < ext) ext = Math.max(0, tt);
+      if (ext === null || tt < ext) { ext = Math.max(0, tt); extW = t.w; }
     }
-    en.ext = ext; s['end' + en.end] = en;
+    if (ext === null && col !== null) ext = col; // 만나는 다른 중심선이 없을 때만(가지가 선으로 복원되지 않은 분기점)
+    // 끝 조각 너머가 이웃 객체(패드)인 경우: 선을 조각을 지나 패드 안으로 w/2 넣는 위치도 후보로 둔다(목과 패드 사이를 영역만으로 잇지 않게)
+    en.ext2 = null;
+    if (!en.terminal && cell.ends.length === 1 && cell.pts.length > 2) {
+      let hit = Infinity; const f = cell.pts;
+      for (let i = 0; i < f.length; i++) { const p = f[i], q = f[(i + 1) % f.length], ex = q[0] - p[0], ey = q[1] - p[1], den = en.pt.ox * ey - en.pt.oy * ex; if (Math.abs(den) < 1e-12) continue; const rx = p[0] - en.pt.x, ry = p[1] - en.pt.y, tt = (rx * ey - ry * ex) / den, u = (rx * en.pt.oy - ry * en.pt.ox) / den; if (tt > 1e-6 && u >= -1e-9 && u <= 1 + 1e-9 && tt < hit) hit = tt; }
+      if (isFinite(hit) && inNeighbor(en.pt.x + en.pt.ox * (hit + 1e-4), en.pt.y + en.pt.oy * (hit + 1e-4))) en.ext2 = hit + s.w / 2;
+    }
+    en.ext = ext; en.extW = extW; s['end' + en.end] = en;
   }
   // (5) 끝 처리: 늘린 위치 → 현 위치 → w/2 줄이고 직각 채움 순으로, 둥근 끝이 밖으로 나가지 않는 첫 위치를 고른다
   const strokes = [], fills = [], warns = [];
@@ -1276,10 +1298,15 @@ function reconstructTrace(poly, inAllowed, inNeighbor) {
     const r = s.w / 2, res = {};
     for (const nm of ['A', 'B']) {
       const en = s['end' + nm], c = [];
-      if (en.ext !== null && en.ext > 1e-9) c.push(en.ext);
+      if (en.ext !== null && en.ext > 1e-9) { c.push(en.ext); const back = r - en.extW / 2; if (en.extW > 0 && back > 1e-9 && en.ext - back > 1e-9) c.push(en.ext - back); } // 만나는 선이 더 가늘면 그 선의 바깥 변에 닿는 데까지만
+      if (en.ext2 !== null) c.push(en.ext2);
       c.push(0, -r);
       let ch = null;
-      for (const t of c) if (fit(en.pt.x + en.pt.ox * t, en.pt.y + en.pt.oy * t, r)) { ch = t; break; }
+      for (const t of c) {
+        if (!fit(en.pt.x + en.pt.ox * t, en.pt.y + en.pt.oy * t, r)) continue;
+        if (t === en.ext2 && t !== en.ext) { let ok = true; for (let k = 1; k < 8 && ok; k++) ok = fit(en.pt.x + en.pt.ox * t * k / 8, en.pt.y + en.pt.oy * t * k / 8, r); if (!ok) continue; } // 조각을 지나가는 동안에도 선이 밖으로 나가지 않아야 한다
+        ch = t; break;
+      }
       res[nm] = ch;
     }
     if (res.A === null || res.B === null || s.len + res.A + res.B < 1e-4) { fills.push(s.rect); continue; }

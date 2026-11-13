@@ -230,6 +230,21 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
       const RM = await convertAll(bF, Object.assign({}, cF, { mirror: { cu1: true }, origin: 'll' })); check('좌우 반전·원점 이동에서도 기준 이내', RM.layers[0].verify.nBad === 0 && RM.layers[0].shapes.filter(s => s.glyph).length === gs.length, '최대 ' + RM.layers[0].verify.worst.toFixed(5));
     }
   }
+  { // 레일에서 LED 패드로 가는 짧은 목(R이 커서 직선 부분이 짧음): 영역이 아니라 선으로, 레일은 끊기지 않게, 목 선은 패드 안으로
+    console.log('\n== 레일–패드 사이 짧은 목');
+    const mkNeck = (R, nh, nl) => { const o = [], w = (c, v) => o.push(String(c), String(v)), B = Math.tan(Math.PI / 8), pts = [[0, 0], [0.5, 0]], N = 5, P = 4;
+      for (let i = 0; i < N; i++) { const yc = i * P + 2, y0 = yc - nh / 2, y1 = yc + nh / 2, xr = 0.5, xp = 0.5 + nl; pts.push([xr, y0 - R, B], [xr + R, y0], [xp - R, y0, B], [xp, y0 - R], [xp, yc - 0.7], [xp + 0.95, yc - 0.7], [xp + 0.95, yc + 0.7], [xp, yc + 0.7], [xp, y1 + R, B], [xp - R, y1], [xr + R, y1, B], [xr, y1 + R]); }
+      pts.push([0.5, N * P], [0, N * P]); w(0, 'SECTION'); w(2, 'ENTITIES'); w(0, 'POLYLINE'); w(8, 'CU'); w(66, 1); w(70, 1); for (const p of pts) { w(0, 'VERTEX'); w(8, 'CU'); w(10, p[0]); w(20, p[1]); if (p[2]) w(42, p[2]); } w(0, 'SEQEND'); w(0, 'ENDSEC'); w(0, 'EOF'); return o.join('\n'); };
+    for (const [R, nh, nl] of [[0.1, 0.55, 0.45], [0.2, 0.55, 0.45], [0.05, 0.3, 0.8]]) {
+      const bN = buildBase(parseDxf(mkNeck(R, nh, nl)), 'auto'), RN = await convertAll(bN, { layers: { CU: 'cu1' }, files: {}, mirror: {}, origin: 'dxf', ratio: 4, grid: 0.002, thr: 0.005, apTol: 0.0001, noMacro: false, ellN: 48, allVoid: false, padCut: true, overrides: {}, voids: {} });
+      const LN = RN.layers[0], st = LN.shapes.filter(s => s.role === 'trace').flatMap(s => s.strokes || []);
+      const rail = st.filter(k => Math.abs(k.x1 - 0.25) < 1e-6 && Math.abs(k.x2 - 0.25) < 1e-6).map(k => [Math.min(k.y1, k.y2), Math.max(k.y1, k.y2)]).sort((a, b) => a[0] - b[0]);
+      let gaps = 0; for (let i = 1; i < rail.length; i++) if (rail[i][0] > rail[i - 1][1] + 1e-6) gaps++;
+      const neck = st.filter(k => Math.abs(k.y1 - k.y2) < 1e-6), padX = 0.5 + nl;
+      const okNeck = neck.length === 5 && neck.every(k => Math.abs(k.w - nh) < 1e-6 && Math.min(k.x1, k.x2) <= 0.5 - 1e-6 && Math.abs(Math.max(k.x1, k.x2) - (padX + nh / 2)) < 1e-6);
+      check('R ' + R + ', 목 ' + nh + '×' + nl + ': 레일 이어짐·목은 선·패드 안으로 w/2', LN.stats.pads === 5 && gaps === 0 && okNeck && LN.stats.areas === 0 && LN.verify.nBad === 0, '레일 선 ' + rail.length + ' 끊긴 곳 ' + gaps + ' 목 선 ' + neck.length + (neck[0] ? ' (x ' + Math.min(neck[0].x1, neck[0].x2).toFixed(3) + '~' + Math.max(neck[0].x1, neck[0].x2).toFixed(3) + ')' : '') + ' 최대 ' + LN.verify.worst.toFixed(4));
+    }
+  }
   console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과');
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });
