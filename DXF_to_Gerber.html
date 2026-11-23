@@ -93,7 +93,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
       <label for="oEllN">타원 다각형 분할 수</label><input type="number" id="oEllN" value="48" min="12" max="360" step="4">
       <label for="oNoMacro">매크로(AM) 대신 영역으로 내기</label><input type="checkbox" id="oNoMacro">
       <label for="oFillPoly" title="꺾임 R 배선의 모서리 채움 영역은 호(G02/G03)로 적어 파일을 줄입니다. CAM이 영역 안의 호를 잘못 읽으면 켜세요.">채움 영역의 호를 꺾은선으로 내기</label><input type="checkbox" id="oFillPoly">
-      <label for="oAllVoid" title="동박 안의 폴리선은 빈 곳, 그 안은 다시 동박… 처럼 바깥 객체와 반대로 번갈아 처리합니다. 객체마다 눌러서 바꿀 수 있습니다.">안쪽 폴리선을 빈 곳·동박 번갈아</label><input type="checkbox" id="oAllVoid">
+      <label for="oAllVoid" title="동박 안의 폴리선은 빈 곳, 그 안은 다시 동박… 처럼 바깥 객체와 반대로 번갈아 처리합니다. 객체마다 눌러서 바꿀 수 있습니다.">안쪽 폴리선을 빈 곳·동박 번갈아</label><input type="checkbox" id="oAllVoid" checked>
       <label for="oPadCut" title="패드와 배선이 한 닫힌 폴리선으로 그려져 있으면, 네 모서리가 직각인 사각 패드(0/90°)를 떼어 내 플래시로 냅니다. 남은 부분은 배선으로 복원합니다.">배선과 합쳐진 사각 패드 떼어내기</label><input type="checkbox" id="oPadCut" checked>
       <label for="oOutW">외형 선폭 (mm)</label><input type="number" id="oOutW" value="0.1" min="0.001" step="0.05">
       <label for="oTextOn" title="TEXT·MTEXT·속성 글자를 출력합니다. 아래에서 트루타입 글꼴(.ttf)을 불러오면 그 글꼴의 글자 윤곽을 그대로 채워진 영역으로 냅니다(굵기·모양이 캐드와 같음). 글꼴을 불러오지 않으면 변환기 안의 단순한 획 글꼴(영문·숫자·기호)로 그려 선으로 냅니다(위치·높이는 같지만 모양이 다름).">TEXT·MTEXT 글자 내기</label><input type="checkbox" id="oTextOn" checked>
@@ -165,7 +165,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1123-1040';
+const BUILD = '1123-1130';
 
 /* ================================================================
  * 1. 기하 기본
