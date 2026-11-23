@@ -13,6 +13,7 @@ const fp = process.argv[2] || ['/usr/share/fonts/truetype/liberation/LiberationS
   const done = () => page.waitForFunction(() => { const b = document.getElementById('btnConvert'); return b && !b.disabled && !/중|…/.test(b.textContent); }, null, { timeout: 120000 }).catch(() => {});
   await page.goto(url); await page.check('#oAuto');
   check('처음에는 글꼴 없음 안내', (await page.textContent('#fontMsg')).includes('글꼴 없음'));
+  check('글꼴이 없으면 글자 선폭 칸이 보임', await page.isVisible('#oTextPct') && await page.isVisible('#lblTextPct'));
   await page.click('#btnExample'); await page.waitForTimeout(1500); await done();
   const st0 = await page.evaluate(() => { const L = window.__S ? null : null; return document.getElementById('warnBox') ? document.getElementById('warnBox').textContent : ''; });
   const zoomText = async name => { // 예제 도면의 글자 자리(TEXT "LED-01 R2")로 확대해 찍는다
@@ -22,6 +23,7 @@ const fp = process.argv[2] || ['/usr/share/fonts/truetype/liberation/LiberationS
   await zoomText('font_0_stroke.png');
   await page.setInputFiles('#fontFile', fp); await page.waitForTimeout(1500); await done(); await page.waitForTimeout(500);
   const msg = await page.textContent('#fontMsg');
+  check('글꼴을 열면 글자 선폭 칸이 숨겨짐', !(await page.isVisible('#oTextPct')) && !(await page.isVisible('#lblTextPct')));
   check('글꼴을 열면 이름 표시', /쓰는 글꼴/.test(msg) && !/읽지 못했/.test(msg), msg.slice(0, 80));
   const w = await page.textContent('#warnBox');
   check('경고 목록에 "불러온 글꼴 윤곽으로 냄"', /불러온 글꼴 윤곽으로 냄/.test(w) && !/내장 글꼴로 근사/.test(w));
@@ -30,6 +32,7 @@ const fp = process.argv[2] || ['/usr/share/fonts/truetype/liberation/LiberationS
   await page.reload(); await page.waitForTimeout(500);
   check('다시 열어도 글꼴이 기억됨', /쓰는 글꼴/.test(await page.textContent('#fontMsg')), (await page.textContent('#fontMsg')).slice(0, 60));
   await page.click('#btnFontClr'); check('글꼴 지움', (await page.textContent('#fontMsg')).includes('글꼴 없음'));
+  check('글꼴을 지우면 글자 선폭 칸이 다시 보임', await page.isVisible('#oTextPct'));
   check('콘솔 오류 없음', errors.length === 0, errors.join(' | ').slice(0, 300));
   await browser.close(); console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과'); process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });

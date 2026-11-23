@@ -97,7 +97,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
       <label for="oPadCut" title="패드와 배선이 한 닫힌 폴리선으로 그려져 있으면, 네 모서리가 직각인 사각 패드(0/90°)를 떼어 내 플래시로 냅니다. 남은 부분은 배선으로 복원합니다.">배선과 합쳐진 사각 패드 떼어내기</label><input type="checkbox" id="oPadCut" checked>
       <label for="oOutW">외형 선폭 (mm)</label><input type="number" id="oOutW" value="0.1" min="0.001" step="0.05">
       <label for="oTextOn" title="TEXT·MTEXT·속성 글자를 출력합니다. 아래에서 트루타입 글꼴(.ttf)을 불러오면 그 글꼴의 글자 윤곽을 그대로 채워진 영역으로 냅니다(굵기·모양이 캐드와 같음). 글꼴을 불러오지 않으면 변환기 안의 단순한 획 글꼴(영문·숫자·기호)로 그려 선으로 냅니다(위치·높이는 같지만 모양이 다름).">TEXT·MTEXT 글자 내기</label><input type="checkbox" id="oTextOn" checked>
-      <label for="oTextPct" title="글꼴을 불러오지 않았을 때(내장 획 글꼴)만 쓰입니다.">글자 선폭 (내장 획 글꼴, 높이의 %)</label><input type="number" id="oTextPct" value="10" min="1" max="50" step="1">
+      <label for="oTextPct" id="lblTextPct" title="글꼴을 불러오지 않았을 때 쓰는 내장 획 글꼴의 선 굵기입니다. 글꼴 파일을 불러오면 글자를 윤곽 그대로 채워 내므로 이 칸은 숨겨집니다.">글자 선폭 (내장 획 글꼴, 높이의 %)</label><input type="number" id="oTextPct" value="10" min="1" max="50" step="1">
       <div style="grid-column:1/-1;border:1px solid #d5dbe5;border-radius:4px;padding:5px 6px;background:#fafbfd">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><b title="도면의 글자와 같은 트루타입 글꼴 파일(.ttf)을 불러오면 글자 윤곽을 그대로 냅니다. 굵은 Arial이면 C:\Windows\Fonts 의 arialbd.ttf(Arial 굵게)입니다. 한 번 불러오면 이 PC의 브라우저에 기억됩니다.">글자 글꼴(트루타입)</b>
           <button id="btnFont" type="button">글꼴 파일(.ttf) 열기</button><button id="btnFontSys" type="button" style="display:none">설치된 글꼴에서 고르기</button><button id="btnFontClr" type="button" style="display:none">글꼴 지움</button>
@@ -165,7 +165,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1123-1130';
+const BUILD = '1123-1210';
 
 /* ================================================================
  * 1. 기하 기본
@@ -3150,6 +3150,7 @@ if (typeof document !== 'undefined') (function () {
     const m = $('fontMsg'), f = S.font;
     if (err) { m.innerHTML = '<span class="bad">' + esc(err) + '</span>'; return; }
     $('btnFontClr').style.display = f ? '' : 'none';
+    $('lblTextPct').style.display = $('oTextPct').style.display = f ? 'none' : ''; // 글꼴을 불러오면 획 글꼴 선폭 칸은 쓸 일이 없다
     m.innerHTML = f ? '쓰는 글꼴: <b>' + esc(f.name) + '</b> — 글자 윤곽을 그대로 채워진 영역으로 냅니다(글자 높이 = 대문자 높이).' + (S.fontSaved ? '' : ' <span class="muted">(브라우저에 기억하지 못함 — 다음에 다시 불러와야 합니다)</span>') : '글꼴 없음 — 글자는 내장 획 글꼴(선)로 냅니다. 굵은 Arial은 <b>C:\\Windows\\Fonts\\arialbd.ttf</b> 를 여세요.';
   }
   function setFont(buf, save) {
