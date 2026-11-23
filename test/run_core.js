@@ -305,6 +305,22 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
     check('켬(기본): 길쭉한 사각이 패드', on.stats.pads === 1 && on.stats.traces === 2 && on.verify.nBad === 0, '패드 ' + on.stats.pads + ' 배선 ' + on.stats.traces);
     check('끔: 비율만으로 판정 → 배선, 기준 이내', off.stats.pads === 0 && off.stats.traces === 3 && off.stats.areas === 0 && off.verify.nBad === 0, '패드 ' + off.stats.pads + ' 배선 ' + off.stats.traces + ' 영역 ' + off.stats.areas + ' 최대 ' + off.verify.worst.toFixed(4));
   }
+  {
+    console.log('\n== 가는 배선이 굵은 사선 배선과 꺾여 이어지는 곳');
+    // 폭 w 세로 배선이 폭 W 사선 배선(아래로 ang도)으로 꺾이는 한 외곽선. R > 0이면 꺾임 모서리 둘을 둥글게
+    const mk = (w, W, ang, R) => { const a = -ang * Math.PI / 180, d = [Math.cos(a), Math.sin(a)], n = [-d[1], d[0]], Ln = 1.5, yU = (W - w * n[0]) / n[1];
+      let pts = [[0, 1], [0, 0], [Ln * d[0], Ln * d[1]], [Ln * d[0] + W * n[0], Ln * d[1] + W * n[1]], [w, yU], [w, 1]];
+      if (R > 0) { const fil = (P, A, B) => { const u = [A[0] - P[0], A[1] - P[1]], v = [B[0] - P[0], B[1] - P[1]], lu = Math.hypot(...u), lv = Math.hypot(...v); u[0] /= lu; u[1] /= lu; v[0] /= lv; v[1] /= lv; const th = Math.acos(u[0] * v[0] + u[1] * v[1]), t = R / Math.tan(th / 2), cr = u[0] * v[1] - u[1] * v[0]; return [[P[0] + u[0] * t, P[1] + u[1] * t, Math.tan((Math.PI - th) / 4) * (cr > 0 ? -1 : 1)], [P[0] + v[0] * t, P[1] + v[1] * t]]; }; pts = [pts[0], ...fil(pts[1], pts[0], pts[2]), pts[2], pts[3], ...fil(pts[4], pts[3], pts[5]), pts[5]]; }
+      const o = [], q = (c, v) => o.push(String(c), String(v)); q(0, 'SECTION'); q(2, 'ENTITIES'); q(0, 'LWPOLYLINE'); q(8, 'CU'); q(90, pts.length); q(70, 1); for (const p of pts) { q(10, (100 + p[0]).toFixed(6)); q(20, (200 + p[1]).toFixed(6)); if (p[2]) q(42, p[2].toFixed(8)); } q(0, 'ENDSEC'); q(0, 'EOF'); return o.join('\n'); };
+    for (const [w, W, ang, R] of [[0.05, 0.2, 30, 0], [0.05, 0.2, 30, 0.03], [0.1, 0.3, 45, 0.05], [0.05, 0.14, 30, 0.02]]) {
+      const LD = (await convertAll(buildBase(parseDxf(mk(w, W, ang, R)), 'auto'), { layers: { CU: 'cu1' }, files: {}, mirror: {}, origin: 'dxf', ratio: 4, grid: 0.002, thr: 0.005, apTol: 0.0001, noMacro: false, ellN: 48, allVoid: true, padCut: true, overrides: {}, voids: {} })).layers[0];
+      const st = LD.shapes[0].strokes || [], g = st.map((_, i) => i), find = i => g[i] === i ? i : (g[i] = find(g[i]));
+      const dss = (A, B) => { let m = 1e9; for (let i = 0; i <= 40; i++) for (let j = 0; j <= 40; j++) m = Math.min(m, Math.hypot(A.x1 + (A.x2 - A.x1) * i / 40 - B.x1 - (B.x2 - B.x1) * j / 40, A.y1 + (A.y2 - A.y1) * i / 40 - B.y1 - (B.y2 - B.y1) * j / 40)); return m; };
+      for (let i = 0; i < st.length; i++) for (let j = i + 1; j < st.length; j++) if (dss(st[i], st[j]) <= (st[i].w + st[j].w) / 2 - 1e-6) g[find(i)] = find(j);
+      const groups = new Set(st.map((_, i) => find(i))).size;
+      check('폭 ' + w + ' → ' + W + ', ' + ang + '°, R ' + R + ': 선이 모두 한 덩어리로 겹침', LD.shapes[0].role === 'trace' && st.length >= 2 && groups === 1 && LD.verify.nBad === 0, '선 ' + st.length + ' 덩어리 ' + groups + ' 최대 ' + LD.verify.worst.toFixed(4));
+    }
+  }
   console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과');
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });

@@ -166,7 +166,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1123-2200';
+const BUILD = '1123-2330';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1317,6 +1317,8 @@ function reconstructTrace(poly, inAllowed, inNeighbor) {
         ch = t; break;
       }
       if (en.mid && ch !== null && Math.abs(ch - en.mid.tt) < 1e-9) en.midHit = true;
+      // 굵은 선이 더 가는 선과 만나는 꺾임점까지 못 갔으면(둥근 끝이 밖으로 나가서), 멈춘 곳에서 꺾임점까지를 가는 쪽 폭의 이음 선으로 잇는다(뒤에서)
+      en.link = ch !== null && en.ext !== null && !en.sweep && en.extW > 0 && en.extW < s.w - 1e-6 && en.ext - ch > r + en.extW / 2 - 1e-6 ? { from: ch, w: en.extW } : null; // 둥근 끝이 이미 그 선에 닿아 있으면 필요 없음
       res[nm] = ch;
     }
     if (res.A === null || res.B === null || s.len + res.A + res.B < 1e-4) { fills.push(s.rect); s.noStroke = true; continue; }
@@ -1326,6 +1328,15 @@ function reconstructTrace(poly, inAllowed, inNeighbor) {
       const en = s['end' + nm], c1 = nm === 'A' ? s.rect[3] : s.rect[1], c2 = nm === 'A' ? s.rect[0] : s.rect[2], bx = -en.pt.ox * r, by = -en.pt.oy * r;
       fills.push([c1, c2, [c2[0] + bx, c2[1] + by], [c1[0] + bx, c1[1] + by]]);
       if (en.terminal && inNeighbor(en.pt.x + en.pt.ox * 1e-4, en.pt.y + en.pt.oy * 1e-4)) warns.push({ x: en.pt.x, y: en.pt.y, msg: '맞닿은 패드가 좁아 둥근 끝이 들어가지 않음 → 직각 마감' });
+    }
+  }
+  for (const sec of S) {
+    if (sec.noStroke) continue;
+    for (const nm of ['A', 'B']) {
+      const en = sec['end' + nm], k = en.link; if (!k) continue;
+      const x1 = en.pt.x + en.pt.ox * k.from, y1 = en.pt.y + en.pt.oy * k.from, x2 = en.pt.x + en.pt.ox * en.ext, y2 = en.pt.y + en.pt.oy * en.ext;
+      let ok = true; for (let i = 0; i <= 8 && ok; i++) ok = fit(x1 + (x2 - x1) * i / 8, y1 + (y2 - y1) * i / 8, k.w / 2);
+      if (ok) strokes.push({ x1, y1, x2, y2, w: k.w });
     }
   }
   // 굵고 짧은 구간이 선이 되지 못했을 때(옆으로 어긋나며 이어지는 자리 등): 그 가운데까지 들어온 양쪽 가는 선의 끝점을 곧게 이어 선끼리 닿게 한다
