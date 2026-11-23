@@ -262,6 +262,15 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
     }
     check('형상 비교 기준 이내', LT.verify.nBad === 0, '최대 ' + LT.verify.worst.toFixed(4));
   }
+  {
+    console.log('\n== 동박 모서리에 걸친 글자(내장 획 글꼴)');
+    const mk = (tx, ty, h) => { const o = [], w = (c, v) => o.push(String(c), String(v)); w(0, 'SECTION'); w(2, 'ENTITIES'); w(0, 'LWPOLYLINE'); w(8, 'CU'); w(90, 4); w(70, 1); for (const p of [[0, 0], [10, 0], [10, 6], [0, 6]]) { w(10, p[0]); w(20, p[1]); } w(0, 'TEXT'); w(8, 'CU'); w(10, tx); w(20, ty); w(40, h); w(1, 'AB12'); w(0, 'ENDSEC'); w(0, 'EOF'); return o.join('\n'); };
+    for (const [tx, ty] of [[-1, -0.5], [2, 2], [9.5, 5.5]]) {
+      let L = null, err = '';
+      try { L = (await convertAll(buildBase(parseDxf(mk(tx, ty, 1)), 'auto'), { layers: { CU: 'cu1' }, files: {}, mirror: {}, origin: 'dxf', ratio: 4, grid: 0.002, thr: 0.005, apTol: 0.0001, noMacro: false, ellN: 48, allVoid: true, padCut: true, text: true, textPct: 10, overrides: {}, voids: {} })).layers[0]; } catch (e) { err = e.message; }
+      check('글자 위치 ' + tx + ',' + ty + ': 오류 없이 변환·기준 이내', !!L && L.stats.texts === 1 && L.verify.nBad === 0, err || ('최대 ' + L.verify.worst.toFixed(4)));
+    }
+  }
   console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과');
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });

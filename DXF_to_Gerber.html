@@ -165,7 +165,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1123-1500';
+const BUILD = '1123-1640';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1440,7 +1440,7 @@ function distRes(R, x, y) {
   }
   return Math.max(0, m);
 }
-function distOrig(O, x, y) { let m = Infinity; for (const a of O) { if (x < a.bb[0] - m || x > a.bb[2] + m || y < a.bb[1] - m || y > a.bb[3] + m) continue; const d = dBoundary(a.pts, x, y); if (d < m) m = d; } return m; }
+function distOrig(O, x, y) { let m = Infinity; for (const a of O) { if (x < a.bb[0] - m || x > a.bb[2] + m || y < a.bb[1] - m || y > a.bb[3] + m) continue; const d = a.t === 'd' ? Math.abs(hyp(x - a.cx, y - a.cy) - a.r) : a.t === 'c' ? Math.abs(dSeg(x, y, a.x1, a.y1, a.x2, a.y2) - a.r) : dBoundary(a.pts, x, y); if (d < m) m = d; } return m; }
 // bb 안에서 원본(orig: 다각형 atom, 깊이 순)과 결과(res: atom, 출력 순)를 비교한다
 // 둘레 상자가 큰 도형은 상자를 타일로 나눠 도형이 지나는 타일만 비교한다(가늘고 긴 배선의 빈 곳을 훑지 않도록)
 function tilesOf(s, bb, m) {
@@ -2280,9 +2280,9 @@ function buildOdb(R, base, opt) {
   if (!opt.steps || opt.mode) return buildOdb1(R, base, opt);
   let r = buildOdb1(R, base, Object.assign({}, opt, { mode: 'block' }));
   const d = r.diag; if (d.featStep * 2 >= d.featIn + d.featOut) return r;
-  const blk = { steps: r.steps.length, nInst: r.nInst, bytes: r.bytes, diag: d, why: r.noStepWhy }; r = null;
+  const blk = { steps: r.steps.length, nInst: r.nInst, bytes: r.bytes, diag: d, why: r.noStepWhy, flat: r.nFlatCell }; r = null;
   const c = buildOdb1(R, base, Object.assign({}, opt, { mode: 'cell' }));
-  if (!c.steps.length && blk.steps) return buildOdb1(R, base, Object.assign({}, opt, { mode: 'block' }));
+  if (!c.steps.length && (blk.steps || (blk.flat && !c.nFlatCell))) return buildOdb1(R, base, Object.assign({}, opt, { mode: 'block' }));
   c.blockTry = blk; return c;
 }
 // 값들(패드 중심의 x 또는 y)에서 반복 간격을 찾는다. { p: 피치, at: 기준 값 } 또는 null
