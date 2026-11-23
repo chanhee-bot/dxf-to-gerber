@@ -87,6 +87,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
       <label for="oOrigin">원점</label>
       <select id="oOrigin"><option value="dxf">DXF 좌표 그대로</option><option value="ll">전체 좌측 하단 = 0,0</option></select>
       <label for="oRatio">패드 판정 비율 (긴 변÷짧은 변 이하)</label><input type="number" id="oRatio" value="4" min="1" step="0.5">
+      <label for="oTouchPad" title="비율이 기준을 넘는 길쭉한 사각형이라도, 자기보다 좁은 객체(배선)가 변에 맞닿아 있으면 패드로 봅니다. 끄면 비율만으로 판정해 그런 사각형은 배선이 됩니다.">더 좁은 객체가 맞닿으면 패드로 보기</label><input type="checkbox" id="oTouchPad" checked>
       <label for="oGrid">형상 비교 격자 (mm)</label><input type="number" id="oGrid" value="0.002" min="0.0005" step="0.001">
       <label for="oThr">형상 차이 경고 기준 (mm)</label><input type="number" id="oThr" value="0.005" min="0.0005" step="0.001">
       <label for="oApTol">조리개 공유 허용 오차 (mm)</label><input type="number" id="oApTol" value="0.0001" min="0.000001" step="0.0001">
@@ -165,7 +166,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1123-2020';
+const BUILD = '1123-2200';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1140,7 +1141,7 @@ function shapeRelation(A, B) {
   if (c2.strict) return { t: 'overlap', x: c2.sp[0], y: c2.sp[1] };
   return null;
 }
-function autoRole(s, target, ratio) {
+function autoRole(s, target, ratio, touchPad) {
   if (isMaskT(target)) return s.pad ? { role: 'pad' } : { role: 'region', why: '솔더마스크 개구부(패드 모양 아님)', quiet: true };
   if (s.pad) {
     if (s.pad.type !== 'R') return { role: 'pad' };
@@ -1152,7 +1153,7 @@ function autoRole(s, target, ratio) {
       if (c.ov < c.e.len - 1e-4 && c.ov >= c.oe.len - 1e-4) pv = true;
     }
     if (hi / lo <= ratio + 1e-9) return (tv && !pv) ? { role: 'trace', why: '짧은 변 전체에 다른 객체가 이어짐' } : { role: 'pad' };
-    return (pv && !tv) ? { role: 'pad', why: '더 좁은 객체가 변에 맞닿음' } : { role: 'trace' };
+    return (touchPad !== false && pv && !tv) ? { role: 'pad', why: '더 좁은 객체가 변에 맞닿음' } : { role: 'trace' }; // touchPad를 끄면 비율만으로 판정
   }
   return { role: 'trace' };
 }
@@ -1888,7 +1889,7 @@ function makePool(src, n) {
 }
 // 객체 하나의 판정(자동 판정 + 눌러서 바꾼 것)
 function decideRole(s, target, cfg, warn) {
-  const au = autoRole(s, target, cfg.ratio); s.auto = au.role; s.autoWhy = au.why || '';
+  const au = autoRole(s, target, cfg.ratio, cfg.touchPad); s.auto = au.role; s.autoWhy = au.why || '';
   let role = au.role, why = au.why || '', quiet = !!au.quiet; const ov = cfg.overrides[s.id];
   const canTrace = !s.ell;
   if (ov === 'pad' && s.pad) role = 'pad'; else if (ov === 'trace' && canTrace) role = 'trace'; else if (ov === 'region') { role = 'region'; why = '사용자 지정'; quiet = true; }
@@ -2150,7 +2151,7 @@ async function convertAll(base, cfg, prog, prev, pool) {
   const ox = cfg.origin === 'll' && isFinite(gb[0]) ? gb[0] : 0, oy = cfg.origin === 'll' && isFinite(gb[1]) ? gb[1] : 0, out = [];
   const nBase = base.shapes.length, tgs = Object.keys(TARGETS);
   // 층 종류마다 결과에 영향을 주는 옵션만 본다(외형 선폭을 바꿔도 동박은 다시 변환하지 않도록)
-  const optKeyOf = tg => tg === 'outline' ? JSON.stringify([cfg.thr, cfg.apTol, cfg.ellN, cfg.outW, cfg.textOn !== false]) : JSON.stringify([cfg.ratio, cfg.grid, cfg.thr, cfg.apTol, !!cfg.noMacro, cfg.ellN, !!cfg.allVoid, cfg.padCut !== false, cfg.textOn !== false, cfg.textPct, cfg.openOn !== false, cfg.openW, !!cfg.fillPoly]);
+  const optKeyOf = tg => tg === 'outline' ? JSON.stringify([cfg.thr, cfg.apTol, cfg.ellN, cfg.outW, cfg.textOn !== false]) : JSON.stringify([cfg.ratio, cfg.touchPad !== false, cfg.grid, cfg.thr, cfg.apTol, !!cfg.noMacro, cfg.ellN, !!cfg.allVoid, cfg.padCut !== false, cfg.textOn !== false, cfg.textPct, cfg.openOn !== false, cfg.openW, !!cfg.fillPoly]);
   for (const tg of tgs) {
     const idx = tgs.indexOf(tg); let nid = nBase + idx * ID_SPAN;
     const mine = id => id < nBase ? !!base.shapes[id] && cfg.layers[base.shapes[id].layer] === tg : Math.floor((id - nBase) / ID_SPAN) === idx;
@@ -2837,7 +2838,7 @@ if (typeof document !== 'undefined') (function () {
   /* ---------- 변환 ---------- */
   function cfgNow() {
     const num = (id, d) => { const v = parseFloat($(id).value); return isFinite(v) && v > 0 ? v : d; };
-    return { layers: Object.assign({}, S.layerTarget), files: Object.assign({}, S.files), mirror: Object.assign({}, S.mirror), origin: $('oOrigin').value, ratio: num('oRatio', 4), grid: num('oGrid', 0.002), thr: num('oThr', 0.005), apTol: num('oApTol', 0.0001), noMacro: $('oNoMacro').checked, ellN: Math.max(12, Math.round(num('oEllN', 48))), allVoid: $('oAllVoid').checked, padCut: $('oPadCut').checked, outW: num('oOutW', 0.1), textOn: $('oTextOn').checked, textPct: num('oTextPct', 10), openOn: $('oOpenOn').checked, openW: num('oOpenW', 0.1), fillPoly: $('oFillPoly').checked, overrides: S.overrides, voids: S.voids };
+    return { layers: Object.assign({}, S.layerTarget), files: Object.assign({}, S.files), mirror: Object.assign({}, S.mirror), origin: $('oOrigin').value, ratio: num('oRatio', 4), touchPad: $('oTouchPad').checked, grid: num('oGrid', 0.002), thr: num('oThr', 0.005), apTol: num('oApTol', 0.0001), noMacro: $('oNoMacro').checked, ellN: Math.max(12, Math.round(num('oEllN', 48))), allVoid: $('oAllVoid').checked, padCut: $('oPadCut').checked, outW: num('oOutW', 0.1), textOn: $('oTextOn').checked, textPct: num('oTextPct', 10), openOn: $('oOpenOn').checked, openW: num('oOpenW', 0.1), fillPoly: $('oFillPoly').checked, overrides: S.overrides, voids: S.voids };
   }
   // 설정(레이어 지정·옵션·반전)은 바꿔도 바로 변환하지 않고 '변환'을 눌렀을 때 한 번에 반영한다.
   function updateApply(info) {
@@ -3209,7 +3210,7 @@ if (typeof document !== 'undefined') (function () {
   const reformat = () => { applyFormat(); if (S.dxf) { S.overrides = {}; S.voids = {}; rebuildBase(false); } };
   $('oFormat').onchange = reformat; $('oOdbStep').onchange = () => { if ($('oFormat').value === 'odb') reformat(); };
   applyFormat();
-  for (const id of ['oOrigin', 'oRatio', 'oGrid', 'oThr', 'oApTol', 'oEllN', 'oNoMacro', 'oFillPoly', 'oAllVoid', 'oPadCut', 'oOutW', 'oTextOn', 'oTextPct', 'oOpenOn', 'oOpenW']) $(id).addEventListener('change', () => { if (id === 'oTextOn' || id === 'oOpenOn') renderIgnored(); markDirty(id === 'oOrigin'); });
+  for (const id of ['oOrigin', 'oRatio', 'oTouchPad', 'oGrid', 'oThr', 'oApTol', 'oEllN', 'oNoMacro', 'oFillPoly', 'oAllVoid', 'oPadCut', 'oOutW', 'oTextOn', 'oTextPct', 'oOpenOn', 'oOpenW']) $(id).addEventListener('change', () => { if (id === 'oTextOn' || id === 'oOpenOn') renderIgnored(); markDirty(id === 'oOrigin'); });
   $('btnConvert').onclick = () => convert(); $('dirtyBar').onclick = () => convert();
   $('oAuto').onchange = () => { if ($('oAuto').checked && S.dirty) convert(); };
   $('coreN').textContent = CORES > 1 ? ' (' + CORES + '개)' : ' (코어 1개라 쓰지 않음)';

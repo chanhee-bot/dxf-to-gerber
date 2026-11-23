@@ -295,6 +295,16 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
     const LB = (await convertAll(buildBase(parseDxf(o.join('\n')), 'auto'), { layers: { CU: 'cu1' }, files: {}, mirror: {}, origin: 'll', ratio: 4, grid: 0.002, thr: 0.005, apTol: 0.0001, noMacro: false, ellN: 48, allVoid: true, padCut: true, overrides: {}, voids: {} })).layers[0];
     check('막대 9개 모두 선, 기준 초과 없음', LB.stats.traces === 9 && LB.stats.areas === 0 && LB.verify.nBad === 0, '선 ' + LB.stats.traces + ' 영역 ' + LB.stats.areas + ' 초과 ' + LB.verify.nBad + ' 최대 ' + LB.verify.worst.toFixed(4));
   }
+  {
+    console.log('\n== 옵션 "더 좁은 객체가 맞닿으면 패드로 보기"');
+    // 0.08×0.31 사각(비율 3.875)의 위아래 짧은 변에 0.05 배선이 닿음. 패드 판정 비율 2
+    const o = [], W = (c, v) => o.push(String(c), String(v)), rc = (x0, y0, x1, y1) => { W(0, 'LWPOLYLINE'); W(8, 'CU'); W(90, 4); W(70, 1); for (const q of [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) { W(10, q[0]); W(20, q[1]); } };
+    W(0, 'SECTION'); W(2, 'ENTITIES'); rc(0, 0, 0.08, 0.31); rc(0.015, 0.31, 0.065, 1.2); rc(0.015, -0.9, 0.065, 0); W(0, 'ENDSEC'); W(0, 'EOF');
+    const bT = buildBase(parseDxf(o.join('\n')), 'auto'), cT = e => Object.assign({ layers: { CU: 'cu1' }, files: {}, mirror: {}, origin: 'dxf', ratio: 2, grid: 0.002, thr: 0.005, apTol: 0.0001, noMacro: false, ellN: 48, allVoid: true, padCut: true, overrides: {}, voids: {} }, e);
+    const on = (await convertAll(bT, cT({}))).layers[0], off = (await convertAll(bT, cT({ touchPad: false }))).layers[0];
+    check('켬(기본): 길쭉한 사각이 패드', on.stats.pads === 1 && on.stats.traces === 2 && on.verify.nBad === 0, '패드 ' + on.stats.pads + ' 배선 ' + on.stats.traces);
+    check('끔: 비율만으로 판정 → 배선, 기준 이내', off.stats.pads === 0 && off.stats.traces === 3 && off.stats.areas === 0 && off.verify.nBad === 0, '패드 ' + off.stats.pads + ' 배선 ' + off.stats.traces + ' 영역 ' + off.stats.areas + ' 최대 ' + off.verify.worst.toFixed(4));
+  }
   console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과');
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });
