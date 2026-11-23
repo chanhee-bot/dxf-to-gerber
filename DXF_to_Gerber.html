@@ -165,7 +165,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1123-1810';
+const BUILD = '1123-2020';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1840,10 +1840,13 @@ function traceCore(s, nb, fillPoly) {
   return { ok: true, strokes: r.strokes, fills: r.fills.map(f => packFill(f, fillPoly ? null : T, idx)), warns: r.warns };
 }
 // 객체 하나의 형상 비교(원본 = 주변 도형 + 글자 획, 결과 = 다시 읽은 Gerber 요소)
+// 비교 상자의 변에 딱 걸친 이웃(예: 간격이 여유 폭과 같은 이웃 객체)은 원본 쪽 상자와 Gerber를 다시 읽은 쪽 상자가 1e-6쯤 달라
+// 한쪽 목록에만 들어갈 수 있다. 그러면 높이 0인 띠가 '차이'로 잡히므로, 목록은 상자를 조금 넓혀서 뽑는다(비교 범위는 그대로)
+const QPAD = 1e-5, qbox = tb => [tb[0] - QPAD, tb[1] - QPAD, tb[2] + QPAD, tb[3] + QPAD];
 function compareOne(s, grid, pg, tcap, margin, g, atomL) {
   const b = s.bbox;
-  return compareTiled(s, [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin], margin, tb => grid.query(tb).sort((a, c) => a.level - c.level || a.id - c.id).map(atomL).concat(tcap.query(tb)),
-    tb => { const res = []; for (const p of pg.query(tb).sort((a, c) => a.seq - c.seq)) for (const a of p.atoms) res.push(a); return res; }, g);
+  return compareTiled(s, [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin], margin, tb => grid.query(qbox(tb)).sort((a, c) => a.level - c.level || a.id - c.id).map(atomL).concat(tcap.query(qbox(tb))),
+    tb => { const res = []; for (const p of pg.query(qbox(tb)).sort((a, c) => a.seq - c.seq)) for (const a of p.atoms) res.push(a); return res; }, g);
 }
 function mkAtomL() { const C = new Map(); return o => { let a = C.get(o); if (!a) { if (C.size > 40000) C.clear(); a = mkPoly(o.flat, o.level % 2); C.set(o, a); } return a; }; }
 const cleanAtom = a => a.t === 'd' ? { t: 'd', cx: a.cx, cy: a.cy, r: a.r, pol: a.pol, bb: a.bb } : a.t === 'c' ? { t: 'c', x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2, r: a.r, pol: a.pol, q: a.q, bb: a.bb } : { t: 'p', pts: a.pts, pol: a.pol, bb: a.bb };
@@ -2047,7 +2050,7 @@ async function convertLayer(L, cfg, tick, pool) {
         const res = await pool.run(nCh, k => {
           // 이 묶음의 객체가 실제로 지나는 타일에 걸친 도형·요소·글자 획만 추려 보낸다(긴 배선이 있어도 도면 전체를 보내지 않게)
           const part = ord.slice(k * CH, (k + 1) * CH), sh = new Set(), pr = new Set(), tc = new Set();
-          for (const s of part) { const b = s.bbox; for (const tb of tilesOf(s, [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin], margin)) { for (const o of grid.query(tb)) sh.add(o); for (const o of pg.query(tb)) pr.add(o); for (const o of tcap.query(tb)) tc.add(o); } sh.add(s); }
+          for (const s of part) { const b = s.bbox; for (const tb of tilesOf(s, [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin], margin)) { const qb = qbox(tb); for (const o of grid.query(qb)) sh.add(o); for (const o of pg.query(qb)) pr.add(o); for (const o of tcap.query(qb)) tc.add(o); } sh.add(s); }
           const td = new Float64Array(tc.size * 5); let i = 0; for (const c of tc) { const o = 5 * i++; if (c.t === 'd') { td[o] = td[o + 2] = c.cx; td[o + 1] = td[o + 3] = c.cy; } else { td[o] = c.x1; td[o + 1] = c.y1; td[o + 2] = c.x2; td[o + 3] = c.y2; } td[o + 4] = c.r; }
           return { cmd: 'cmp', cs, margin, grid: cfg.grid, targets: part.map(s => s.id), tcaps: td, aps,
             shapes: [...sh].map(s => ({ id: s.id, level: s.level, P: packPts(s.pts) })),

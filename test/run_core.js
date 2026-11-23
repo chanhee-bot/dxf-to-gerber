@@ -285,6 +285,16 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
       check('폭 ' + w + ', 어긋남 ' + d + ', 토막 높이 ' + h + (link ? ': 세 선이 끝점에서 이어짐' : ': 토막이 폭보다 낮으면 영역으로만(그대로)'), joined === link && LJ.verify.nBad === 0, '선 ' + st.length + ' (세로 ' + ver.length + ', 가로 ' + hor.length + ') 최대 ' + LJ.verify.worst.toFixed(4));
     }
   }
+  {
+    console.log('\n== 간격이 비교 여유 폭(0.01)과 같은 가는 막대');
+    // 0.3×0.01 막대를 0.01 간격으로 놓고, 옆에 원(둘레 상자가 딱 떨어지지 않아 원점 이동 값이 어중간해짐)을 둔다. 원점 = 좌측 하단
+    const OX = 83.441, OY = 30.9, o = [], W = (c, v) => o.push(String(c), String(v));
+    W(0, 'SECTION'); W(2, 'ENTITIES');
+    for (const [x, y] of [[0, -0.01], [0, 0.01], [0, 0.03], [0, 0.05], [0, 0.07], [0.3, 0], [0.3, 0.02], [0.3, 0.04], [0.3, 0.06]]) { W(0, 'LWPOLYLINE'); W(8, 'CU'); W(90, 4); W(70, 1); for (const q of [[x, y], [x + 0.3, y], [x + 0.3, y + 0.01], [x, y + 0.01]]) { W(10, (OX + q[0]).toFixed(6)); W(20, (OY + q[1]).toFixed(6)); } }
+    W(0, 'CIRCLE'); W(8, 'CU'); W(10, (OX + 0.635).toFixed(6)); W(20, (OY + 0.035).toFixed(6)); W(40, 0.05); W(0, 'ENDSEC'); W(0, 'EOF');
+    const LB = (await convertAll(buildBase(parseDxf(o.join('\n')), 'auto'), { layers: { CU: 'cu1' }, files: {}, mirror: {}, origin: 'll', ratio: 4, grid: 0.002, thr: 0.005, apTol: 0.0001, noMacro: false, ellN: 48, allVoid: true, padCut: true, overrides: {}, voids: {} })).layers[0];
+    check('막대 9개 모두 선, 기준 초과 없음', LB.stats.traces === 9 && LB.stats.areas === 0 && LB.verify.nBad === 0, '선 ' + LB.stats.traces + ' 영역 ' + LB.stats.areas + ' 초과 ' + LB.verify.nBad + ' 최대 ' + LB.verify.worst.toFixed(4));
+  }
   console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과');
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });
