@@ -165,7 +165,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1123-1640';
+const BUILD = '1123-1810';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1261,7 +1261,7 @@ function reconstructTrace(poly, inAllowed, inNeighbor) {
     const s = S[en.sec];
     en.pt = en.end === 'A' ? { x: s.a[0], y: s.a[1], ox: -s.ux, oy: -s.uy } : { x: s.b[0], y: s.b[1], ox: s.ux, oy: s.uy };
     en.terminal = cell.ends.length === 1 && cell.deg;
-    let ext = null, col = null, extW = 0, colSweep = false;
+    let ext = null, col = null, extW = 0, colSweep = false, mid = null;
     if (en.terminal) ext = s.w / 2;
     else if (cell.pts.length > 2 || cell.ends.length === 2) for (const o of cell.ends) { // 조각 넓이가 0인 계단(폭이 바로 바뀜)도 평행 처리는 한다
       if (o === en) continue;
@@ -1275,7 +1275,7 @@ function reconstructTrace(poly, inAllowed, inNeighbor) {
         } else if (along > -1e-7 && en.pt.ox * op.ox + en.pt.oy * op.oy < 0 && s.w < t.w - 1e-6 && off <= (t.w - s.w) / 2 + 1e-6) {
           // 폭이 바뀌는 곳(테이퍼·계단): 가는 선을 조각을 지나 굵은 선의 끝까지 늘려 선끼리 이어지게 한다(조각은 영역으로 그대로 채움)
           const into = t.len >= t.w / 2 ? t.w / 2 : 0, tt = along + into; // 굵은 선은 끝을 w/2 줄여 직각 마감하므로, 그 줄어든 끝점까지 들어가 중심선끼리 만나게 한다
-          if (col === null || tt < col) { col = tt; colSweep = true; }
+          if (col === null || tt < col) { col = tt; colSweep = true; mid = { tt: along + t.len / 2, sec: o.sec }; } // 굵은 구간이 짧아 거기까지 못 들어가면 그 구간의 가운데까지
         }
         continue;
       }
@@ -1288,6 +1288,7 @@ function reconstructTrace(poly, inAllowed, inNeighbor) {
     }
     en.sweep = false;
     if (ext === null && col !== null) { ext = col; en.sweep = colSweep; } // 만나는 다른 중심선이 없을 때만(가지가 선으로 복원되지 않은 분기점)
+    en.mid = ext !== null && ext === col && colSweep ? mid : null; en.midHit = false;
     // 끝 조각 너머가 이웃 객체(패드)인 경우: 선을 조각을 지나 패드 안으로 w/2 넣는 위치도 후보로 둔다(목과 패드 사이를 영역만으로 잇지 않게)
     en.ext2 = null;
     if (!en.terminal && cell.ends.length === 1 && cell.pts.length > 2) {
@@ -1305,23 +1306,36 @@ function reconstructTrace(poly, inAllowed, inNeighbor) {
     for (const nm of ['A', 'B']) {
       const en = s['end' + nm], c = [];
       if (en.ext !== null && en.ext > 1e-9) { c.push(en.ext); const back = r - en.extW / 2; if (en.extW > 0 && back > 1e-9 && en.ext - back > 1e-9) c.push(en.ext - back); } // 만나는 선이 더 가늘면 그 선의 바깥 변에 닿는 데까지만
+      if (en.mid && en.mid.tt > 1e-9 && en.mid.tt < en.ext - 1e-9) c.push(en.mid.tt);
       if (en.ext2 !== null) c.push(en.ext2);
       c.push(0, -r);
       let ch = null;
       for (const t of c) {
         if (!fit(en.pt.x + en.pt.ox * t, en.pt.y + en.pt.oy * t, r)) continue;
-        if ((t === en.ext2 && t !== en.ext) || (t === en.ext && en.sweep)) { let ok = true; for (let k = 1; k < 8 && ok; k++) ok = fit(en.pt.x + en.pt.ox * t * k / 8, en.pt.y + en.pt.oy * t * k / 8, r); if (!ok) continue; } // 조각을 지나가는 동안에도 선이 밖으로 나가지 않아야 한다
+        if ((t === en.ext2 && t !== en.ext) || (t === en.ext && en.sweep) || (en.mid && t === en.mid.tt)) { let ok = true; for (let k = 1; k < 8 && ok; k++) ok = fit(en.pt.x + en.pt.ox * t * k / 8, en.pt.y + en.pt.oy * t * k / 8, r); if (!ok) continue; } // 조각을 지나가는 동안에도 선이 밖으로 나가지 않아야 한다
         ch = t; break;
       }
+      if (en.mid && ch !== null && Math.abs(ch - en.mid.tt) < 1e-9) en.midHit = true;
       res[nm] = ch;
     }
-    if (res.A === null || res.B === null || s.len + res.A + res.B < 1e-4) { fills.push(s.rect); continue; }
+    if (res.A === null || res.B === null || s.len + res.A + res.B < 1e-4) { fills.push(s.rect); s.noStroke = true; continue; }
     strokes.push({ x1: s.a[0] - s.ux * res.A, y1: s.a[1] - s.uy * res.A, x2: s.b[0] + s.ux * res.B, y2: s.b[1] + s.uy * res.B, w: s.w });
     for (const nm of ['A', 'B']) {
       if (res[nm] !== -r) continue;
       const en = s['end' + nm], c1 = nm === 'A' ? s.rect[3] : s.rect[1], c2 = nm === 'A' ? s.rect[0] : s.rect[2], bx = -en.pt.ox * r, by = -en.pt.oy * r;
       fills.push([c1, c2, [c2[0] + bx, c2[1] + by], [c1[0] + bx, c1[1] + by]]);
       if (en.terminal && inNeighbor(en.pt.x + en.pt.ox * 1e-4, en.pt.y + en.pt.oy * 1e-4)) warns.push({ x: en.pt.x, y: en.pt.y, msg: '맞닿은 패드가 좁아 둥근 끝이 들어가지 않음 → 직각 마감' });
+    }
+  }
+  // 굵고 짧은 구간이 선이 되지 못했을 때(옆으로 어긋나며 이어지는 자리 등): 그 가운데까지 들어온 양쪽 가는 선의 끝점을 곧게 이어 선끼리 닿게 한다
+  for (let ti = 0; ti < S.length; ti++) {
+    if (!S[ti].noStroke) continue;
+    const E = []; for (const cell of cells) for (const en of cell.ends) if (en.midHit && en.mid.sec === ti && !S[en.sec].noStroke) E.push(en);
+    for (let i = 0; i < E.length; i++) for (let j = i + 1; j < E.length; j++) {
+      const a = E[i], b = E[j], x1 = a.pt.x + a.pt.ox * a.mid.tt, y1 = a.pt.y + a.pt.oy * a.mid.tt, x2 = b.pt.x + b.pt.ox * b.mid.tt, y2 = b.pt.y + b.pt.oy * b.mid.tt, w = Math.min(S[a.sec].w, S[b.sec].w);
+      if (hyp(x2 - x1, y2 - y1) < 1e-6) continue;
+      let ok = true; for (let k = 0; k <= 8 && ok; k++) ok = fit(x1 + (x2 - x1) * k / 8, y1 + (y2 - y1) * k / 8, w / 2);
+      if (ok) strokes.push({ x1, y1, x2, y2, w });
     }
   }
   if (!strokes.length) return { ok: false, why: '선으로 바꿀 수 있는 구간이 없음' };
@@ -2976,14 +2990,16 @@ if (typeof document !== 'undefined') (function () {
     if (!whole) { V.flash = { bb, t: Date.now() }; setTimeout(draw, 1600); }
     draw();
   }
-  function world(o) { o.setTransform(V.scale, 0, 0, -V.scale, cv.width / 2 - V.cx * V.scale, cv.height / 2 + V.cy * V.scale); }
+  // 화면 가운데를 원점으로 그린다: 캔버스는 좌표를 32비트 실수로 다뤄, 원점에서 먼 도면(수만 mm)을 크게 확대하면 선폭·위치가 수 µm씩 어긋나 보인다
+  let VX = 0, VY = 0;
+  function world(o) { VX = V.cx; VY = V.cy; o.setTransform(V.scale, 0, 0, -V.scale, cv.width / 2, cv.height / 2); }
   function viewBox() { const w = cv.width / V.scale / 2, h = cv.height / V.scale / 2; return [V.cx - w, V.cy - h, V.cx + w, V.cy + h]; }
   function drawAtom(o, a) {
-    if (a.t === 'd') { o.beginPath(); o.arc(a.cx, a.cy, a.r, 0, 2 * Math.PI); o.fill(); }
-    else if (a.t === 'c') { o.beginPath(); o.moveTo(a.x1, a.y1); o.lineTo(a.x2, a.y2); o.lineWidth = 2 * a.r; o.lineCap = 'round'; o.stroke(); }
-    else { o.beginPath(); const f = a.pts; o.moveTo(f[0][0], f[0][1]); for (let i = 1; i < f.length; i++) o.lineTo(f[i][0], f[i][1]); o.closePath(); o.fill(); }
+    if (a.t === 'd') { o.beginPath(); o.arc(a.cx - VX, a.cy - VY, a.r, 0, 2 * Math.PI); o.fill(); }
+    else if (a.t === 'c') { o.beginPath(); o.moveTo(a.x1 - VX, a.y1 - VY); o.lineTo(a.x2 - VX, a.y2 - VY); o.lineWidth = 2 * a.r; o.lineCap = 'round'; o.stroke(); }
+    else { o.beginPath(); const f = a.pts; o.moveTo(f[0][0] - VX, f[0][1] - VY); for (let i = 1; i < f.length; i++) o.lineTo(f[i][0] - VX, f[i][1] - VY); o.closePath(); o.fill(); }
   }
-  function pathOf(o, f) { o.beginPath(); o.moveTo(f[0][0], f[0][1]); for (let i = 1; i < f.length; i++) o.lineTo(f[i][0], f[i][1]); o.closePath(); }
+  function pathOf(o, f) { o.beginPath(); o.moveTo(f[0][0] - VX, f[0][1] - VY); for (let i = 1; i < f.length; i++) o.lineTo(f[i][0] - VX, f[i][1] - VY); o.closePath(); }
   function render() {
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.fillStyle = '#10151b'; ctx.fillRect(0, 0, cv.width, cv.height);
     const R = S.result; if (!R) return;
@@ -2998,7 +3014,7 @@ if (typeof document !== 'undefined') (function () {
         const col = byLayer ? LAYER_COL[tg] : kindCol(tg, p.sub === 'text' ? 'text' : p.kind === 'region' ? p.sub : p.kind);
         if (col !== lastCol) { o.fillStyle = o.strokeStyle = col; lastCol = col; }
         const w = b[2] - b[0], h = b[3] - b[1];
-        if (w < tiny && h < tiny) { o.fillRect(b[0], b[1], Math.max(w, px0), Math.max(h, px0)); continue; } // 화면에서 점만 한 것은 점으로
+        if (w < tiny && h < tiny) { o.fillRect(b[0] - VX, b[1] - VY, Math.max(w, px0), Math.max(h, px0)); continue; } // 화면에서 점만 한 것은 점으로
         for (const a of p.atoms) drawAtom(o, a);
       }
       if (isMaskT(tg) && $('vMaskLine').checked) { // 테두리만 남긴다: 면에서 '안쪽으로 줄인 면'을 뺀다
@@ -3022,21 +3038,21 @@ if (typeof document !== 'undefined') (function () {
         if (p.kind !== 'stroke' || p.sub === 'text' || !bbHit(p.bbox, vb)) continue;
         if (p.d[4] * V.scale < 2.5 * V.dpr) continue;
         const a = p.atoms[0]; if (a.t !== 'c') continue;
-        ctx.beginPath(); ctx.moveTo(a.x1, a.y1); ctx.lineTo(a.x2, a.y2); ctx.stroke();
-        for (const q of [[a.x1, a.y1], [a.x2, a.y2]]) { ctx.beginPath(); ctx.arc(q[0], q[1], 2.2 * px, 0, 2 * Math.PI); ctx.fill(); }
+        ctx.beginPath(); ctx.moveTo(a.x1 - VX, a.y1 - VY); ctx.lineTo(a.x2 - VX, a.y2 - VY); ctx.stroke();
+        for (const q of [[a.x1, a.y1], [a.x2, a.y2]]) { ctx.beginPath(); ctx.arc(q[0] - VX, q[1] - VY, 2.2 * px, 0, 2 * Math.PI); ctx.fill(); }
       }
     }
     if ($('vOrig').checked) for (const tg of order) {
       const L = layerOf(tg); if (!L || !V.show[tg]) continue;
       ctx.lineWidth = 1.1 * px; ctx.strokeStyle = byLayer ? '#ffffff' : (isMaskT(tg) ? '#b9f5c8' : tg === 'cu2' ? '#b8ccff' : '#ffffff');
-      for (const q of (L.tpaths || [])) for (const P of q.strokes) { ctx.beginPath(); ctx.moveTo(P[0].x, P[0].y); for (let i = 1; i < P.length; i++) ctx.lineTo(P[i].x, P[i].y); ctx.stroke(); }
-      if (L.paths) for (const q of L.paths) { const f = q.flat; ctx.beginPath(); ctx.moveTo(f[0][0], f[0][1]); for (let i = 1; i < f.length; i++) ctx.lineTo(f[i][0], f[i][1]); ctx.stroke(); }
+      for (const q of (L.tpaths || [])) for (const P of q.strokes) { ctx.beginPath(); ctx.moveTo(P[0].x - VX, P[0].y - VY); for (let i = 1; i < P.length; i++) ctx.lineTo(P[i].x - VX, P[i].y - VY); ctx.stroke(); }
+      if (L.paths) for (const q of L.paths) { const f = q.flat; ctx.beginPath(); ctx.moveTo(f[0][0] - VX, f[0][1] - VY); for (let i = 1; i < f.length; i++) ctx.lineTo(f[i][0] - VX, f[i][1] - VY); ctx.stroke(); }
       for (const s of L.shapes) { if (!bbHit(s.bbox, vb) || (s.bbox[2] - s.bbox[0] < 3 * px && s.bbox[3] - s.bbox[1] < 3 * px)) continue; ctx.setLineDash(s.isVoid || s.dup ? [4 * px, 3 * px] : []); pathOf(ctx, V.scale < 300 ? s.coarse : s.flat); ctx.stroke(); }
       ctx.setLineDash([]);
     }
     if (V.sels.length) { ctx.lineWidth = 2.5 * px; ctx.strokeStyle = '#ffe600'; for (const q of V.sels) { const s = findShape(q.target, q.id); if (s && bbHit(s.bbox, vb)) { pathOf(ctx, s.flat); ctx.stroke(); } } }
-    if (V.box) { const b = V.box, cross = b.x1 < b.x0; ctx.lineWidth = 1.2 * px; ctx.setLineDash(cross ? [5 * px, 4 * px] : []); ctx.strokeStyle = cross ? '#6dff9a' : '#6db3ff'; ctx.fillStyle = cross ? 'rgba(109,255,154,.12)' : 'rgba(109,179,255,.12)'; const x = Math.min(b.x0, b.x1), y = Math.min(b.y0, b.y1), w = Math.abs(b.x1 - b.x0), h = Math.abs(b.y1 - b.y0); ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h); ctx.setLineDash([]); }
-    if (V.flash && Date.now() - V.flash.t < 1500) { const b = V.flash.bb, m = 10 * px; ctx.lineWidth = 2 * px; ctx.strokeStyle = '#ff3b3b'; ctx.strokeRect(b[0] - m, b[1] - m, b[2] - b[0] + 2 * m, b[3] - b[1] + 2 * m); }
+    if (V.box) { const b = V.box, cross = b.x1 < b.x0; ctx.lineWidth = 1.2 * px; ctx.setLineDash(cross ? [5 * px, 4 * px] : []); ctx.strokeStyle = cross ? '#6dff9a' : '#6db3ff'; ctx.fillStyle = cross ? 'rgba(109,255,154,.12)' : 'rgba(109,179,255,.12)'; const x = Math.min(b.x0, b.x1), y = Math.min(b.y0, b.y1), w = Math.abs(b.x1 - b.x0), h = Math.abs(b.y1 - b.y0); ctx.fillRect(x - VX, y - VY, w, h); ctx.strokeRect(x - VX, y - VY, w, h); ctx.setLineDash([]); }
+    if (V.flash && Date.now() - V.flash.t < 1500) { const b = V.flash.bb, m = 10 * px; ctx.lineWidth = 2 * px; ctx.strokeStyle = '#ff3b3b'; ctx.strokeRect(b[0] - m - VX, b[1] - m - VY, b[2] - b[0] + 2 * m, b[3] - b[1] + 2 * m); }
   }
   function renderToolbarLayers() {
     const box = $('tbLayers'); box.innerHTML = '';

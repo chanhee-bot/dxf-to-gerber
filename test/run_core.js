@@ -271,6 +271,20 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
       check('글자 위치 ' + tx + ',' + ty + ': 오류 없이 변환·기준 이내', !!L && L.stats.texts === 1 && L.verify.nBad === 0, err || ('최대 ' + L.verify.worst.toFixed(4)));
     }
   }
+  {
+    console.log('\n== 옆으로 어긋나며 이어지는 배선(짧은 가로 토막)');
+    // 폭 w 세로 배선 둘이 d만큼 어긋나 높이 h인 토막으로 이어진 한 외곽선. 원점에서 먼 좌표(52000, 31000)에 둔다
+    const mk = (w, d, h) => { const o = [], W = (c, v) => o.push(String(c), String(v)), OX = 52000, OY = 31000; const poly = pts => { W(0, 'LWPOLYLINE'); W(8, 'CU'); W(90, pts.length); W(70, 1); for (const q of pts) { W(10, (OX + q[0]).toFixed(6)); W(20, (OY + q[1]).toFixed(6)); } };
+      W(0, 'SECTION'); W(2, 'ENTITIES'); poly([[d - 0.1, -0.2], [d + w + 0.1, -0.2], [d + w + 0.1, 0], [d - 0.1, 0]]); poly([[-0.1, 1.5], [w + 0.1, 1.5], [w + 0.1, 1.7], [-0.1, 1.7]]);
+      poly([[d, 0], [d + w, 0], [d + w, 0.55 + h], [w, 0.55 + h], [w, 1.5], [0, 1.5], [0, 0.55], [d, 0.55]]); W(0, 'ENDSEC'); W(0, 'EOF'); return o.join('\n'); };
+    for (const [w, d, h, link] of [[0.05, 0.045, 0.05, true], [0.05, 0.03, 0.08, true], [0.1, 0.06, 0.1, true], [0.05, 0.045, 0.03, false]]) {
+      const LJ = (await convertAll(buildBase(parseDxf(mk(w, d, h)), 'auto'), { layers: { CU: 'cu1' }, files: {}, mirror: {}, origin: 'dxf', ratio: 4, grid: 0.002, thr: 0.005, apTol: 0.0001, noMacro: false, ellN: 48, allVoid: true, padCut: true, overrides: {}, voids: {} })).layers[0];
+      const st = LJ.shapes.filter(q => q.role === 'trace').flatMap(q => q.strokes || []), ver = st.filter(k => Math.abs(k.x1 - k.x2) < 1e-6), hor = st.filter(k => Math.abs(k.y1 - k.y2) < 1e-6);
+      // 선끼리 닿음 = 세로 선 둘 사이를 가로 선이 끝점에서 끝점으로 잇는다
+      const joined = ver.length === 2 && hor.length === 1 && ver.every(v => [[v.x1, v.y1], [v.x2, v.y2]].some(e => [[hor[0].x1, hor[0].y1], [hor[0].x2, hor[0].y2]].some(g => Math.hypot(e[0] - g[0], e[1] - g[1]) < 1e-6)));
+      check('폭 ' + w + ', 어긋남 ' + d + ', 토막 높이 ' + h + (link ? ': 세 선이 끝점에서 이어짐' : ': 토막이 폭보다 낮으면 영역으로만(그대로)'), joined === link && LJ.verify.nBad === 0, '선 ' + st.length + ' (세로 ' + ver.length + ', 가로 ' + hor.length + ') 최대 ' + LJ.verify.worst.toFixed(4));
+    }
+  }
   console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과');
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });
