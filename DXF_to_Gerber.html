@@ -165,7 +165,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1114-1900';
+const BUILD = '1123-1040';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1261,9 +1261,9 @@ function reconstructTrace(poly, inAllowed, inNeighbor) {
     const s = S[en.sec];
     en.pt = en.end === 'A' ? { x: s.a[0], y: s.a[1], ox: -s.ux, oy: -s.uy } : { x: s.b[0], y: s.b[1], ox: s.ux, oy: s.uy };
     en.terminal = cell.ends.length === 1 && cell.deg;
-    let ext = null, col = null, extW = 0;
+    let ext = null, col = null, extW = 0, colSweep = false;
     if (en.terminal) ext = s.w / 2;
-    else if (cell.pts.length > 2) for (const o of cell.ends) {
+    else if (cell.pts.length > 2 || cell.ends.length === 2) for (const o of cell.ends) { // 조각 넓이가 0인 계단(폭이 바로 바뀜)도 평행 처리는 한다
       if (o === en) continue;
       const t = S[o.sec], den = en.pt.ox * t.uy - en.pt.oy * t.ux;
       if (Math.abs(den) < 1e-6) { // 평행: 같은 직선 위에서 서로 마주 보는 같은 폭의 끝이면(가지가 붙은 자리를 지나가는 레일) 가운데에서 만나게 늘린다
@@ -1272,16 +1272,22 @@ function reconstructTrace(poly, inAllowed, inNeighbor) {
         if (off < 1e-6 && along > 1e-7 && en.pt.ox * op.ox + en.pt.oy * op.oy < 0 && Math.abs(t.w - s.w) < 1e-6) {
           const tt = along / 2, X = [en.pt.x + en.pt.ox * tt, en.pt.y + en.pt.oy * tt];
           if ((pip(cell.pts, X[0], X[1]) || dBoundary(cell.pts, X[0], X[1]) < 1e-6) && (col === null || tt < col)) col = tt;
+        } else if (along > -1e-7 && en.pt.ox * op.ox + en.pt.oy * op.oy < 0 && s.w < t.w - 1e-6 && off <= (t.w - s.w) / 2 + 1e-6) {
+          // 폭이 바뀌는 곳(테이퍼·계단): 가는 선을 조각을 지나 굵은 선의 끝까지 늘려 선끼리 이어지게 한다(조각은 영역으로 그대로 채움)
+          const into = t.len >= t.w / 2 ? t.w / 2 : 0, tt = along + into; // 굵은 선은 끝을 w/2 줄여 직각 마감하므로, 그 줄어든 끝점까지 들어가 중심선끼리 만나게 한다
+          if (col === null || tt < col) { col = tt; colSweep = true; }
         }
         continue;
       }
+      if (cell.pts.length <= 2) continue;
       const tt = ((t.a[0] - en.pt.x) * t.uy - (t.a[1] - en.pt.y) * t.ux) / den;
       if (tt < -1e-7) continue;
       const X = [en.pt.x + en.pt.ox * tt, en.pt.y + en.pt.oy * tt];
       if (!(pip(cell.pts, X[0], X[1]) || dBoundary(cell.pts, X[0], X[1]) < 1e-6)) continue;
       if (ext === null || tt < ext) { ext = Math.max(0, tt); extW = t.w; }
     }
-    if (ext === null && col !== null) ext = col; // 만나는 다른 중심선이 없을 때만(가지가 선으로 복원되지 않은 분기점)
+    en.sweep = false;
+    if (ext === null && col !== null) { ext = col; en.sweep = colSweep; } // 만나는 다른 중심선이 없을 때만(가지가 선으로 복원되지 않은 분기점)
     // 끝 조각 너머가 이웃 객체(패드)인 경우: 선을 조각을 지나 패드 안으로 w/2 넣는 위치도 후보로 둔다(목과 패드 사이를 영역만으로 잇지 않게)
     en.ext2 = null;
     if (!en.terminal && cell.ends.length === 1 && cell.pts.length > 2) {
@@ -1304,7 +1310,7 @@ function reconstructTrace(poly, inAllowed, inNeighbor) {
       let ch = null;
       for (const t of c) {
         if (!fit(en.pt.x + en.pt.ox * t, en.pt.y + en.pt.oy * t, r)) continue;
-        if (t === en.ext2 && t !== en.ext) { let ok = true; for (let k = 1; k < 8 && ok; k++) ok = fit(en.pt.x + en.pt.ox * t * k / 8, en.pt.y + en.pt.oy * t * k / 8, r); if (!ok) continue; } // 조각을 지나가는 동안에도 선이 밖으로 나가지 않아야 한다
+        if ((t === en.ext2 && t !== en.ext) || (t === en.ext && en.sweep)) { let ok = true; for (let k = 1; k < 8 && ok; k++) ok = fit(en.pt.x + en.pt.ox * t * k / 8, en.pt.y + en.pt.oy * t * k / 8, r); if (!ok) continue; } // 조각을 지나가는 동안에도 선이 밖으로 나가지 않아야 한다
         ch = t; break;
       }
       res[nm] = ch;

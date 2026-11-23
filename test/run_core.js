@@ -245,6 +245,23 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
       check('R ' + R + ', 목 ' + nh + '×' + nl + ': 레일 이어짐·목은 선·패드 안으로 w/2', LN.stats.pads === 5 && gaps === 0 && okNeck && LN.stats.areas === 0 && LN.verify.nBad === 0, '레일 선 ' + rail.length + ' 끊긴 곳 ' + gaps + ' 목 선 ' + neck.length + (neck[0] ? ' (x ' + Math.min(neck[0].x1, neck[0].x2).toFixed(3) + '~' + Math.max(neck[0].x1, neck[0].x2).toFixed(3) + ')' : '') + ' 최대 ' + LN.verify.worst.toFixed(4));
     }
   }
+  { // 폭이 바뀌는 곳(테이퍼·계단): 채움 영역은 그대로 두되, 가는 선이 굵은 선의 끝점까지 들어가 선끼리 이어져야 한다
+    console.log('\n== 폭이 바뀌는 곳에서 선끼리 이어짐');
+    const o = [], w = (c, v) => o.push(String(c), String(v)), pl = pts => { w(0, 'POLYLINE'); w(8, 'CU'); w(66, 1); w(70, 1); for (const p of pts) { w(0, 'VERTEX'); w(8, 'CU'); w(10, p[0]); w(20, p[1]); } w(0, 'SEQEND'); }, pad = (x, y) => pl([[x, y - 0.5], [x + 1, y - 0.5], [x + 1, y + 0.5], [x, y + 0.5]]);
+    w(0, 'SECTION'); w(2, 'ENTITIES');
+    pad(0, 2); pad(8, 2); pl([[1, 1.8], [3, 1.8], [3.6, 1.9], [8, 1.9], [8, 2.1], [3.6, 2.1], [3, 2.2], [1, 2.2]]);                 // 대칭 테이퍼 0.4 → 0.2
+    pad(0, 5); pad(8, 5); pl([[1, 4.8], [8, 4.8], [8, 5.0], [3.6, 5.0], [3, 5.2], [1, 5.2]]);                                       // 한쪽 변이 일직선(중심선이 어긋남)
+    pad(0, 8); pad(8, 8); pl([[1, 7.8], [3, 7.8], [3, 7.9], [8, 7.9], [8, 8.1], [3, 8.1], [3, 8.2], [1, 8.2]]);                     // 계단
+    pad(0, 11); pad(8, 11); pl([[1, 10.7], [3, 10.7], [3.2, 10.925], [8, 10.925], [8, 11.075], [3.2, 11.075], [3, 11.3], [1, 11.3]]); // 급한 테이퍼 0.6 → 0.15
+    w(0, 'ENDSEC'); w(0, 'EOF');
+    const bT = buildBase(parseDxf(o.join('\n')), 'auto'), RT = await convertAll(bT, { layers: { CU: 'cu1' }, files: {}, mirror: {}, origin: 'dxf', ratio: 4, grid: 0.002, thr: 0.005, apTol: 0.0001, noMacro: false, ellN: 48, allVoid: false, padCut: true, overrides: {}, voids: {} }), LT = RT.layers[0];
+    for (const [nm, y, W, n] of [['대칭 테이퍼', 2, 0.4, 0.2], ['한쪽 변이 일직선인 테이퍼', 5, 0.4, 0.2], ['계단', 8, 0.4, 0.2], ['급한 테이퍼', 11, 0.6, 0.15]]) {
+      const s = LT.shapes.find(q => q.role !== 'pad' && q.bbox[1] < y && q.bbox[3] > y && q.bbox[2] - q.bbox[0] > 5), st = (s.strokes || []).map(k => ({ a: Math.min(k.x1, k.x2), b: Math.max(k.x1, k.x2), w: k.w })).sort((p, q) => p.a - q.a);
+      const ok = s.role === 'trace' && st.length === 2 && Math.abs(st[0].w - W) < 1e-6 && Math.abs(st[1].w - n) < 1e-6 && st[1].a <= st[0].b + 1e-6 && s.fills.length >= 1 && s.diff.maxDev <= 0.005;
+      check(nm + ': 가는 선이 굵은 선 끝점까지', ok, st.map(k => k.w + ' ' + k.a.toFixed(3) + '~' + k.b.toFixed(3)).join(' / ') + ' 채움 ' + (s.fills ? s.fills.length : 0) + ' 차이 ' + (s.diff ? s.diff.maxDev.toFixed(4) : '-'));
+    }
+    check('형상 비교 기준 이내', LT.verify.nBad === 0, '최대 ' + LT.verify.worst.toFixed(4));
+  }
   console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과');
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });
