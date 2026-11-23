@@ -97,6 +97,21 @@ async function shots(browser) {
   bb = [13.3, 16.3, 21.7, 17.7]; await zoom(bb); await snapW('18_taper', bb);
   bb = [23.5, 13.5, 25.7, 15.9]; await zoom(bb); await snapW('19_padcut', bb);
   bb = [1.5, 32.7, 10.5, 34.5]; await zoom(bb); await snapW('20_text', bb);
+  // 글꼴 파일을 불러온 경우(굵은 글꼴의 윤곽을 그대로): Arial Bold가 없으면 폭이 같은 Liberation Sans Bold
+  { const fp = ['C:\\Windows\\Fonts\\arialbd.ttf', '/System/Library/Fonts/Supplemental/Arial Bold.ttf', '/Library/Fonts/Arial Bold.ttf', '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf'].find(p => fs.existsSync(p));
+    if (!fp) console.log('  (글꼴 파일이 없어 20b_text_font·04b_font 는 건너뜀)');
+    else {
+      await page.setInputFiles('#fontFile', fp); await wait(600);
+      await page.click('#btnConvert'); await done(); await wait(300);
+      await showOnly(['cu1', 'outline']); await zoom(bb); await snapW('20b_text_font', bb);
+      await page.evaluate(() => { document.getElementById('fontMsg').parentElement.id = 'fontGrp'; document.getElementById('fontGrp').scrollIntoView({ block: 'center' }); }); await wait(200);
+      await mark([{ sel: '#btnFont', n: 1, at: 'tl' }, { sel: '#fontMsg', n: 2, at: 'tr' }, { sel: '#btnFontClr', n: 3, at: 'br' }]);
+      await snap('04b_font', await union(['label[for=oTextOn]', '#fontGrp', 'label[for=oOpenOn]'], 10)); await unmark();
+      await page.click('#btnFontClr'); await wait(600);
+      await page.click('#btnConvert'); await done(); await wait(300);
+      await page.evaluate(() => document.getElementById('left').scrollTop = 0);
+      await showOnly(['cu1', 'outline']);
+    } }
   bb = [7, 30.3, 12.5, 31.7]; await zoom(bb); await snapW('21_narrow', bb);
   bb = [1.2, 30.2, 4.2, 31.8]; await zoom(bb); await snapW('21_stub', bb);
 
@@ -126,7 +141,8 @@ async function shots(browser) {
   await page.mouse.move(p1[0], p1[1]); await page.mouse.up(); await wait(200);
   await page.keyboard.press('Escape'); await page.uncheck('#vBox');
 
-  // 6. 안쪽 폴리선: 지정 전 → 빈 곳
+  // 6. 안쪽 폴리선: (옵션을 끄고) 지정 전 → 빈 곳. 옵션은 기본 켜짐이라 여기서만 끈다
+  await page.uncheck('#oAllVoid'); await wait(200); await page.click('#btnConvert'); await done(); await wait(300);
   bb = [15.3, 29.4, 22.7, 34.6]; await zoom(bb);
   await snapW('27_nested_before', bb);
   await page.click('#warnBox .item[data-wtype=nested]'); await page.waitForSelector('#pop button[data-void=true]');
@@ -141,7 +157,6 @@ async function shots(browser) {
   await page.check('#oAllVoid'); await wait(200);
   await page.click('#btnConvert'); await done(); await wait(300);
   bb = [23.7, 4.2, 27.3, 7.8]; await zoom(bb); await snapW('30_alternate', bb);
-  await page.uncheck('#oAllVoid'); await page.click('#btnConvert'); await done(); await wait(300);
 
   // 7. 마스크 선으로 보기 켬/끔, 레이어별 색
   await showOnly(ALL);
@@ -175,10 +190,11 @@ async function shots(browser) {
   await page.selectOption('#oFormat', 'odb'); await wait(300);
   await page.click('#btnConvert'); await done(); await wait(300);
   await page.selectOption('#oOdbUnit', 'mm');
+  await page.fill('#oOdbMin', '2'); // 예제 도면은 작아서 기본값(100)으로는 스텝이 생기지 않는다
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnOdbTgz')]);
   await dl.path(); await wait(500);
   await page.evaluate(() => document.getElementById('left').scrollTop = 1e5); await wait(200);
-  await mark([{ sel: '#oFormat', n: 1, at: 'l' }, { sel: '#oOdbUnit', n: 2, at: 'l' }, { sel: '#oOdbStep', n: 3, at: 'tr', pad: 6 }, { sel: '#btnOdbTgz', n: 4, at: 'bl' }, { sel: '#odbMsg', n: 5, at: 'tr' }]);
+  await mark([{ sel: '#oFormat', n: 1, at: 'l' }, { sel: '#oOdbUnit', n: 2, at: 'l' }, { sel: '#oOdbStep', n: 3, at: 'tr', pad: 6 }, { sel: '#oOdbMin', n: 4, at: 'l' }, { sel: '#oOdbArc', n: 4, at: 'tr', pad: 6 }, { sel: '#btnOdbTgz', n: 5, at: 'bl' }, { sel: '#odbMsg', n: 6, at: 'tr' }]);
   await snap('38_output_odb', await box(CARD(5))); await unmark();
   const odbText = await page.evaluate(() => document.getElementById('odbMsg').innerText);
   fs.writeFileSync(path.join(__dirname, 'out', 'manual_odb_msg.txt'), odbText);

@@ -165,7 +165,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1123-1210';
+const BUILD = '1123-1500';
 
 /* ================================================================
  * 1. 기하 기본
@@ -2343,6 +2343,7 @@ function buildOdb1(R, base, opt) {
   const fSurf = (P, pol, dx, dy) => ['S ' + pol + ' 0'].concat(odbContour(noArc(P), dx, dy, C), ['SE']).join('\n');
   const triP = d => { const P = []; for (let i = 0; i < d.length; i += 3) P.push({ x: d[i], y: d[i + 1], b: d[i + 2] }); return P; };
   const layers = R.layers.slice().sort((a, b) => ODB_ORDER.indexOf(a.target) - ODB_ORDER.indexOf(b.target)).map(L => ({ L, name: ODB_LAYER[L.target].name, type: ODB_LAYER[L.target].type, flat: L.shapes.some(s => !s.dup && !s.sk && s.level > 0) }));
+  for (const ly of layers) { ly.mixed = new Set(); if (ly.flat) for (const s of ly.L.shapes) { if (s.dup || s.sk || !s.parent) continue; let r = s; while (r.parent) r = r.parent; if (s.inst !== r.inst) ly.mixed.add(r); } } // 서로 다른 삽입에 걸친 묶음
   const ox = R.offset[0], oy = R.offset[1];
   const cellMode = !!opt.steps && opt.mode === 'cell';
   let useSteps = !!opt.steps && (cellMode || (base.insts.length > 1 && !R.layers.some(L => L.mirror && L.target !== 'outline')));
@@ -2407,7 +2408,12 @@ function buildOdb1(R, base, opt) {
       // 빈 곳이 있는 층: 안팎으로 겹친 객체들(맨 바깥 객체와 그 안의 것)은 그리는 순서가 지켜지도록 맨 바깥 객체의 칸에 통째로 넣는다
       let r = s; if (ly.flat) while (r.parent) r = r.parent;
       own = ly.flat && (r !== s || s.hasChild) ? cellOf(r.bbox[0], r.bbox[1], r.bbox[2], r.bbox[3]) : cellOf(x0, y0, x1, y1);
-    } else if (useSteps && !ly.flat) own = s.inst >= 0 && s.inst < nI ? s.inst : -1;
+    } else if (useSteps) {
+      // 블록 기준. 빈 곳이 있는 층: 안팎으로 겹친 객체 묶음이 모두 같은 삽입에 속할 때만 그 삽입에 통째로 넣는다(아니면 묶음 전체를 패널에)
+      let r = s; if (ly.flat) while (r.parent) r = r.parent;
+      const fam = ly.flat && (r !== s || s.hasChild), q = fam ? (ly.mixed.has(r) ? -1 : r.inst) : s.inst;
+      own = q >= 0 && q < nI ? q : -1;
+    }
     if (own < 0) { panel[li].push(fmt(0, 0)); return; }
     let il = instLines[own]; if (!il) { il = instLines[own] = layers.map(() => []); il.lv = layers.map(() => null); }
     il[li].push(fmt(instX[own], instY[own]));

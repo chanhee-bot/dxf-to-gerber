@@ -23,7 +23,7 @@ async function one(label, dxfText, layers, extra, expectSteps) {
   if (process.argv[2]) { const r = await one(path.basename(process.argv[2]), fs.readFileSync(process.argv[2], 'utf8'), { COPPER: 'cu1' }, {}, 0); fs.writeFileSync(path.join(out, 'odb_arg.tgz'), zlib.gzipSync(Buffer.from(makeTar(r.odb.files, r.odb.job)))); console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과'); process.exit(fails ? 1 : 0); }
   const ex = await one('예제 도면', makeExampleDxf(), { L1_TOP: 'cu1', L2_BOT: 'cu2', SM_TOP: 'mask', SM_BOT: 'mask2', OUTLINE: 'outline' }, {}, 0);
   check('5개 층 + 외형 profile', ex.odb.layers.join() === 'sm,l1,l2,sm2,outline' && /OC /.test(ex.odb.files.get('steps/panel/profile')), ex.odb.layers.join());
-  await one('예제 도면(안쪽 폴리선 번갈아, 매크로 대신 영역)', makeExampleDxf(), { L1_TOP: 'cu1', L2_BOT: 'cu2', SM_TOP: 'mask', SM_BOT: 'mask2', OUTLINE: 'outline' }, { allVoid: true, noMacro: true }, 0);
+  await one('예제 도면(안쪽 폴리선 번갈아, 매크로 대신 영역)', makeExampleDxf(), { L1_TOP: 'cu1', L2_BOT: 'cu2', SM_TOP: 'mask', SM_BOT: 'mask2', OUTLINE: 'outline' }, { allVoid: true, noMacro: true }, 4); // 빈 곳이 있는 층도 블록 기준으로 묶인다
   // 블록 배열: 패드 2개 + 꺾임 R 배선 + 칸 경계에서 잘린 세로 레일(열린 선)로 된 칸을 6×8 배열
   const o = []; const w = (c, v) => o.push(String(c), String(v)), B = Math.tan(Math.PI / 8);
   const pl = (layer, pts, closed) => { w(0, 'POLYLINE'); w(8, layer); w(66, 1); w(70, closed ? 1 : 0); for (const p of pts) { w(0, 'VERTEX'); w(8, layer); w(10, p[0]); w(20, p[1]); if (p[2]) w(42, p[2]); } w(0, 'SEQEND'); };
@@ -108,6 +108,21 @@ async function one(label, dxfText, layers, extra, expectSteps) {
       check('영역의 호를 꺾은선으로(기본): 영역·심벌에 OC 없음, 끄면 OC 있음', nOC(oa) === 0 && nOC(ob) > 0 && checkOdb(oa, R8).ok && checkOdb(ob, R8).ok, 'OC ' + nOC(oa) + ' / 끄면 ' + nOC(ob) + ' | ' + (oa.bytes / 1e3).toFixed(1) + 'KB / ' + (ob.bytes / 1e3).toFixed(1) + 'KB'); }
     for (const arcPoly of [true, false]) for (const steps of [false, true]) { const odb = buildOdb(R8, base8, { job: 'test', units: 'mm', steps, arcPoly, apTol: 0.0001, ellN: 48 }), c = checkOdb(odb, R8);
       check('ODB++ ' + (steps ? '스텝' : '평면') + (arcPoly ? '' : ' · 호 그대로') + ' 다시 읽기 대조(윤곽 방향 포함)', c.ok && c.errors === 0, '요소 ' + c.total + ' 빠짐 ' + c.miss + ' 남음 ' + c.extra + ' 오류 ' + c.errors + ' | ' + odb.steps.map(s => s.name + '×' + s.count).join(' ')); }
+  }
+  // 블록 안에 빈 곳이 있는 도형(사각 안의 사각 안의 사각): "번갈아"를 켜도 블록 기준 스텝으로 묶이고, 스텝 안에서 동박 → 빈 곳 → 섬 순서가 지켜져야 한다
+  {
+    const ob = [], wb = (c, v) => ob.push(String(c), String(v)), plb = pts => { wb(0, 'POLYLINE'); wb(8, 'COPPER'); wb(66, 1); wb(70, 1); for (const p of pts) { wb(0, 'VERTEX'); wb(8, 'COPPER'); wb(10, p[0]); wb(20, p[1]); } wb(0, 'SEQEND'); };
+    wb(0, 'SECTION'); wb(2, 'BLOCKS'); wb(0, 'BLOCK'); wb(8, '0'); wb(2, 'RING'); wb(70, 0); wb(10, 0); wb(20, 0); wb(30, 0); wb(3, 'RING');
+    for (const [a, b] of [[0, 3], [0.6, 2.4], [1.1, 1.9]]) plb([[a, a], [b, a], [b, b], [a, b]]);
+    plb([[3.5, 0.5], [4.2, 0.5], [4.2, 1.2], [3.5, 1.2]]);
+    wb(0, 'ENDBLK'); wb(0, 'ENDSEC'); wb(0, 'SECTION'); wb(2, 'ENTITIES');
+    wb(0, 'INSERT'); wb(8, '0'); wb(2, 'RING'); wb(10, 5); wb(20, 5); wb(70, 4); wb(71, 3); wb(44, 6); wb(45, 5);
+    wb(0, 'ENDSEC'); wb(0, 'EOF');
+    const bR = buildBase(parseDxf(ob.join('\n')), 'auto', true), RR = await convertAll(bR, cfg({ COPPER: 'cu1' }, { allVoid: true }));
+    console.log('\n== 블록 안에 빈 곳이 있는 도형 4×3(번갈아)');
+    const oR = buildOdb(RR, bR, { job: 'test', units: 'mm', steps: true, apTol: 0.0001, ellN: 48 }), cR = checkOdb(oR, RR);
+    const fR = oR.steps.length ? oR.files.get('steps/' + oR.steps[0].name + '/layers/l1/features').split('\n').filter(l => /^[LPS] /.test(l)).map(l => / N /.test(l) ? 'N' : 'P').join('') : '';
+    check('블록 기준으로 12곳이 스텝 하나, 빈 곳은 바깥 동박 뒤·섬 앞', cR.ok && oR.mode === 'block' && oR.steps.length === 1 && oR.steps[0].count === 12 && /^P+NP+$/.test(fR), '방식 ' + oR.mode + ' | ' + oR.steps.map(s => s.name + '×' + s.count).join(' ') + ' | 순서 ' + fR + ' | 요소 ' + cR.total + ' 빠짐 ' + cR.miss + ' 남음 ' + cR.extra);
   }
   // tar.gz 묶음을 실제로 풀어 본다
   for (const [nm, r] of [['odb_example', ex], ['odb_cells', r2]]) {
