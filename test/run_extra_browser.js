@@ -1,0 +1,47 @@
+// 브라우저 확인: 레이어를 따로 출력(동박 규칙 / 면 / 선), ODB++ 층 이름 바꾸기. 먼저 node test/run_core.js 로 test/out/example.dxf 를 만든다.
+const { chromium } = require('playwright');
+const path = require('path'), fs = require('fs'), zlib = require('zlib');
+const root = path.join(__dirname, '..'), shots = path.join(__dirname, 'shots'), out = path.join(__dirname, 'out');
+fs.mkdirSync(shots, { recursive: true });
+let fails = 0;
+const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? '  ok   ' : '  FAIL ') + name + (info ? '  ' + info : '')); };
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1680, height: 1000 }, acceptDownloads: true });
+  const errors = []; page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); }); page.on('pageerror', e => errors.push(String(e)));
+  await page.goto('file:///' + path.join(root, 'DXF_to_Gerber.html').replace(/\\/g, '/'));
+  const done = () => page.waitForFunction(() => window.__app.S.result && !window.__app.S.busy && !window.__app.S.dirty, null, { timeout: 60000 });
+  await page.setInputFiles('#file', path.join(out, 'example.dxf'));
+  const pick = (layer, v) => page.selectOption('#layerTbl select[data-layer="' + layer + '"]', v);
+  await pick('L2_BOT', 'xc'); await pick('SM_BOT', 'xm'); await pick('치수', 'xo');
+  const rows = await page.$$eval('#outTbl tbody tr', a => a.map(tr => tr.cells[0].textContent.trim()));
+  check('출력 표에 따로 출력 줄이 생김', rows.join('|') === '동박 1|동박 2|솔더마스크 1|솔더마스크 2|외형|L2_BOT 동박 규칙|SM_BOT 면|치수 선', rows.join('|'));
+  check('파일 이름 기본값', await page.inputValue('[id="file_xc:L2_BOT"]') === 'example_L2_BOT.gbr' && await page.inputValue('[id="file_xo:치수"]') === 'example_치수.gbr', await page.inputValue('[id="file_xc:L2_BOT"]') + ' ' + await page.inputValue('[id="file_xo:치수"]'));
+  await page.click('#btnConvert'); await done(); await page.waitForTimeout(300);
+  const info = await page.evaluate(() => window.__app.S.result.layers.map(l => l.target + '/' + l.rule + '/' + l.verify.nBad));
+  check('변환: 고정 3 + 따로 3, 기준 이내', info.join(' ') === 'cu1/cu/0 mask/mask/0 outline/outline/0 xc:L2_BOT/cu/0 xm:SM_BOT/mask/0 xo:치수/outline/0', info.join(' '));
+  await page.selectOption('#vColor', 'layer'); await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(shots, 'extra_gerber.png') });
+  const [d1] = await Promise.all([page.waitForEvent('download'), page.click('[id="dl_xc:L2_BOT"]')]);
+  const g = fs.readFileSync(await d1.path(), 'utf8');
+  check('따로 출력 층 내려받기', d1.suggestedFilename() === 'example_L2_BOT.gbr' && g.includes('G04 LAYER L2_BOT*') && g.includes('D03*') && g.trim().endsWith('M02*'), d1.suggestedFilename());
+  // ODB++: 층 이름 칸
+  await page.selectOption('#oFormat', 'odb'); await page.selectOption('#oOdbUnit', 'mm');
+  await page.click('#btnConvert'); await done();
+  const vis = await page.$$eval('#outTbl thead th', a => a.filter(t => t.offsetParent).map(t => t.textContent));
+  check('ODB++에서는 "ODB++ 층 이름" 칸이 보이고 파일 이름·내려받기는 숨김', vis.join('|') === '출력|ODB++ 층 이름|좌우 반전', vis.join('|'));
+  check('층 이름 기본값', await page.inputValue('#odbn_cu1') === 'l1' && await page.inputValue('[id="odbn_xc:L2_BOT"]') === 'l2_bot' && await page.inputValue('[id="odbn_xo:치수"]') === 'layer');
+  await page.fill('#odbn_cu1', 'TOP Copper'); await page.dispatchEvent('#odbn_cu1', 'change');
+  await page.fill('[id="odbn_xo:치수"]', 'dim'); await page.dispatchEvent('[id="odbn_xo:치수"]', 'change');
+  check('쓸 수 없는 글자는 바로 고쳐 보임', await page.inputValue('#odbn_cu1') === 'top_copper', await page.inputValue('#odbn_cu1'));
+  check('이름을 바꿔도 다시 변환할 필요 없음', await page.evaluate(() => !window.__app.S.dirty));
+  const [d2] = await Promise.all([page.waitForEvent('download'), page.click('#btnOdbZip')]);
+  await page.waitForFunction(() => /다시 읽기 대조/.test(document.getElementById('odbMsg').textContent));
+  const msg = await page.textContent('#odbMsg'), z = fs.readFileSync(await d2.path()).toString('latin1');
+  check('ODB++ 결과: 층 이름 표시·대조 일치', /층 sm, top_copper, l2_bot, outline, sm_bot, dim/.test(msg) && /모두 Gerber 결과와 일치/.test(msg), msg.slice(0, 120));
+  check('묶음 안 폴더 이름', z.includes('example/steps/panel/layers/top_copper/features') && z.includes('example/steps/panel/layers/dim/features') && !z.includes('/layers/l1/features'));
+  await page.screenshot({ path: path.join(shots, 'extra_odb.png') });
+  check('콘솔 오류 없음', errors.length === 0, errors.join(' | ').slice(0, 300));
+  await browser.close();
+  console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과'); process.exit(fails ? 1 : 0);
+})().catch(e => { console.error(e); process.exit(2); });
