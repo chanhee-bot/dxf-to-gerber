@@ -15,6 +15,11 @@ main{flex:1;display:flex;min-height:0}
 #left{width:430px;overflow:auto;padding:8px;flex:none}
 #right{width:400px;overflow:auto;padding:8px;flex:none}
 #outTbl td:first-child,#outTbl button,#sumBox td:first-child,#sumBox th{white-space:nowrap}
+#outTbl td:first-child{max-width:130px;overflow:hidden;text-overflow:ellipsis}
+#outTbl th:nth-child(2),#outTbl th:nth-child(3){width:100%}
+#outTbl th:nth-child(4),#outTbl td:nth-child(4){text-align:center;white-space:nowrap}
+#layerTbl th:first-child,#layerTbl td:first-child{width:34px;text-align:center}
+#layerTbl th:last-child{width:92px}
 #sumBox th,#sumBox td{padding:3px 4px}
 #center{flex:1;display:flex;flex-direction:column;min-width:0;background:#10151b}
 .card{background:#fff;border:1px solid #cfd6de;border-radius:6px;padding:10px;margin-bottom:8px}
@@ -28,7 +33,7 @@ button.primary:hover{background:#1a5fd0}
 #drop.over{background:#dcebff;border-color:#1f6feb}
 #fileMsg{margin-top:6px;line-height:1.5}
 .err{color:#c62828;font-weight:700}
-.opts{display:grid;grid-template-columns:1fr 130px;gap:5px 8px;align-items:center}
+.opts{display:grid;grid-template-columns:1fr 170px;gap:5px 8px;align-items:center}
 .opts input[type=number],.opts select{width:100%;font:inherit;padding:2px 4px}
 table{border-collapse:collapse;width:100%}
 th,td{border:1px solid #d5dbe2;padding:3px 5px;text-align:left;vertical-align:middle}
@@ -84,7 +89,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
     <h2>2. 옵션</h2>
     <div class="opts">
       <label for="oUnit">도면 단위</label>
-      <select id="oUnit"><option value="auto">자동($INSUNITS, 없으면 mm)</option><option value="mm">mm</option><option value="inch">inch</option></select>
+      <select id="oUnit" title="자동: DXF의 $INSUNITS 값을 따르고, 없으면 mm로 봅니다."><option value="auto">자동 (없으면 mm)</option><option value="mm">mm</option><option value="inch">inch</option></select>
       <label for="oOrigin">원점</label>
       <select id="oOrigin"><option value="ll" selected>전체 좌측 하단 = 0,0</option><option value="dxf">DXF 좌표 그대로</option></select>
       <label for="oRatio">패드 판정 비율 (긴 변÷짧은 변 이하)</label><input type="number" id="oRatio" value="4" min="1" step="0.5">
@@ -107,7 +112,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
         <div id="fontMsg" class="muted" style="margin-top:4px;line-height:1.45">글꼴 없음 — 글자는 내장 획 글꼴(선)로 냅니다.</div>
         <input type="file" id="fontFile" accept=".ttf,.ttc,.TTF,.TTC" style="display:none">
       </div>
-      <label for="oOpenOn" title="오토캐드에서 분해한 글자처럼, 동박·솔더마스크 층의 열린 선(선·호·열린 폴리선)을 둥근 조리개 선으로 냅니다. 끄면 무시 목록에 남습니다.">동박·마스크 층의 열린 선을 선으로 내기</label><input type="checkbox" id="oOpenOn" checked>
+      <label for="oOpenOn" title="오토캐드에서 분해한 글자처럼, 동박·면 규칙 층의 열린 선(선·호·열린 폴리선)을 둥근 조리개 선으로 냅니다. 끄면 무시 목록에 남습니다. 선 규칙 층은 이 옵션과 상관없이 선으로 냅니다.">동박·면 층의 열린 선을 선으로 내기</label><input type="checkbox" id="oOpenOn" checked>
       <label for="oOpenW">열린 선 선폭 (mm)</label><input type="number" id="oOpenW" value="0.1" min="0.001" step="0.05">
     </div>
   </div>
@@ -119,7 +124,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
     <button id="btnConvert" class="primary" disabled>변환</button>
     <label style="margin-left:10px" title="켜면 레이어 지정이나 옵션을 바꿀 때마다 바로 변환합니다. 작은 도면에서 편합니다."><input type="checkbox" id="oAuto"> 설정을 바꾸면 바로 변환</label>
     <label style="margin-left:10px" title="배선 복원과 형상 비교를 CPU 코어 여러 개에 나눠 계산합니다(객체가 많을 때만). 결과는 한 코어로 할 때와 같습니다. 문제가 있으면 끄세요."><input type="checkbox" id="oPar" checked> 여러 코어 사용<span id="coreN"></span></label>
-    <div id="applyMsg" class="muted" style="margin-top:6px;line-height:1.5">도면을 열고 레이어의 출력 대상과 옵션을 정한 뒤 "변환"을 누르세요.</div>
+    <div id="applyMsg" class="muted" style="margin-top:6px;line-height:1.5">도면을 열고 레이어의 출력·규칙과 옵션을 정한 뒤 "변환"을 누르세요.</div>
   </div>
   <div class="card">
     <h2>4. 출력 파일</h2>
@@ -153,7 +158,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
     <label title="켜면 왼쪽 버튼으로 끌어 여러 객체를 고릅니다(화면 이동은 가운데·오른쪽 버튼으로 끌기). 꺼져 있어도 Shift를 누르고 끌면 영역 선택입니다. 왼쪽→오른쪽: 상자 안에 다 들어온 것만, 오른쪽→왼쪽: 걸친 것도 포함."><input type="checkbox" id="vBox"> 영역 선택</label>
     <button id="btnFit">전체 보기</button>
   </div>
-  <div id="cvWrap"><canvas id="cv"></canvas><div id="hint">도면을 열면 변환 결과가 여기에 표시됩니다.<br>휠: 확대·축소 / 끌기: 이동 / 클릭: 객체 선택(패드↔배선 바꾸기)<br>Ctrl·Shift+클릭: 여러 개 선택 / Shift+끌기 또는 "영역 선택": 상자로 선택 / Esc: 선택 해제</div><div id="pop"></div><div id="dirtyBar" title="눌러서 변환">설정이 바뀌었습니다 — 눌러서 <b>변환</b></div></div>
+  <div id="cvWrap"><canvas id="cv"></canvas><div id="hint"><span id="hint1">도면을 열면 변환 결과가 여기에 표시됩니다.</span><br>휠: 확대·축소 / 끌기: 이동 / 클릭: 객체 선택(패드↔배선 바꾸기)<br>Ctrl·Shift+클릭: 여러 개 선택 / Shift+끌기 또는 "영역 선택": 상자로 선택 / Esc: 선택 해제</div><div id="pop"></div><div id="dirtyBar" title="눌러서 변환">설정이 바뀌었습니다 — 눌러서 <b>변환</b></div></div>
   <div id="legend"><span id="legendItems"></span><span id="coord"></span></div>
 </section>
 <section id="right">
@@ -167,7 +172,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1126-2350';
+const BUILD = '1127-0030';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1143,7 +1148,7 @@ function shapeRelation(A, B) {
   return null;
 }
 function autoRole(s, target, ratio, touchPad) {
-  if (isMaskT(target)) return s.pad ? { role: 'pad' } : { role: 'region', why: '솔더마스크 개구부(패드 모양 아님)', quiet: true };
+  if (isMaskT(target)) return s.pad ? { role: 'pad' } : { role: 'region', why: '면 규칙 층(패드 모양 아님)', quiet: true };
   if (s.pad) {
     if (s.pad.type !== 'R') return { role: 'pad' };
     const lo = Math.min(s.pad.w, s.pad.h), hi = Math.max(s.pad.w, s.pad.h);
@@ -2865,8 +2870,8 @@ if (typeof document !== 'undefined') (function () {
     for (const tg of outTargets()) {
       if (!S.files[tg]) S.files[tg] = stem + '_' + fileSafe(tgLabel(tg)) + '.gbr';
       if (!S.odbNames[tg]) S.odbNames[tg] = odbDefName(tg);
-      const tr = tb.insertRow(), c0 = tr.insertCell(); c0.textContent = tgLabel(tg);
-      if (isXT(tg)) { const sm = document.createElement('small'); sm.className = 'muted'; sm.textContent = ' ' + ({ cu: '동박', mask: '면', outline: '선' })[tgRule(tg)]; c0.appendChild(sm); }
+      const tr = tb.insertRow(), c0 = tr.insertCell(); c0.textContent = tgLabel(tg); c0.title = tgLabel(tg);
+      c0.title = tgLabel(tg) + ' — 규칙: ' + ({ cu: '동박', mask: '면', outline: '선' })[tgRule(tg)];
       const inp = document.createElement('input'); inp.type = 'text'; inp.value = S.files[tg]; inp.id = 'file_' + tg;
       inp.onchange = () => { S.files[tg] = inp.value.trim() || S.files[tg]; inp.value = S.files[tg]; };
       tr.insertCell().appendChild(inp);
@@ -2894,8 +2899,9 @@ if (typeof document !== 'undefined') (function () {
     const has = !!S.base, dirty = has && S.dirty, ok = !!(S.result && S.result.layers.length) && !dirty;
     $('btnConvert').disabled = !has || S.busy; $('btnConvert').classList.toggle('need', !!dirty);
     $('dirtyBar').style.display = dirty && !S.busy ? 'block' : 'none';
-    $('dirtyBar').innerHTML = S.result ? '설정이 바뀌었습니다 — 눌러서 <b>변환</b>' : '출력 대상을 확인하고 눌러서 <b>변환</b>';
-    $('applyMsg').innerHTML = !has ? '도면을 열고 레이어의 출력 대상과 옵션을 정한 뒤 "변환"을 누르세요.' : dirty ? (S.result ? '<span class="bad">설정이 바뀌었습니다.</span> "변환"을 눌러야 결과와 내려받기에 반영됩니다(지금 보이는 것은 이전 설정의 결과).' : '레이어의 출력 대상과 옵션을 확인한 뒤 "변환"을 누르세요.') : (info || '변환 결과가 현재 설정과 같습니다.');
+    $('dirtyBar').innerHTML = S.result ? '설정이 바뀌었습니다 — 눌러서 <b>변환</b>' : '레이어의 출력·규칙을 확인하고 눌러서 <b>변환</b>';
+    $('hint1').textContent = has ? '레이어의 출력·규칙을 확인하고 "변환"을 누르면 결과가 여기에 표시됩니다.' : '도면을 열면 변환 결과가 여기에 표시됩니다.';
+    $('applyMsg').innerHTML = !has ? '도면을 열고 레이어의 출력·규칙과 옵션을 정한 뒤 "변환"을 누르세요.' : dirty ? (S.result ? '<span class="bad">설정이 바뀌었습니다.</span> "변환"을 눌러야 결과와 내려받기에 반영됩니다(지금 보이는 것은 이전 설정의 결과).' : '레이어의 출력·규칙과 옵션을 확인한 뒤 "변환"을 누르세요.') : (info || '변환 결과가 현재 설정과 같습니다.');
     for (const tg of outTargets()) { const b = $('dl_' + tg); if (b) b.disabled = !ok || !layerOf(tg); }
     $('btnZip').disabled = $('btnOdbTgz').disabled = $('btnOdbZip').disabled = !ok;
   }
@@ -2921,7 +2927,7 @@ if (typeof document !== 'undefined') (function () {
       const tm = { prep: 0, contact: 0, trace: 0, write: 0, compare: 0 }; let cores = 1; for (const l of S.result.layers) if (!l.reused && l.times) { for (const k in tm) tm[k] += l.times[k] || 0; cores = Math.max(cores, l.times.cores || 1); }
       const sec = v => (v / 1000).toFixed(1) + '초';
       S.result.stage = '<br><small>단계별: 패드 떼기·토막 ' + sec(tm.prep) + ' · 맞닿음·겹침 ' + sec(tm.contact) + ' · 배선 복원 ' + sec(tm.trace) + ' · Gerber 쓰기·읽기 ' + sec(tm.write) + ' · 형상 비교 ' + sec(tm.compare) + ' · 코어 ' + cores + '개 사용</small>';
-      info = '변환 완료(' + (S.result.ms / 1000).toFixed(1) + '초)' + (re.length ? ' · 변환한 층: ' + re.join(', ') : '') + (keep.length ? ' · 그대로 쓴 층: ' + keep.join(', ') : '') + (S.result.layers.length ? '' : ' · 출력 대상 레이어가 없습니다') + (re.length ? S.result.stage : '');
+      info = '변환 완료(' + (S.result.ms / 1000).toFixed(1) + '초)' + (re.length ? ' · 변환한 층: ' + re.join(', ') : '') + (keep.length ? ' · 그대로 쓴 층: ' + keep.join(', ') : '') + (S.result.layers.length ? '' : ' · 출력할 레이어가 없습니다') + (re.length ? S.result.stage : '');
     } catch (e) { console.error(e); S.result = null; setMsg('변환 중 오류: ' + esc(e.message), true); }
     S.busy = false; $('busy').style.display = 'none';
     $('hint').style.display = S.result && S.result.layers.length ? 'none' : '';
@@ -2945,7 +2951,7 @@ if (typeof document !== 'undefined') (function () {
   const ROLE_T = { outline: '외형(선)', pad: '패드(플래시)', trace: '배선(선)', region: '영역', dup: '중복(출력 안 함)' };
   function renderSummary() {
     const R = S.result;
-    if (!R || !R.layers.length) { $('sumBox').innerHTML = '<span class="muted">' + (R ? '출력 대상 레이어가 없습니다. 레이어 표에서 출력 대상을 고르세요.' : '아직 변환하지 않았습니다. 레이어의 출력 대상과 옵션을 정하고 "변환"을 누르세요.') + '</span>'; $('warnBox').textContent = '없음'; $('apBox').textContent = '없음'; renderOverrides(); return; }
+    if (!R || !R.layers.length) { $('sumBox').innerHTML = '<span class="muted">' + (R ? '출력할 레이어가 없습니다. 레이어 표에서 출력할 레이어를 체크하세요.' : '아직 변환하지 않았습니다. 레이어의 출력·규칙과 옵션을 정하고 "변환"을 누르세요.') + '</span>'; $('warnBox').textContent = '없음'; $('apBox').textContent = '없음'; renderOverrides(); return; }
     let h = '<table><thead><tr><th>출력</th><th class="num">패드<br>(플래시)</th><th class="num">배선<br>(객체/선분)</th><th class="num">영역<br>(대체)</th><th class="num">모서리<br>채움</th><th class="num">최대 차이<br>(mm)</th></tr></thead><tbody>';
     let allOk = true;
     for (const L of R.layers) {
@@ -2970,7 +2976,7 @@ if (typeof document !== 'undefined') (function () {
       const list = document.createElement('div'); list.className = 'list';
       groups[k].slice(0, 400).forEach(w => {
         const it = document.createElement('div'); it.className = 'item'; it.dataset.wtype = k;
-        it.innerHTML = '<small>' + esc(tgLabel(w.target)) + (w.id != null ? ' #' + w.id : '') + (w.bbox ? ' (' + ((w.bbox[0] + w.bbox[2]) / 2).toFixed(3) + ', ' + ((w.bbox[1] + w.bbox[3]) / 2).toFixed(3) + ')' : '') + '</small><br>' + esc(w.msg);
+        it.innerHTML = '<small>' + esc(tgLabel(w.target)) + (w.id != null && w.id < S.base.shapes.length ? ' #' + w.id : '') + (w.bbox ? ' (' + ((w.bbox[0] + w.bbox[2]) / 2).toFixed(3) + ', ' + ((w.bbox[1] + w.bbox[3]) / 2).toFixed(3) + ')' : '') + '</small><br>' + esc(w.msg);
         if (w.bbox) it.onclick = () => { V.show[w.target] = true; renderToolbarLayers(); zoomTo(w.bbox); const s = w.id != null ? findShape(w.target, w.id) : null; if (s) { V.sels = [{ target: w.target, id: s.id }]; refreshPop(null); } };
         list.appendChild(it);
       });

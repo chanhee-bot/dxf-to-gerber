@@ -21,7 +21,7 @@ const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? ' 
   check('다시 켜면 고른 규칙이 되살아남', await page.evaluate(() => window.__app.S.layerTarget['SM_BOT'] === 'xc:SM_BOT'));
   await page.selectOption('#layerTbl select[data-layer="SM_BOT"]', 'xm');
   const rows = await page.$$eval('#outTbl tbody tr', a => a.map(tr => tr.cells[0].textContent.trim()));
-  check('출력 표: 체크한 레이어마다 한 줄', rows.join('|') === 'L1_TOP 동박|L2_BOT 동박|SM_TOP 면|SM_BOT 면|OUTLINE 선|치수 선', rows.join('|'));
+  check('출력 표: 체크한 레이어마다 한 줄', rows.join('|') === 'L1_TOP|L2_BOT|SM_TOP|SM_BOT|OUTLINE|치수', rows.join('|'));
   check('파일 이름 기본값', await page.inputValue('[id="file_xc:L2_BOT"]') === 'example_L2_BOT.gbr' && await page.inputValue('[id="file_xo:치수"]') === 'example_치수.gbr');
   await page.click('#btnConvert'); await done(); await page.waitForTimeout(300);
   const info = await page.evaluate(() => window.__app.S.result.layers.map(l => l.label + '/' + l.rule + '/' + l.verify.nBad));
