@@ -78,6 +78,13 @@ async function one(label, dxfText, layers, extra, expectSteps) {
       const hdr = s9.files.get('steps/panel/stephdr'), nrec = (hdr.match(/STEP-REPEAT \{/g) || []).length;
       check('  배열이 갈려도 스텝 이름이 겹치지 않고 반복 줄 = 스텝 수', k9.ok && new Set(names).size === names.length && nrec === names.length && s9.nKinds < names.length, '스텝 ' + names.length + '개(내용 ' + s9.nKinds + '종), 반복 줄 ' + nrec + ' | ' + s9.steps.slice(0, 6).map(s => s.name + ' ' + s.nx + '×' + s.ny).join(' '));
     }
+    // 배열 조각 나누기: CAM이 피치를 반올림해 간직하면 칸 수만큼 오차가 쌓인다 → 조각마다 위치를 따로 적어 누적을 끊는다
+    { const oM = buildOdb(R5, base5, { job: 'test', units: 'mm', steps: true, minRep: 100, maxN: 5, apTol: 0.0001, ellN: 48 }), cM = checkOdb(oM, R5), nm = oM.steps.map(s => s.name);
+      check('  최대 칸 수 5: 108칸 배열이 5×5 이하 조각으로, 합은 그대로, 이름 유일', cM.ok && oM.steps.every(s => s.nx <= 5 && s.ny <= 5) && oM.nInst === 108 && oM.steps.length > 1 && new Set(nm).size === nm.length && oM.nFlatCell === 24, oM.steps.map(s => s.nx + '×' + s.ny).join(' '));
+      // 피치를 inch 소수 6자리로 반올림해 읽는 CAM을 흉내 내어, 가장 먼 칸의 위치 오차가 줄어드는지 본다
+      const worst = o => { let m = 0; const h = o.files.get('steps/panel/stephdr'); for (const b of h.split('STEP-REPEAT {').slice(1)) { const g = k => +new RegExp('\\b' + k + '=(\\S+)').exec(b)[1], rd = v => Math.round(v / 25.4 * 1e6) / 1e6 * 25.4; m = Math.max(m, Math.abs((rd(g('DX')) - g('DX')) * (g('NX') - 1)), Math.abs((rd(g('DY')) - g('DY')) * (g('NY') - 1))); } return m; };
+      const o0 = buildOdb(R5, base5, { job: 'test', units: 'mm', steps: true, minRep: 100, apTol: 0.0001, ellN: 48 });
+      check('  피치를 inch 6자리로 읽는 CAM을 가정하면 누적 오차가 줄어듦', worst(oM) < worst(o0) * 0.5, (worst(o0) * 1000).toFixed(4) + 'µm → ' + (worst(oM) * 1000).toFixed(4) + 'µm'); }
     { const o7 = buildOdb(R5, base5, { job: 'test', units: 'mm', steps: true, apTol: 0.0001, ellN: 48, pitchAll: true }), c7 = checkOdb(o7, R5);
       check('  패드 없이 선·영역 중심만으로도 같은 피치', c7.ok && o7.pitchInfo.all && Math.abs(o7.cell.px - 4.2) < 1e-9 && Math.abs(o7.cell.py - 3.9) < 1e-9 && o7.steps[0].count === 108, JSON.stringify(o7.pitchInfo)); }
     // 빈 곳(음각)이 있는 층: 칸마다 큰 사각 안에 빈 곳, 그 안에 섬. "번갈아" 옵션을 켜도 스텝으로 묶이고 그리는 순서(동박 → 빈 곳 → 섬)가 지켜져야 한다
