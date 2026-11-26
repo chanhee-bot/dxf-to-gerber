@@ -131,7 +131,7 @@ async function one(label, dxfText, layers, extra, expectSteps) {
     check('기본 이름: 따로 출력 층은 DXF 레이어 이름에서', cD.ok && oD.layers.join() === 'sm,l1,l2_bot,outline,sm_bot,layer', oD.layers.join());
     const oN = buildOdb(RN, bN, { job: 't', units: 'mm', steps: false, names: { cu1: 'TOP Copper', 'xc:L2_BOT': 'top_copper', mask: 'smt', outline: 'rout' } }), cN = checkOdb(oN, RN), mxN = oN.files.get('matrix/matrix');
     check('고친 이름이 matrix·폴더에 쓰이고 겹치면 번호', cN.ok && oN.layers.join() === 'smt,top_copper,top_copper_2,rout,sm_bot,layer' && /NAME=TOP_COPPER\n/.test(mxN) && /NAME=TOP_COPPER_2\n/.test(mxN) && oN.files.has('steps/panel/layers/top_copper_2/features') && oN.files.has('steps/panel/layers/rout/features') && !oN.files.has('steps/panel/layers/l1/features'), oN.layers.join() + ' | 요소 ' + cN.total + ' 빠짐 ' + cN.miss + ' 남음 ' + cN.extra);
-    check('층 종류: 동박 규칙 = SIGNAL, 그 밖의 따로 출력 = DOCUMENT', /TYPE=SIGNAL\n\s+NAME=TOP_COPPER_2/.test(mxN) && /TYPE=DOCUMENT\n\s+NAME=SM_BOT/.test(mxN));
+    check('층 종류: 동박 = SIGNAL, 면(이름이 마스크) = SOLDER_MASK, 그 밖 = DOCUMENT', /TYPE=SIGNAL\n\s+NAME=TOP_COPPER_2/.test(mxN) && /TYPE=SOLDER_MASK\n\s+NAME=SM_BOT/.test(mxN) && /TYPE=DOCUMENT\n\s+NAME=LAYER/.test(mxN));
   }
   // tar.gz 묶음을 실제로 풀어 본다
   for (const [nm, r] of [['odb_example', ex], ['odb_cells', r2]]) {

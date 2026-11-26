@@ -113,7 +113,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
   </div>
   <div class="card">
     <h2>3. 레이어</h2>
-    <table id="layerTbl"><thead><tr><th title="체크한 레이어만 출력합니다.">출력</th><th>DXF 레이어</th><th class="num">객체</th><th title="규칙(동박 / 면 / 선)을 고르고, 그 아래에서 어느 출력에 넣을지 고릅니다.">규칙 · 출력 대상</th></tr></thead><tbody><tr><td colspan="4" class="muted">도면을 열면 표시됩니다.</td></tr></tbody></table>
+    <table id="layerTbl"><thead><tr><th title="체크한 레이어만 출력합니다.">출력</th><th>DXF 레이어</th><th class="num">객체</th><th title="동박: 패드는 플래시, 배선은 선으로 복원 / 면: 그린 모양 그대로(솔더마스크 등) / 선: 외곽선을 선으로 따라 그림(외형 등)">규칙</th></tr></thead><tbody><tr><td colspan="4" class="muted">도면을 열면 표시됩니다.</td></tr></tbody></table>
   </div>
   <div class="card" id="applyCard">
     <button id="btnConvert" class="primary" disabled>변환</button>
@@ -148,7 +148,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
     <label><input type="checkbox" id="vOrig" checked> 원본 외곽선</label>
     <label><input type="checkbox" id="vRes" checked> 변환 결과</label>
     <label><input type="checkbox" id="vCenter" checked> 중심선</label>
-    <label title="솔더마스크를 속을 채우지 않고 테두리 선으로만 보입니다(화면 표시만, 출력 파일은 그대로 면)"><input type="checkbox" id="vMaskLine" checked> 마스크 선으로 보기</label>
+    <label title="면 규칙 층(솔더마스크 등)을 속을 채우지 않고 테두리 선으로만 보입니다(화면 표시만, 출력 파일은 그대로 면)"><input type="checkbox" id="vMaskLine" checked> 면 층을 선으로 보기</label>
     <label>색 <select id="vColor"><option value="kind">종류별</option><option value="layer">레이어별</option></select></label>
     <label title="켜면 왼쪽 버튼으로 끌어 여러 객체를 고릅니다(화면 이동은 가운데·오른쪽 버튼으로 끌기). 꺼져 있어도 Shift를 누르고 끌면 영역 선택입니다. 왼쪽→오른쪽: 상자 안에 다 들어온 것만, 오른쪽→왼쪽: 걸친 것도 포함."><input type="checkbox" id="vBox"> 영역 선택</label>
     <button id="btnFit">전체 보기</button>
@@ -167,7 +167,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1126-1400';
+const BUILD = '1126-1600';
 
 /* ================================================================
  * 1. 기하 기본
@@ -2277,7 +2277,8 @@ const ODB_ORDER = ['mask', 'cu1', 'cu2', 'mask2', 'outline']; // 매트릭스 �
 const ODB_SEP = '\u0001';
 const odbOrd = tg => { const i = ODB_ORDER.indexOf(tg); return i >= 0 ? [0, 1, 2, 4, 5][i] : tgRule(tg) === 'cu' ? 3 : 6; }; // 따로 출력하는 동박 규칙 층은 동박 2 뒤, 나머지는 맨 뒤
 const odbDefName = tg => { if (ODB_LAYER[tg]) return ODB_LAYER[tg].name; const n = odbName(tgLabel(tg).replace(/[^A-Za-z0-9_+\-.]/g, '')); return n === 'x' ? 'layer' : n; }; // 한글뿐인 레이어 이름은 layer, layer_2…
-const odbType = tg => ODB_LAYER[tg] ? ODB_LAYER[tg].type : tgRule(tg) === 'cu' ? 'SIGNAL' : 'DOCUMENT';
+const MASK_NAME = /mask|solder|(^|[^a-z])sm([^a-z]|$)|마스크|레지스트/i, OUT_NAME = /outline|외형|board|border|edge|profile/i; // 레이어 이름으로 솔더마스크·외형을 알아본다
+const odbType = tg => ODB_LAYER[tg] ? ODB_LAYER[tg].type : tgRule(tg) === 'cu' ? 'SIGNAL' : tgRule(tg) === 'mask' && MASK_NAME.test(tgLabel(tg)) ? 'SOLDER_MASK' : 'DOCUMENT';
 function odbNum(v, dec) { let s = v.toFixed(dec); if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, ''); return (s === '-0' || s === '') ? '0' : s; }
 function odbName(t) { return (String(t).toLowerCase().replace(/[^a-z0-9_+\-.]/g, '_').replace(/^[^a-z0-9]+/, '') || 'x').slice(0, 40); }
 // 다각형([{x,y,b}], 닫힘)을 ODB++ 윤곽 줄로. 섬은 시계 방향이어야 하므로 반시계면 뒤집어 적는다.
@@ -2536,7 +2537,7 @@ function buildOdb1(R, base, opt) {
   for (const g of steps) { const a = g.rec; sr.push('', 'STEP-REPEAT {', '    NAME=' + up(g.name), '    X=' + C(a.x), '    Y=' + C(a.y), '    DX=' + C(a.dx), '    DY=' + C(a.dy), '    NX=' + a.nx, '    NY=' + a.ny, '    ANGLE=0', '    MIRROR=NO', '}'); nSr++; }
   const pb = R.bbox || [0, 0, 1, 1];
   // 패널 외형(profile): 외형 층에 닫힌 외곽선이 있으면 가장 큰 것, 없으면 전체 둘레 상자
-  const OLy = R.layers.find(L => L.target === 'outline'), big = OLy ? OLy.shapes.slice().sort((a, b) => Math.abs(b.area) - Math.abs(a.area))[0] : null;
+  const outLs = R.layers.filter(L => isOutT(L.target)), OLy = outLs.find(L => L.target === 'outline') || outLs.find(L => OUT_NAME.test(L.label)) || outLs[0], big = OLy ? OLy.shapes.slice().sort((a, b) => Math.abs(b.area) - Math.abs(a.area))[0] : null;
   put('steps/panel/stephdr', hdr(sr)); put('steps/panel/profile', big ? head.concat(['#', '#Layer features', '#', 'S P 0'], odbContour(big.ell ? ellipsePts(big.ell, opt.ellN || 48) : big.pts, 0, 0, C), ['SE']) : rectProfile(pb));
   layers.forEach((ly, li) => put('steps/panel/layers/' + ly.name + '/features', featFile(panel[li])));
   for (const g of steps) {
@@ -2783,14 +2784,16 @@ if (typeof document !== 'undefined') (function () {
   const KIND_COL = { stroke: '#34d17a', flash: '#ffb224', area: '#ff5aa8', fill: '#3fc1ff', text: '#f7e463' };
   // 종류별 색에서도 층을 구분한다: 동박 1 = 밝은 색, 동박 2 = 같은 색의 어두운 톤, 솔더마스크 = 옅은 톤
   const shade = (hex, k, w) => '#' + [1, 3, 5].map(i => { const v = parseInt(hex.substr(i, 2), 16); return Math.round(v * k + 255 * w).toString(16).padStart(2, '0'); }).join('');
-  const KC = {}, kindCol = (tg, kind) => KC[tg + kind] || (KC[tg + kind] = tg === 'outline' ? '#e8e8e8' : isXT(tg) ? (isOutT(tg) ? layerCol(tg) : shade(KIND_COL[kind], 0.72, tgRule(tg) === 'mask' ? 0.28 : 0.08)) : tg === 'cu2' ? shade(KIND_COL[kind], 0.5, 0) : tg === 'mask' ? shade(KIND_COL[kind], 0.4, 0.6) : tg === 'mask2' ? shade(KIND_COL[kind], 0.25, 0.3) : KIND_COL[kind]);
+  // 종류별 색에서도 층을 구분한다: 같은 규칙의 첫 층·둘째 층·그 밖(동박: 밝음·어두움, 면: 옅음·탁함, 선: 흰색·레이어 색)
+  const toneOf = tg => { const r = tgRule(tg); return Math.max(0, outTargets().filter(t => tgRule(t) === r).indexOf(tg)); };
+  let KC = {}; const kindCol = (tg, kind) => KC[tg + kind] || (KC[tg + kind] = (() => { const r = tgRule(tg), k = tg === 'cu2' || tg === 'mask2' ? 1 : toneOf(tg), c = KIND_COL[kind]; return r === 'outline' ? (k ? layerCol(tg) : '#e8e8e8') : r === 'mask' ? (k === 0 ? shade(c, 0.4, 0.6) : k === 1 ? shade(c, 0.25, 0.3) : shade(c, 0.5, 0.4)) : k === 0 ? c : k === 1 ? shade(c, 0.5, 0) : shade(c, 0.72, 0.08); })());
   const MASK_LINE_COL = '#c77dff', MASK2_LINE_COL = '#4dd0e1'; // '마스크 선으로 보기'의 테두리 색(솔더마스크 1, 2)
   const LAYER_COL = { cu1: '#ff5a5a', cu2: '#4f8dff', mask: '#3ccf6e', mask2: '#ffd23f', outline: '#e8e8e8' };
   // 따로 출력하는 레이어의 색: DXF 레이어 순서대로 돌려 쓴다
   const X_COL = ['#ff9f43', '#b388ff', '#26c6da', '#ec407a', '#9ccc65', '#bcaaa4', '#5c6bc0', '#d4e157'];
-  const layerCol = tg => LAYER_COL[tg] || X_COL[Math.max(0, S.base ? [...S.base.layerCount.keys()].indexOf(tg.slice(3)) : 0) % X_COL.length];
-  const X_OPT = [['xc', '따로 출력 · 동박 규칙'], ['xm', '따로 출력 · 면 그대로(마스크 규칙)'], ['xo', '따로 출력 · 선(외형 규칙)']];
-  const outTargets = () => S.base ? targetList(S.base.layerCount, S.layerTarget).map(q => q[0]) : Object.keys(TARGETS);
+  const FIRST_COL = { cu: ['#ff5a5a', '#4f8dff'], mask: ['#3ccf6e', '#ffd23f'], outline: ['#e8e8e8'] };
+  const layerCol = tg => LAYER_COL[tg] || FIRST_COL[tgRule(tg)][toneOf(tg)] || X_COL[Math.max(0, S.base ? [...S.base.layerCount.keys()].indexOf(tg.slice(3)) : 0) % X_COL.length];
+  const outTargets = () => S.base ? targetList(S.base.layerCount, S.layerTarget).map(q => q[0]).filter(isXT) : []; // 화면에서는 레이어 하나 = 출력 하나
   const fileSafe = t => String(t).replace(/[\\\/:*?"<>|\s]+/g, '_');
   const viewRank = tg => ({ cu2: 0, cu1: 1, mask2: 3, mask: 4, outline: 6 })[tg] ?? ({ cu: 2, mask: 5, outline: 7 })[tgRule(tg)];
   const WT = { padcut: ['배선과 합쳐진 패드를 떼어 냄', 'i'], text: ['TEXT·MTEXT를 내장 글꼴로 근사', 'i'], gtext: ['TEXT·MTEXT를 불러온 글꼴 윤곽으로 냄', 'i'], open: ['열린 선을 선으로 냄', 'i'], fallback: ['영역으로 출력(대체)', 'w'], narrow: ['좁은 패드 → 직각 마감', 'w'], overlap: ['같은 층 겹침', 'e'], nested: ['다른 객체 안의 폴리선', 'w'], diff: ['형상 차이 기준 초과', 'e'], dup: ['중복 객체', 'w'], same: ['같은 자리 같은 요소(하나만 출력)', 'w'], width: ['폭 있는 폴리선', 'w'], arcflat: ['블록 배율로 호를 꺾은선으로 바꿈', 'w'], ellipse: ['타원 근사 오차', 'w'] };
@@ -2815,18 +2818,15 @@ if (typeof document !== 'undefined') (function () {
     const b = S.base, stem = S.fileName.replace(/\.[^.]*$/, '') || 'output';
     if (fresh) {
       // 이름으로 추정: 마스크 → 솔더마스크, 동박처럼 보이는 이름 우선, 외형·치수·부품 같은 이름은 출력 안 함
-      const isMask = nm => /mask|solder|(^|[^a-z])sm([^a-z]|$)|마스크|레지스트/i.test(nm), isCu = nm => /copper|동박|배선|패턴|(^|[^a-z])(cu|top|bot|bottom|l[1-9])([^a-z]|$)/i.test(nm), isAux = nm => /outline|zone|limit|body|text|info|dim|border|frame|외형|치수|부품/i.test(nm) || nm === '0';
+      const isMask = nm => MASK_NAME.test(nm), isCu = nm => /copper|동박|배선|패턴|(^|[^a-z])(cu|top|bot|bottom|l[1-9])([^a-z]|$)/i.test(nm), isAux = nm => /outline|zone|limit|body|text|info|dim|border|frame|외형|치수|부품/i.test(nm) || nm === '0';
       const named = [...b.layerCount].filter(([nm, n]) => n > 0 && !isMask(nm) && isCu(nm) && !/pad|outline|외형/i.test(nm)).map(q => q[0]), cuNames = named.length ? named : [...b.layerCount].filter(([nm, n]) => n > 0 && !isMask(nm) && !isAux(nm)).map(q => q[0]);
       const isOut = nm => /outline|외형|board|border|edge|profile/i.test(nm) && !/zone|limit|trace/i.test(nm);
-      const masks = [...b.layerCount].filter(([nm, n]) => n > 0 && isMask(nm)).map(q => q[0]), botM = masks.find(nm => /bot|bottom|하면|뒷면|(^|[^0-9])2$/i.test(nm));
-      const maskOrder = botM && masks.length > 1 ? masks.filter(nm => nm !== botM).concat([botM]) : masks;
       const outName = ([...b.layerCount].find(([nm, n]) => n > 0 && !isMask(nm) && isOut(nm)) || [])[0];
       for (const [name, n] of b.layerCount) {
         let t = 'none';
-        if (n > 0) { if (isMask(name)) { const ix = maskOrder.indexOf(name); if (ix >= 0 && ix < 2) t = ['mask', 'mask2'][ix]; } else if (name === outName) t = 'outline'; else { const ix = cuNames.indexOf(name); if (ix >= 0 && ix < 2) t = ['cu1', 'cu2'][ix]; } }
+        if (n > 0) { if (isMask(name)) t = 'xm:' + name; else if (name === outName) t = 'xo:' + name; else if (cuNames.indexOf(name) >= 0) t = 'xc:' + name; }
         S.layerTarget[name] = t;
       }
-      for (const tg in TARGETS) S.files[tg] = stem + TARGETS[tg].suffix + '.gbr';
     }
     $('fileInfo').textContent = S.fileName + ' · ' + (b.ver || '버전 표시 없음') + ' · 단위 ' + b.unitText + ' · 닫힌 도형 ' + b.shapes.length + '개';
     let msg = '읽기 완료: 닫힌 도형 ' + b.shapes.length + '개, 열린 선 ' + (b.paths || []).length + '개, 글자 ' + (b.texts || []).length + '개, 무시한 객체 ' + b.ignored.length + '개.';
@@ -2838,8 +2838,7 @@ if (typeof document !== 'undefined') (function () {
     clearResult(); S.dirty = true; S.dirtyFit = true; updateApply(); if ($('oAuto').checked) convert();
   }
   // 레이어 표: 체크칸(출력 여부) + 규칙별로 묶은 출력 대상(동박 / 면 / 선). 체크를 끄면 고른 대상은 기억해 두었다가 다시 켤 때 되살린다
-  const TREE = [['동박 (패드·배선 복원)', [['cu1', '동박 1'], ['cu2', '동박 2'], ['xc', '이 레이어만 따로']]], ['면 (그린 모양 그대로)', [['mask', '솔더마스크 1'], ['mask2', '솔더마스크 2'], ['xm', '이 레이어만 따로']]], ['선 (외곽선을 따라 그림)', [['outline', '외형'], ['xo', '이 레이어만 따로']]]];
-  const RULE_T = { cu: '동박', mask: '면', outline: '선' };
+  const RULES = [['xc', '동박', '패드는 플래시, 배선은 선으로 복원'], ['xm', '면', '그린 모양 그대로(패드 모양은 플래시, 나머지는 영역) — 솔더마스크 등'], ['xo', '선', '외곽선을 선으로 따라 그림 — 외형 등']];
   function renderLayerTable() {
     const tb = $('layerTbl').tBodies[0]; tb.innerHTML = ''; S.layerPick = S.layerPick || {};
     for (const [name, n] of S.base.layerCount) {
@@ -2849,10 +2848,10 @@ if (typeof document !== 'undefined') (function () {
       tr.insertCell().textContent = name;
       const c = tr.insertCell(); c.className = 'num'; c.textContent = n;
       const sel = document.createElement('select');
-      for (const [g, items] of TREE) { const og = document.createElement('optgroup'); og.label = g; for (const [v, t] of items) { const o = document.createElement('option'); o.value = v; o.textContent = (XRULE[v] ? RULE_T[XRULE[v]] + ' · ' : '') + t; og.appendChild(o); } sel.appendChild(og); }
-      const pk = on ? cur : (S.layerPick[name] || 'xc:' + name); sel.value = isXT(pk) ? pk.slice(0, 2) : pk; sel.dataset.layer = name; sel.disabled = !on;
-      sel.title = '동박 1·2, 솔더마스크 1·2, 외형: 같은 대상을 고른 레이어끼리 한 출력으로 합칩니다. 이 레이어만 따로: 이 레이어만 담은 출력을 하나 더 만듭니다(이름 = 레이어 이름).';
-      const apply = () => { const v = XRULE[sel.value] ? sel.value + ':' + name : sel.value; S.layerPick[name] = v; S.layerTarget[name] = ck.checked ? v : 'none'; sel.disabled = !ck.checked; tr.classList.toggle('off', !ck.checked); renderOutTable(); renderIgnored(); markDirty(true); };
+      for (const [v, t, tip] of RULES) { const o = document.createElement('option'); o.value = v; o.textContent = t; o.title = tip; sel.appendChild(o); }
+      const pk = on ? cur : (S.layerPick[name] || 'xc:' + name); sel.value = isXT(pk) ? pk.slice(0, 2) : 'xc'; sel.dataset.layer = name; sel.disabled = !on;
+      sel.title = '동박: 패드는 플래시, 배선은 선으로 복원 / 면: 그린 모양 그대로(솔더마스크 등) / 선: 외곽선을 선으로 따라 그림(외형 등). 체크한 레이어 하나가 출력 하나가 됩니다.';
+      const apply = () => { const v = sel.value + ':' + name; S.layerPick[name] = v; S.layerTarget[name] = ck.checked ? v : 'none'; sel.disabled = !ck.checked; tr.classList.toggle('off', !ck.checked); renderOutTable(); renderIgnored(); markDirty(true); };
       ck.onchange = apply; sel.onchange = apply; tr.classList.toggle('off', !on);
       tr.insertCell().appendChild(sel);
     }
@@ -2864,7 +2863,7 @@ if (typeof document !== 'undefined') (function () {
       if (!S.files[tg]) S.files[tg] = stem + '_' + fileSafe(tgLabel(tg)) + '.gbr';
       if (!S.odbNames[tg]) S.odbNames[tg] = odbDefName(tg);
       const tr = tb.insertRow(), c0 = tr.insertCell(); c0.textContent = tgLabel(tg);
-      if (isXT(tg)) { const sm = document.createElement('small'); sm.className = 'muted'; sm.textContent = ' ' + ({ cu: '동박 규칙', mask: '면', outline: '선' })[tgRule(tg)]; c0.appendChild(sm); }
+      if (isXT(tg)) { const sm = document.createElement('small'); sm.className = 'muted'; sm.textContent = ' ' + ({ cu: '동박', mask: '면', outline: '선' })[tgRule(tg)]; c0.appendChild(sm); }
       const inp = document.createElement('input'); inp.type = 'text'; inp.value = S.files[tg]; inp.id = 'file_' + tg;
       inp.onchange = () => { S.files[tg] = inp.value.trim() || S.files[tg]; inp.value = S.files[tg]; };
       tr.insertCell().appendChild(inp);
@@ -3068,13 +3067,13 @@ if (typeof document !== 'undefined') (function () {
         if (w < tiny && h < tiny) { o.fillRect(b[0] - VX, b[1] - VY, Math.max(w, px0), Math.max(h, px0)); continue; } // 화면에서 점만 한 것은 점으로
         for (const a of p.atoms) drawAtom(o, a);
       }
-      if ((tg === 'mask' || tg === 'mask2') && $('vMaskLine').checked) { // 테두리만 남긴다: 면에서 '안쪽으로 줄인 면'을 뺀다
+      if (isMaskT(tg) && $('vMaskLine').checked) { // 테두리만 남긴다: 면에서 '안쪽으로 줄인 면'을 뺀다
         const e = off2.getContext('2d'), k = Math.max(1, Math.round(2 * V.dpr));
         e.setTransform(1, 0, 0, 1, 0, 0); e.globalCompositeOperation = 'source-over'; e.clearRect(0, 0, off2.width, off2.height); e.drawImage(off, 0, 0);
         e.globalCompositeOperation = 'destination-in';
         for (const d of [[k, 0], [-k, 0], [0, k], [0, -k], [k, k], [k, -k], [-k, k], [-k, -k]]) e.drawImage(off, d[0], d[1]);
         o.setTransform(1, 0, 0, 1, 0, 0); o.globalCompositeOperation = 'destination-out'; o.drawImage(off2, 0, 0);
-        if (!byLayer) { o.globalCompositeOperation = 'source-in'; o.fillStyle = tg === 'mask2' ? MASK2_LINE_COL : MASK_LINE_COL; o.fillRect(0, 0, off.width, off.height); }
+        if (!byLayer) { o.globalCompositeOperation = 'source-in'; o.fillStyle = tg === 'mask2' || toneOf(tg) > 0 ? MASK2_LINE_COL : MASK_LINE_COL; o.fillRect(0, 0, off.width, off.height); }
         ctx.globalAlpha = 1; ctx.drawImage(off, 0, 0); continue;
       }
       ctx.globalAlpha = 0.85; ctx.drawImage(off, 0, 0); ctx.globalAlpha = 1;
@@ -3095,7 +3094,7 @@ if (typeof document !== 'undefined') (function () {
     }
     if ($('vOrig').checked) for (const tg of order) {
       const L = layerOf(tg); if (!L || V.show[tg] === false) continue;
-      ctx.lineWidth = 1.1 * px; ctx.strokeStyle = byLayer ? '#ffffff' : (isMaskT(tg) ? '#b9f5c8' : tg === 'cu2' ? '#b8ccff' : '#ffffff');
+      ctx.lineWidth = 1.1 * px; ctx.strokeStyle = byLayer ? '#ffffff' : (isMaskT(tg) ? '#b9f5c8' : tg === 'cu2' || toneOf(tg) === 1 ? '#b8ccff' : '#ffffff');
       for (const q of (L.tpaths || [])) for (const P of q.strokes) { ctx.beginPath(); ctx.moveTo(P[0].x - VX, P[0].y - VY); for (let i = 1; i < P.length; i++) ctx.lineTo(P[i].x - VX, P[i].y - VY); ctx.stroke(); }
       if (L.paths) for (const q of L.paths) { const f = q.flat; ctx.beginPath(); ctx.moveTo(f[0][0] - VX, f[0][1] - VY); for (let i = 1; i < f.length; i++) ctx.lineTo(f[i][0] - VX, f[i][1] - VY); ctx.stroke(); }
       for (const s of L.shapes) { if (!bbHit(s.bbox, vb) || (s.bbox[2] - s.bbox[0] < 3 * px && s.bbox[3] - s.bbox[1] < 3 * px)) continue; ctx.setLineDash(s.isVoid || s.dup ? [4 * px, 3 * px] : []); pathOf(ctx, V.scale < 300 ? s.coarse : s.flat); ctx.stroke(); }
@@ -3107,6 +3106,7 @@ if (typeof document !== 'undefined') (function () {
   }
   function renderToolbarLayers() {
     const box = $('tbLayers'); box.innerHTML = '';
+    KC = {};
     if (!S.result) return;
     for (const L of S.result.layers) {
       const lb = document.createElement('label'), ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = V.show[L.target] !== false; ck.id = 'show_' + L.target;
@@ -3116,9 +3116,9 @@ if (typeof document !== 'undefined') (function () {
   }
   function renderLegend() {
     const byLayer = $('vColor').value === 'layer';
-    const it = byLayer ? [[LAYER_COL.cu1, '동박 1'], [LAYER_COL.cu2, '동박 2'], [LAYER_COL.mask, '솔더마스크 1'], [LAYER_COL.mask2, '솔더마스크 2'], [LAYER_COL.outline, '외형']].concat(S.result ? S.result.layers.filter(L => isXT(L.target)).map(L => [layerCol(L.target), esc(L.label)]) : []) : [[KIND_COL.stroke, '선(배선, D01)'], [KIND_COL.flash, '플래시(패드, D03)'], [KIND_COL.area, '영역(외곽선 그대로)'], [KIND_COL.fill, '모서리·끝 채움(영역)'], [KIND_COL.text, '글자·열린 선(D01)']];
+    const it = byLayer ? (S.result ? S.result.layers.map(L => [layerCol(L.target), esc(L.label)]) : []) : [[KIND_COL.stroke, '선(배선, D01)'], [KIND_COL.flash, '플래시(패드, D03)'], [KIND_COL.area, '영역(외곽선 그대로)'], [KIND_COL.fill, '모서리·끝 채움(영역)'], [KIND_COL.text, '글자·열린 선(D01)']];
     const sw = c => byLayer ? '<i style="background:' + c + '"></i>' : ['cu1', 'cu2', 'mask', 'mask2'].map(t => '<i style="margin-right:1px;background:' + (t === 'cu1' ? c : t === 'cu2' ? shade(c, 0.5, 0) : t === 'mask' ? shade(c, 0.4, 0.6) : shade(c, 0.25, 0.3)) + '"></i>').join('');
-    $('legendItems').innerHTML = (byLayer ? '' : '<span style="margin-right:14px">색 톤: 밝음 = 동박 1 / 어두움 = 동박 2 / 옅음 = 솔더마스크 1 / 탁함 = 솔더마스크 2 · 흰 선 = 외형</span>') + it.map(v => '<span style="margin-right:14px;white-space:nowrap">' + sw(v[0]) + ' ' + v[1] + '</span>').join('') + (!byLayer && $('vMaskLine').checked ? '<span style="margin-right:14px;white-space:nowrap"><i style="background:none;border:2px solid ' + MASK_LINE_COL + '"></i>솔더마스크 1 테두리</span><span style="margin-right:14px;white-space:nowrap"><i style="background:none;border:2px solid ' + MASK2_LINE_COL + '"></i>솔더마스크 2 테두리</span>' : '') + '<span style="margin-right:14px"><i style="background:none;border:1px solid #fff"></i>원본 외곽선</span><span><i style="background:#06301a;height:3px;border:1px solid #6b7785"></i>중심선</span>';
+    $('legendItems').innerHTML = (byLayer ? '' : '<span style="margin-right:14px">색 톤: 밝음·어두움 = 동박 규칙의 첫째·둘째 층 / 옅음·탁함 = 면 규칙의 첫째·둘째 층 · 흰 선 = 선 규칙 층</span>') + it.map(v => '<span style="margin-right:14px;white-space:nowrap">' + sw(v[0]) + ' ' + v[1] + '</span>').join('') + (!byLayer && $('vMaskLine').checked ? '<span style="margin-right:14px;white-space:nowrap"><i style="background:none;border:2px solid ' + MASK_LINE_COL + '"></i>면 층 테두리(첫째)</span><span style="margin-right:14px;white-space:nowrap"><i style="background:none;border:2px solid ' + MASK2_LINE_COL + '"></i>면 층 테두리(그 밖)</span>' : '') + '<span style="margin-right:14px"><i style="background:none;border:1px solid #fff"></i>원본 외곽선</span><span><i style="background:#06301a;height:3px;border:1px solid #6b7785"></i>중심선</span>';
   }
   const toWorld = ev => { const r = cv.getBoundingClientRect(); return [((ev.clientX - r.left) * V.dpr - cv.width / 2) / V.scale + V.cx, (cv.height / 2 - (ev.clientY - r.top) * V.dpr) / V.scale + V.cy]; };
   cv.addEventListener('wheel', ev => { ev.preventDefault(); const p = toWorld(ev), f = Math.pow(1.0015, -ev.deltaY); V.scale *= f; V.cx = p[0] - (p[0] - V.cx) / f; V.cy = p[1] - (p[1] - V.cy) / f; draw(); }, { passive: false });

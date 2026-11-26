@@ -22,9 +22,9 @@ const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? ' 
   await done(); await page.waitForTimeout(300);
   const info = await page.evaluate(() => { const R = window.__app.S.result; return { layers: R.layers.map(l => ({ t: l.target, stats: l.stats, bad: l.verify.nBad, worst: l.verify.worst, prims: l.prims.length, warn: l.warnings.length })), ms: R.ms }; });
   console.log(JSON.stringify(info));
-  check('레이어 5개 출력(동박 1·2, 솔더마스크 1·2, 외형) 자동 지정', info.layers.map(l => l.t).join() === 'cu1,cu2,mask,mask2,outline', info.layers.map(l => l.t).join());
+  check('레이어 5개 출력(동박 2, 면 2, 선 1) 자동 지정', info.layers.map(l => l.t).join() === 'xc:L1_TOP,xc:L2_BOT,xm:SM_TOP,xm:SM_BOT,xo:OUTLINE', info.layers.map(l => l.t).join());
   check('형상 비교 기준 이내', info.layers.every(l => l.bad === 0));
-  check('레이어 표 자동 지정', (await page.$$eval('#layerTbl select', a => a.map(s => s.dataset.layer + '=' + s.value).join(' '))).includes('L1_TOP=cu1'), await page.$$eval('#layerTbl select', a => a.map(s => s.dataset.layer + '=' + s.value).join(' ')));
+  check('레이어 표 자동 지정', (await page.$$eval('#layerTbl select', a => a.map(s => s.dataset.layer + '=' + (s.disabled ? '끔' : s.value)).join(' '))) === '0=끔 L1_TOP=xc L2_BOT=xc SM_TOP=xm SM_BOT=xm OUTLINE=xo 치수=끔', await page.$$eval('#layerTbl select', a => a.map(s => s.dataset.layer + '=' + s.value).join(' ')));
   check('요약에 "모든 객체가 기준 이내"', (await page.textContent('#sumBox')).includes('모든 객체가 기준 이내'));
   await page.screenshot({ path: path.join(shots, '1_example_full.png') });
 
@@ -73,26 +73,26 @@ const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? ' 
   await page.uncheck('#oNoMacro'); await done();
   await page.selectOption('#oOrigin', 'll'); await done();
   check('좌하단 원점', await page.evaluate(() => Math.abs(window.__app.S.result.bbox[0]) < 1e-9));
-  await page.check('#mir_cu2'); await done();
+  await page.check('[id="mir_xc:L2_BOT"]'); await done();
   check('2층 반전 후 형상 기준 이내', await page.evaluate(() => window.__app.S.result.layers.every(l => l.verify.nBad === 0)));
   await page.selectOption('#vColor', 'layer'); await page.click('#btnFit'); await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(shots, '7_layer_colors.png') });
 
   // 내려받기
-  let [dl] = await Promise.all([page.waitForEvent('download'), page.click('#dl_cu1')]);
+  let [dl] = await Promise.all([page.waitForEvent('download'), page.click('[id="dl_xc:L1_TOP"]')]);
   let f = path.join(out, 'dl_' + dl.suggestedFilename()); await dl.saveAs(f);
   const g = fs.readFileSync(f, 'utf8');
-  check('gbr 내려받기', dl.suggestedFilename() === 'example_L1.gbr' && g.includes('%FSLAX46Y46*%') && g.trim().endsWith('M02*'), dl.suggestedFilename());
+  check('gbr 내려받기', dl.suggestedFilename() === 'example_L1_TOP.gbr' && g.includes('%FSLAX46Y46*%') && g.trim().endsWith('M02*'), dl.suggestedFilename());
   [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnZip')]);
   f = path.join(out, 'dl_' + dl.suggestedFilename()); await dl.saveAs(f);
   const z = fs.readFileSync(f);
-  check('zip 내려받기', dl.suggestedFilename() === 'example_gerber.zip' && z.readUInt32LE(0) === 0x04034b50 && z.includes('example_SM1.gbr') && z.includes('example_SM2.gbr') && z.includes('example_OUTLINE.gbr'), dl.suggestedFilename() + ' ' + z.length + 'B');
+  check('zip 내려받기', dl.suggestedFilename() === 'example_gerber.zip' && z.readUInt32LE(0) === 0x04034b50 && z.includes('example_SM_TOP.gbr') && z.includes('example_SM_BOT.gbr') && z.includes('example_OUTLINE.gbr'), dl.suggestedFilename() + ' ' + z.length + 'B');
 
   // 여러 객체 선택: Ctrl+클릭, 상자 끌기, 한꺼번에 바꾸기
   {
-    const role = (x, y) => page.evaluate(([x, y]) => { const L = window.__app.S.result.layers.find(l => l.target === 'cu1'); let b = null; for (const s of L.shapes) if (!s.dup && x >= s.bbox[0] && x <= s.bbox[2] && y >= s.bbox[1] && y <= s.bbox[3] && (!b || s.area < b.area)) b = s; return b ? b.role : null; }, [x, y]);
+    const role = (x, y) => page.evaluate(([x, y]) => { const L = window.__app.S.result.layers.find(l => l.target === 'xc:L1_TOP'); let b = null; for (const s of L.shapes) if (!s.dup && x >= s.bbox[0] && x <= s.bbox[2] && y >= s.bbox[1] && y <= s.bbox[3] && (!b || s.area < b.area)) b = s; return b ? b.role : null; }, [x, y]);
     await page.selectOption('#oOrigin', 'dxf'); await done(); await page.selectOption('#vColor', 'kind'); await page.waitForTimeout(100);
-    for (const id of ['show_cu2', 'show_mask', 'show_mask2', 'show_outline']) if (await page.$('#' + id)) await page.uncheck('#' + id);
+    for (const id of ['show_xc:L2_BOT', 'show_xm:SM_TOP', 'show_xm:SM_BOT', 'show_xo:OUTLINE']) if (await page.$('[id="' + id + '"]')) await page.uncheck('[id="' + id + '"]');
     await zoom([0, 0, 14, 4]); await page.waitForTimeout(200);
     let a = await toScreen(2, 2), b = await toScreen(12, 2);
     await page.mouse.click(a[0], a[1]);
@@ -129,31 +129,31 @@ const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? ' 
   {
     await page.uncheck('#oAuto');
     const stamp = () => page.evaluate(() => { const R = window.__app.S.result; return R ? R.layers.map(l => l.target + ':' + (l.reused ? 'keep' : 'new')).join(' ') : 'none'; });
-    const gb = () => page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'mask').text.length);
+    const gb = () => page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'xm:SM_TOP').text.length);
     const before = await gb();
     await page.fill('#oOutW', '0.2'); await page.dispatchEvent('#oOutW', 'change'); await page.waitForTimeout(300);
-    check('옵션을 바꿔도 바로 변환하지 않음(안내 표시, 내려받기 잠금)', (await page.isVisible('#dirtyBar')) && (await page.isDisabled('#dl_cu1')) && (await page.isDisabled('#btnZip')) && (await page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'outline').text.includes('C,0.1*'))), await page.textContent('#applyMsg'));
+    check('옵션을 바꿔도 바로 변환하지 않음(안내 표시, 내려받기 잠금)', (await page.isVisible('#dirtyBar')) && (await page.isDisabled('[id="dl_xc:L1_TOP"]')) && (await page.isDisabled('#btnZip')) && (await page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'xo:OUTLINE').text.includes('C,0.1*'))), await page.textContent('#applyMsg'));
     await page.uncheck('#layerTbl input[data-layer="SM_BOT"]'); await page.waitForTimeout(200);
     check('레이어 지정을 바꿔도 바로 변환하지 않음', (await page.evaluate(() => window.__app.S.result.layers.length)) === 5);
     await page.screenshot({ path: path.join(shots, '11_apply_pending.png') });
     await page.click('#btnConvert'); await done(); await page.waitForTimeout(200);
     const st = await stamp();
-    check('변환을 누르면 한 번에 반영, 바뀐 층만 다시 변환', st === 'cu1:keep cu2:keep mask:keep outline:new' && !(await page.isVisible('#dirtyBar')) && !(await page.isDisabled('#dl_cu1')) && (await page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'outline').text.includes('C,0.2*'))), st + ' | ' + (await page.textContent('#applyMsg')).slice(0, 90));
+    check('변환을 누르면 한 번에 반영, 바뀐 층만 다시 변환', st === 'xc:L1_TOP:keep xc:L2_BOT:keep xm:SM_TOP:keep xo:OUTLINE:new' && !(await page.isVisible('#dirtyBar')) && !(await page.isDisabled('[id="dl_xc:L1_TOP"]')) && (await page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'xo:OUTLINE').text.includes('C,0.2*'))), st + ' | ' + (await page.textContent('#applyMsg')).slice(0, 90));
     check('그대로 쓴 층의 결과는 같음', (await gb()) === before);
     await page.screenshot({ path: path.join(shots, '12_apply_done.png') });
     // 미리보기에서 눌러 바꾸기: 바로 반영, 그 층만
     await zoom([0, 0, 14, 4]); await page.waitForTimeout(200);
     const a = await toScreen(2, 2); await page.mouse.click(a[0], a[1]); await page.waitForSelector('#pop button[data-role=trace]');
     await page.click('#pop button[data-role=trace]'); await done(); await page.waitForTimeout(200);
-    check('눌러 바꾸기는 바로 반영, 그 층만 다시 변환', (await stamp()) === 'cu1:new cu2:keep mask:keep outline:keep', await stamp());
+    check('눌러 바꾸기는 바로 반영, 그 층만 다시 변환', (await stamp()) === 'xc:L1_TOP:new xc:L2_BOT:keep xm:SM_TOP:keep xo:OUTLINE:keep', await stamp());
     await page.click('#pop button[data-role=auto]'); await done(); await page.keyboard.press('Escape');
     // 설정이 바뀐 채로 눌러 바꾸면 바뀐 설정은 아직 반영되지 않는다
     await page.fill('#oOutW', '0.1'); await page.dispatchEvent('#oOutW', 'change'); await page.waitForTimeout(200);
     await page.mouse.click(a[0], a[1]); await page.waitForSelector('#pop button[data-role=trace]'); await page.click('#pop button[data-role=trace]'); await done(); await page.waitForTimeout(200);
-    check('설정이 바뀐 상태에서 눌러 바꿔도 미적용 설정은 그대로 대기', (await page.isVisible('#dirtyBar')) && (await page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'outline').text.includes('C,0.2*'))));
+    check('설정이 바뀐 상태에서 눌러 바꿔도 미적용 설정은 그대로 대기', (await page.isVisible('#dirtyBar')) && (await page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'xo:OUTLINE').text.includes('C,0.2*'))));
     await page.click('#pop button[data-role=auto]'); await done(); await page.keyboard.press('Escape');
     await page.click('#dirtyBar'); await done(); await page.waitForTimeout(200);
-    check('안내 띠를 눌러도 변환', !(await page.isVisible('#dirtyBar')) && (await page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'outline').text.includes('C,0.1*'))));
+    check('안내 띠를 눌러도 변환', !(await page.isVisible('#dirtyBar')) && (await page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'xo:OUTLINE').text.includes('C,0.1*'))));
     await page.check('#oAuto');
   }
   // 예제 버튼, 바이너리 DXF 안내
