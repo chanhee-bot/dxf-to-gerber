@@ -169,7 +169,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1126-2030';
+const BUILD = '1126-2230';
 
 /* ================================================================
  * 1. 기하 기본
@@ -2350,7 +2350,10 @@ function odbPitch(vals) {
   if (h < 0) return fail();
   // 멀리 떨어진 짝으로 피치를 다듬는다
   let a = 0; while (a < h && (W[a] * 2 < W[h] || has(X[a] + p) < 0)) a++;
-  for (let j = n - 1; j > a; j--) { if (W[j] * 2 < W[h]) continue; const m = Math.round((X[j] - X[a]) / p); if (m >= 1 && Math.abs(X[j] - X[a] - m * p) < 1e-3) { p = (X[j] - X[a]) / m; break; } }
+  // 같은 값 줄(X[a]에서 피치만큼씩 건너뛰며 이어지는 값)만 따라간다. 예전에는 가장 먼 "무거운 값"을 썼는데, 그것이 다른 종류의 패드(중심이 격자에서 1µm 이내로 어긋난 것)이면
+  // 피치가 그만큼 틀어져 칸 원점이 열마다 조금씩 밀리고, 같은 칸이 서로 다른 내용으로 갈려 스텝이 안 묶였다.
+  { let cur = a, cnt = 0; for (;;) { let lo = 0, hi = n - 1; const t = X[cur] + p; while (lo < hi) { const m = (lo + hi) >> 1; if (X[m] < t - 2e-5) lo = m + 1; else hi = m; } if (Math.abs(X[lo] - t) > 2e-5 || lo === cur) break; cur = lo; cnt++; if (cnt % 8 === 0) p = (X[cur] - X[a]) / cnt; }
+    if (cnt) { p = (X[cur] - X[a]) / cnt; const q = Math.round(p * 1e5) / 1e5; if (Math.abs(p - q) * cnt < 3e-5) p = q; } } // 0.00001mm 단위 값에 충분히 가까우면 그 값으로
   return { p, at: X[a], info };
 }
 function buildOdb1(R, base, opt) {
@@ -3283,9 +3286,10 @@ if (typeof document !== 'undefined') (function () {
       msg.textContent = 'ODB++ 다시 읽어 대조하는 중…'; await new Promise(r => setTimeout(r, 30));
       const c = checkOdb(odb, S.result);
       let h = '작업 이름 <b>' + esc(odb.job) + '</b> · 층 ' + esc(odb.layers.join(', ')) + ' · ' + odb.units + ' · 파일 ' + odb.files.size + '개 · ' + (odb.bytes / 1e6).toFixed(2) + 'MB(압축 전)<br>';
-      if (odb.mode === 'cell' && odb.cell) h += '스텝 기준: <b>반복 칸 자동</b>(동박이 블록 안에 없어 패드 간격으로 찾음) — 칸 ' + odb.cell.px.toFixed(4) + ' × ' + odb.cell.py.toFixed(4) + 'mm, 내용이 있는 칸 ' + odb.cell.n + '개, 요소의 ' + (100 * odb.diag.featStep / Math.max(1, odb.diag.featIn + odb.diag.featOut)).toFixed(1) + '%가 스텝 안<br>';
+      if (odb.mode === 'cell' && odb.cell) h += '스텝 기준: <b>반복 칸 자동</b>(동박이 블록 안에 없어 패드 간격으로 찾음) — 칸 ' + odb.cell.px.toFixed(7) + ' × ' + odb.cell.py.toFixed(7) + 'mm, 내용이 있는 칸 ' + odb.cell.n + '개, 요소의 ' + (100 * odb.diag.featStep / Math.max(1, odb.diag.featIn + odb.diag.featOut)).toFixed(1) + '%가 스텝 안<br>';
       else if (odb.steps.length) h += '스텝 기준: <b>DXF 블록 삽입</b><br>';
       h += odb.steps.length ? '스텝 <b>' + odb.steps.length + '개</b>(내용 ' + odb.nKinds + '종, 스텝 하나 = 배열 하나 = CAM 블록 패드 한 줄)를 ' + odb.nInst + '곳에 반복: ' + esc(odb.steps.slice(0, 6).map(q => q.name + ' ' + q.nx + '×' + q.ny).join(', ')) + (odb.steps.length > 6 ? ' …' : '') + (+$('oOdbMaxN').value > 0 ? ' · 배열을 ' + Math.round(+$('oOdbMaxN').value) + '칸 이하 조각으로 나눔(가장 큰 조각 ' + Math.max(...odb.steps.map(q => q.nx)) + '×' + Math.max(...odb.steps.map(q => q.ny)) + ')' : '') + (odb.srK !== 1 ? ' · <b>스텝 위치 보정 ' + ((odb.srK - 1) * 1e6).toFixed(2) + 'ppm</b>' : '') + (odb.nFlatCell ? '<br>반복이 ' + odb.minRep + '번 미만인 조각 ' + odb.nFlatCell + '칸은 스텝으로 두지 않고 패널에 풀어 적음' : '') : '스텝 묶음 없음' + (odb.noStepWhy ? ' (' + odb.noStepWhy + ')' : odb.nFlatCell ? ' (한 배열로 ' + odb.minRep + '번 이상 반복되는 것이 없음 — "스텝으로 둘 최소 반복 수"를 낮추면 묶입니다)' : ' (똑같이 반복되는 부분이 없음)') + ' — 전부 panel 스텝에 적음';
+      if (odb.steps.length) { const m = /STEP-REPEAT \{\s+NAME=(\S+)\s+X=(\S+)\s+Y=(\S+)\s+DX=(\S+)\s+DY=(\S+)\s+NX=(\d+)\s+NY=(\d+)/.exec(odb.files.get('steps/panel/stephdr')); if (m) h += '<br><span class="muted">첫 반복 배치: ' + esc(m[1].toLowerCase()) + ' X=' + m[2] + ' Y=' + m[3] + ' DX=' + m[4] + ' DY=' + m[5] + ' NX=' + m[6] + ' NY=' + m[7] + '</span>'; }
       if (odb.steps.length) { const q = odb.steps[0]; h += '<br><span class="muted">가장 많이 반복되는 스텝 <b>' + esc(q.name) + '</b>의 내용: 선 ' + q.L + '개, 패드 ' + q.P + '개, 영역(모서리 채움 등) ' + q.S + '개</span>'; }
       { let ns = 0, nf = 0, nl = 0, na = 0; for (const L of S.result.layers) if (L.stats && L.stats.same) { ns += L.stats.same; nf += L.stats.sameFlash; nl += L.stats.sameLine; na += L.stats.sameArea; }
         h += '<br><span class="muted">같은 자리 같은 요소(완전히 겹친 것): ' + (ns ? '<b>' + ns + '개를 빼고 하나만 냄</b> (패드 ' + nf + ', 선 ' + nl + ', 영역 ' + na + ')' : '없음') + '</span>'; }

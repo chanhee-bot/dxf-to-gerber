@@ -145,6 +145,16 @@ async function one(label, dxfText, layers, extra, expectSteps) {
     check('고친 이름이 matrix·폴더에 쓰이고 겹치면 번호', cN.ok && oN.layers.join() === 'smt,top_copper,top_copper_2,rout,sm_bot,layer' && /NAME=TOP_COPPER\n/.test(mxN) && /NAME=TOP_COPPER_2\n/.test(mxN) && oN.files.has('steps/panel/layers/top_copper_2/features') && oN.files.has('steps/panel/layers/rout/features') && !oN.files.has('steps/panel/layers/l1/features'), oN.layers.join() + ' | 요소 ' + cN.total + ' 빠짐 ' + cN.miss + ' 남음 ' + cN.extra);
     check('층 종류: 동박 = SIGNAL, 면(이름이 마스크) = SOLDER_MASK, 그 밖 = DOCUMENT', /TYPE=SIGNAL\n\s+NAME=TOP_COPPER_2/.test(mxN) && /TYPE=SOLDER_MASK\n\s+NAME=SM_BOT/.test(mxN) && /TYPE=DOCUMENT\n\s+NAME=LAYER/.test(mxN));
   }
+  {
+    console.log('\n== 피치 다듬기: 끝 열에만 있는 패드가 격자에서 0.9µm 어긋난 도면');
+    // 칸 4mm 64×40. 패드 A·C는 마지막 열·행에 없고, 패드 B·D는 A·C의 격자에서 x 0.0009 / y 0.0006 어긋나 있으며 마지막 열·행에도 있다
+    const o = [], W = (c, v) => o.push(String(c), String(v)), rc = (x0, y0, x1, y1) => { W(0, 'LWPOLYLINE'); W(8, 'CU'); W(90, 4); W(70, 1); for (const q of [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) { W(10, q[0].toFixed(6)); W(20, q[1].toFixed(6)); } };
+    W(0, 'SECTION'); W(2, 'ENTITIES'); const ex = 0.0009, ey = 0.0006;
+    for (let i = 0; i < 64; i++) for (let j = 0; j < 40; j++) { const X = 10 + i * 4, Y = 10 + j * 4; if (i < 63 && j < 39) { rc(X + 0.5, Y + 0.5, X + 1.1, Y + 1.1); rc(X + 2.5, Y + 0.5, X + 3.1, Y + 1.1); } rc(X + 0.6 + ex, Y + 2.6 + ey, X + 1.0 + ex, Y + 3.0 + ey); rc(X + 2.6 + ex, Y + 2.6 + ey, X + 3.0 + ex, Y + 3.0 + ey); }
+    W(0, 'ENDSEC'); W(0, 'EOF');
+    const bP = buildBase(parseDxf(o.join('\n')), 'auto', true), RP = await convertAll(bP, cfg({ CU: 'cu1' }, {})), oP = buildOdb(RP, bP, { job: 't', units: 'mm', steps: true, minRep: 100 }), cP = checkOdb(oP, RP);
+    check('피치가 틀어지지 않고(가로 2, 세로 4) 스텝으로 묶임', cP.ok && oP.cell && oP.cell.px === 2 && oP.cell.py === 4 && oP.steps.length > 0 && oP.steps[0].count > 4000, 'px ' + (oP.cell && oP.cell.px) + ' py ' + (oP.cell && oP.cell.py) + ' | ' + oP.steps.slice(0, 3).map(s => s.nx + '×' + s.ny).join(' '));
+  }
   // tar.gz 묶음을 실제로 풀어 본다
   for (const [nm, r] of [['odb_example', ex], ['odb_cells', r2]]) {
     const tgz = path.join(out, nm + '.tgz'); fs.writeFileSync(tgz, zlib.gzipSync(Buffer.from(makeTar(r.odb.files, r.odb.job))));
