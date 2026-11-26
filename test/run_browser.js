@@ -13,6 +13,8 @@ const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? ' 
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', e => errors.push(String(e)));
   await page.goto('file:///' + path.join(root, process.env.HTML || 'DXF_to_Gerber.html').replace(/\\/g, '/'));
+  check('기본값: 원점 = 전체 좌측 하단, ODB++ 단위 = mm(8.1), 스텝 묶기 켬', await page.inputValue('#oOrigin') === 'll' && await page.inputValue('#oOdbUnit') === 'mm' && await page.isChecked('#oOdbStep'));
+  await page.selectOption('#oOrigin', 'dxf'); // 아래 시험의 좌표는 DXF 좌표 기준
   await page.check('#oAuto'); // 기존 시험은 '설정을 바꾸면 바로 변환'을 켜고 돌린다
   check('빌드 표시', /빌드 \d{4}-\d{4}/.test(await page.textContent('#build')), await page.textContent('#build'));
   await page.screenshot({ path: path.join(shots, '0_empty.png') });
