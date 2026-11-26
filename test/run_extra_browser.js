@@ -12,8 +12,14 @@ const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? ' 
   await page.goto('file:///' + path.join(root, 'DXF_to_Gerber.html').replace(/\\/g, '/'));
   const done = () => page.waitForFunction(() => window.__app.S.result && !window.__app.S.busy && !window.__app.S.dirty, null, { timeout: 60000 });
   await page.setInputFiles('#file', path.join(out, 'example.dxf'));
-  const pick = (layer, v) => page.selectOption('#layerTbl select[data-layer="' + layer + '"]', v);
+  const pick = async (layer, v) => { await page.check('#layerTbl input[data-layer="' + layer + '"]'); await page.selectOption('#layerTbl select[data-layer="' + layer + '"]', v); };
   await pick('L2_BOT', 'xc'); await pick('SM_BOT', 'xm'); await pick('치수', 'xo');
+  const st0 = await page.$$eval('#layerTbl tbody tr', a => a.map(tr => tr.cells[1].textContent + '=' + (tr.querySelector('input').checked ? tr.querySelector('select').value : '끔') + (tr.querySelector('select').disabled ? '(잠김)' : '')).join(' '));
+  check('체크칸 + 규칙별 묶음: 끈 레이어는 선택이 잠김', /^0=끔\(잠김\) L1_TOP=cu1 L2_BOT=xc SM_TOP=mask SM_BOT=xm OUTLINE=outline 치수=xo$/.test(st0) && (await page.$$eval('#layerTbl select[data-layer="L1_TOP"] optgroup', a => a.length)) === 3, st0);
+  await page.uncheck('#layerTbl input[data-layer="치수"]');
+  check('체크를 끄면 출력 표에서 빠짐', !(await page.$('[id="file_xo:치수"]')) && await page.evaluate(() => window.__app.S.layerTarget['치수'] === 'none'));
+  await page.check('#layerTbl input[data-layer="치수"]');
+  check('다시 켜면 고른 규칙이 되살아남', await page.evaluate(() => window.__app.S.layerTarget['치수'] === 'xo:치수'));
   const rows = await page.$$eval('#outTbl tbody tr', a => a.map(tr => tr.cells[0].textContent.trim()));
   check('출력 표에 따로 출력 줄이 생김', rows.join('|') === '동박 1|동박 2|솔더마스크 1|솔더마스크 2|외형|L2_BOT 동박 규칙|SM_BOT 면|치수 선', rows.join('|'));
   check('파일 이름 기본값', await page.inputValue('[id="file_xc:L2_BOT"]') === 'example_L2_BOT.gbr' && await page.inputValue('[id="file_xo:치수"]') === 'example_치수.gbr', await page.inputValue('[id="file_xc:L2_BOT"]') + ' ' + await page.inputValue('[id="file_xo:치수"]'));

@@ -133,7 +133,7 @@ const check = (name, cond, info) => { if (!cond) fails++; console.log((cond ? ' 
     const before = await gb();
     await page.fill('#oOutW', '0.2'); await page.dispatchEvent('#oOutW', 'change'); await page.waitForTimeout(300);
     check('옵션을 바꿔도 바로 변환하지 않음(안내 표시, 내려받기 잠금)', (await page.isVisible('#dirtyBar')) && (await page.isDisabled('#dl_cu1')) && (await page.isDisabled('#btnZip')) && (await page.evaluate(() => window.__app.S.result.layers.find(l => l.target === 'outline').text.includes('C,0.1*'))), await page.textContent('#applyMsg'));
-    await page.selectOption('#layerTbl select[data-layer="SM_BOT"]', 'none'); await page.waitForTimeout(200);
+    await page.uncheck('#layerTbl input[data-layer="SM_BOT"]'); await page.waitForTimeout(200);
     check('레이어 지정을 바꿔도 바로 변환하지 않음', (await page.evaluate(() => window.__app.S.result.layers.length)) === 5);
     await page.screenshot({ path: path.join(shots, '11_apply_pending.png') });
     await page.click('#btnConvert'); await done(); await page.waitForTimeout(200);

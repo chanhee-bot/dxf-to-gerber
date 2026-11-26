@@ -52,6 +52,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 .item:hover{background:#eaf2ff}
 .item small{color:#66727f}
 .tag{display:inline-block;padding:0 5px;border-radius:3px;font-size:11px;margin-right:4px;color:#fff;background:#6b7785}
+#layerTbl tr.off td:nth-child(2),#layerTbl tr.off td:nth-child(3){color:#8a94a0}
 #outTbl.odb th:nth-child(2),#outTbl.odb td:nth-child(2),#outTbl.odb th:nth-child(5),#outTbl.odb td:nth-child(5),#outTbl:not(.odb) th:nth-child(3),#outTbl:not(.odb) td:nth-child(3){display:none}
 .tag.w{background:#d9822b}.tag.e{background:#c62828}.tag.i{background:#2e7d32}
 .ok{color:#2e7d32;font-weight:700}.bad{color:#c62828;font-weight:700}
@@ -112,7 +113,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
   </div>
   <div class="card">
     <h2>3. 레이어</h2>
-    <table id="layerTbl"><thead><tr><th>DXF 레이어</th><th class="num">객체</th><th>출력 대상</th></tr></thead><tbody><tr><td colspan="3" class="muted">도면을 열면 표시됩니다.</td></tr></tbody></table>
+    <table id="layerTbl"><thead><tr><th title="체크한 레이어만 출력합니다.">출력</th><th>DXF 레이어</th><th class="num">객체</th><th title="규칙(동박 / 면 / 선)을 고르고, 그 아래에서 어느 출력에 넣을지 고릅니다.">규칙 · 출력 대상</th></tr></thead><tbody><tr><td colspan="4" class="muted">도면을 열면 표시됩니다.</td></tr></tbody></table>
   </div>
   <div class="card" id="applyCard">
     <button id="btnConvert" class="primary" disabled>변환</button>
@@ -166,7 +167,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1126-1030';
+const BUILD = '1126-1400';
 
 /* ================================================================
  * 1. 기하 기본
@@ -2799,7 +2800,7 @@ if (typeof document !== 'undefined') (function () {
   function loadText(text, name) {
     let dxf;
     try { dxf = parseDxf(text); } catch (e) { setMsg('DXF를 읽지 못했습니다: ' + esc(e.message), true); return; }
-    S.dxf = dxf; S.fileName = name; S.overrides = {}; S.voids = {}; S.layerTarget = {}; S.odbNames = {}; S.filesEdited = {}; S.mirror = {}; S.result = null; V.sels = []; closePop();
+    S.dxf = dxf; S.fileName = name; S.overrides = {}; S.voids = {}; S.layerTarget = {}; S.layerPick = {}; S.odbNames = {}; S.filesEdited = {}; S.mirror = {}; S.result = null; V.sels = []; closePop();
     rebuildBase(true);
   }
   function loadBuffer(buf, name) {
@@ -2836,17 +2837,23 @@ if (typeof document !== 'undefined') (function () {
     renderLayerTable(); renderOutTable(); renderIgnored();
     clearResult(); S.dirty = true; S.dirtyFit = true; updateApply(); if ($('oAuto').checked) convert();
   }
+  // 레이어 표: 체크칸(출력 여부) + 규칙별로 묶은 출력 대상(동박 / 면 / 선). 체크를 끄면 고른 대상은 기억해 두었다가 다시 켤 때 되살린다
+  const TREE = [['동박 (패드·배선 복원)', [['cu1', '동박 1'], ['cu2', '동박 2'], ['xc', '이 레이어만 따로']]], ['면 (그린 모양 그대로)', [['mask', '솔더마스크 1'], ['mask2', '솔더마스크 2'], ['xm', '이 레이어만 따로']]], ['선 (외곽선을 따라 그림)', [['outline', '외형'], ['xo', '이 레이어만 따로']]]];
+  const RULE_T = { cu: '동박', mask: '면', outline: '선' };
   function renderLayerTable() {
-    const tb = $('layerTbl').tBodies[0]; tb.innerHTML = '';
+    const tb = $('layerTbl').tBodies[0]; tb.innerHTML = ''; S.layerPick = S.layerPick || {};
     for (const [name, n] of S.base.layerCount) {
-      const tr = tb.insertRow();
+      const tr = tb.insertRow(), cur = S.layerTarget[name] || 'none', on = cur !== 'none';
+      const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = on; ck.dataset.layer = name; ck.title = '이 레이어를 출력';
+      const c0 = tr.insertCell(); c0.style.textAlign = 'center'; c0.appendChild(ck);
       tr.insertCell().textContent = name;
       const c = tr.insertCell(); c.className = 'num'; c.textContent = n;
       const sel = document.createElement('select');
-      for (const [v, t] of [['cu1', '동박 1'], ['cu2', '동박 2'], ['mask', '솔더마스크 1'], ['mask2', '솔더마스크 2'], ['outline', '외형']].concat(X_OPT, [['none', '출력 안 함']])) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); }
-      const cur = S.layerTarget[name] || 'none'; sel.value = isXT(cur) ? cur.slice(0, 2) : cur; sel.dataset.layer = name;
-      sel.title = '동박 1·2, 솔더마스크 1·2, 외형: 같은 대상을 고른 레이어끼리 한 출력으로 합칩니다. 따로 출력: 이 레이어만 담은 출력을 하나 더 만듭니다(규칙 = 동박처럼 패드·배선 복원 / 면 그대로 / 선으로 따라 그리기).';
-      sel.onchange = () => { S.layerTarget[name] = XRULE[sel.value] ? sel.value + ':' + name : sel.value; renderOutTable(); renderIgnored(); markDirty(true); };
+      for (const [g, items] of TREE) { const og = document.createElement('optgroup'); og.label = g; for (const [v, t] of items) { const o = document.createElement('option'); o.value = v; o.textContent = (XRULE[v] ? RULE_T[XRULE[v]] + ' · ' : '') + t; og.appendChild(o); } sel.appendChild(og); }
+      const pk = on ? cur : (S.layerPick[name] || 'xc:' + name); sel.value = isXT(pk) ? pk.slice(0, 2) : pk; sel.dataset.layer = name; sel.disabled = !on;
+      sel.title = '동박 1·2, 솔더마스크 1·2, 외형: 같은 대상을 고른 레이어끼리 한 출력으로 합칩니다. 이 레이어만 따로: 이 레이어만 담은 출력을 하나 더 만듭니다(이름 = 레이어 이름).';
+      const apply = () => { const v = XRULE[sel.value] ? sel.value + ':' + name : sel.value; S.layerPick[name] = v; S.layerTarget[name] = ck.checked ? v : 'none'; sel.disabled = !ck.checked; tr.classList.toggle('off', !ck.checked); renderOutTable(); renderIgnored(); markDirty(true); };
+      ck.onchange = apply; sel.onchange = apply; tr.classList.toggle('off', !on);
       tr.insertCell().appendChild(sel);
     }
   }
