@@ -15,6 +15,11 @@ main{flex:1;display:flex;min-height:0}
 #left{width:430px;overflow:auto;padding:8px;flex:none}
 #right{width:400px;overflow:auto;padding:8px;flex:none}
 #outTbl td:first-child,#outTbl button,#sumBox td:first-child,#sumBox th{white-space:nowrap}
+#outTbl td:first-child{max-width:130px;overflow:hidden;text-overflow:ellipsis}
+#outTbl th:nth-child(2),#outTbl th:nth-child(3){width:100%}
+#outTbl th:nth-child(4),#outTbl td:nth-child(4){text-align:center;white-space:nowrap}
+#layerTbl th:first-child,#layerTbl td:first-child{width:34px;text-align:center}
+#layerTbl th:last-child{width:92px}
 #sumBox th,#sumBox td{padding:3px 4px}
 #center{flex:1;display:flex;flex-direction:column;min-width:0;background:#10151b}
 .card{background:#fff;border:1px solid #cfd6de;border-radius:6px;padding:10px;margin-bottom:8px}
@@ -28,7 +33,7 @@ button.primary:hover{background:#1a5fd0}
 #drop.over{background:#dcebff;border-color:#1f6feb}
 #fileMsg{margin-top:6px;line-height:1.5}
 .err{color:#c62828;font-weight:700}
-.opts{display:grid;grid-template-columns:1fr 130px;gap:5px 8px;align-items:center}
+.opts{display:grid;grid-template-columns:1fr 170px;gap:5px 8px;align-items:center}
 .opts input[type=number],.opts select{width:100%;font:inherit;padding:2px 4px}
 table{border-collapse:collapse;width:100%}
 th,td{border:1px solid #d5dbe2;padding:3px 5px;text-align:left;vertical-align:middle}
@@ -52,7 +57,8 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 .item:hover{background:#eaf2ff}
 .item small{color:#66727f}
 .tag{display:inline-block;padding:0 5px;border-radius:3px;font-size:11px;margin-right:4px;color:#fff;background:#6b7785}
-#outTbl.odb th:nth-child(2),#outTbl.odb td:nth-child(2),#outTbl.odb th:nth-child(4),#outTbl.odb td:nth-child(4){display:none}
+#layerTbl tr.off td:nth-child(2),#layerTbl tr.off td:nth-child(3){color:#8a94a0}
+#outTbl.odb th:nth-child(2),#outTbl.odb td:nth-child(2),#outTbl.odb th:nth-child(5),#outTbl.odb td:nth-child(5),#outTbl:not(.odb) th:nth-child(3),#outTbl:not(.odb) td:nth-child(3){display:none}
 .tag.w{background:#d9822b}.tag.e{background:#c62828}.tag.i{background:#2e7d32}
 .ok{color:#2e7d32;font-weight:700}.bad{color:#c62828;font-weight:700}
 #busy{position:fixed;inset:0;background:rgba(16,21,27,.55);display:none;align-items:center;justify-content:center;z-index:50}
@@ -83,9 +89,9 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
     <h2>2. 옵션</h2>
     <div class="opts">
       <label for="oUnit">도면 단위</label>
-      <select id="oUnit"><option value="auto">자동($INSUNITS, 없으면 mm)</option><option value="mm">mm</option><option value="inch">inch</option></select>
+      <select id="oUnit" title="자동: DXF의 $INSUNITS 값을 따르고, 없으면 mm로 봅니다."><option value="auto">자동 (없으면 mm)</option><option value="mm">mm</option><option value="inch">inch</option></select>
       <label for="oOrigin">원점</label>
-      <select id="oOrigin"><option value="dxf">DXF 좌표 그대로</option><option value="ll">전체 좌측 하단 = 0,0</option></select>
+      <select id="oOrigin"><option value="ll" selected>전체 좌측 하단 = 0,0</option><option value="dxf">DXF 좌표 그대로</option></select>
       <label for="oRatio">패드 판정 비율 (긴 변÷짧은 변 이하)</label><input type="number" id="oRatio" value="4" min="1" step="0.5">
       <label for="oTouchPad" title="비율이 기준을 넘는 길쭉한 사각형이라도, 자기보다 좁은 객체(배선)가 변에 맞닿아 있으면 패드로 봅니다. 끄면 비율만으로 판정해 그런 사각형은 배선이 됩니다.">더 좁은 객체가 맞닿으면 패드로 보기</label><input type="checkbox" id="oTouchPad" checked>
       <label for="oGrid">형상 비교 격자 (mm)</label><input type="number" id="oGrid" value="0.002" min="0.0005" step="0.001">
@@ -106,19 +112,19 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
         <div id="fontMsg" class="muted" style="margin-top:4px;line-height:1.45">글꼴 없음 — 글자는 내장 획 글꼴(선)로 냅니다.</div>
         <input type="file" id="fontFile" accept=".ttf,.ttc,.TTF,.TTC" style="display:none">
       </div>
-      <label for="oOpenOn" title="오토캐드에서 분해한 글자처럼, 동박·솔더마스크 층의 열린 선(선·호·열린 폴리선)을 둥근 조리개 선으로 냅니다. 끄면 무시 목록에 남습니다.">동박·마스크 층의 열린 선을 선으로 내기</label><input type="checkbox" id="oOpenOn" checked>
+      <label for="oOpenOn" title="오토캐드에서 분해한 글자처럼, 동박·면 규칙 층의 열린 선(선·호·열린 폴리선)을 둥근 조리개 선으로 냅니다. 끄면 무시 목록에 남습니다. 선 규칙 층은 이 옵션과 상관없이 선으로 냅니다.">동박·면 층의 열린 선을 선으로 내기</label><input type="checkbox" id="oOpenOn" checked>
       <label for="oOpenW">열린 선 선폭 (mm)</label><input type="number" id="oOpenW" value="0.1" min="0.001" step="0.05">
     </div>
   </div>
   <div class="card">
     <h2>3. 레이어</h2>
-    <table id="layerTbl"><thead><tr><th>DXF 레이어</th><th class="num">객체</th><th>출력 대상</th></tr></thead><tbody><tr><td colspan="3" class="muted">도면을 열면 표시됩니다.</td></tr></tbody></table>
+    <table id="layerTbl"><thead><tr><th title="체크한 레이어만 출력합니다.">출력</th><th>DXF 레이어</th><th class="num">객체</th><th title="동박: 패드는 플래시, 배선은 선으로 복원 / 면: 그린 모양 그대로(솔더마스크 등) / 선: 외곽선을 선으로 따라 그림(외형 등)">규칙</th></tr></thead><tbody><tr><td colspan="4" class="muted">도면을 열면 표시됩니다.</td></tr></tbody></table>
   </div>
   <div class="card" id="applyCard">
     <button id="btnConvert" class="primary" disabled>변환</button>
     <label style="margin-left:10px" title="켜면 레이어 지정이나 옵션을 바꿀 때마다 바로 변환합니다. 작은 도면에서 편합니다."><input type="checkbox" id="oAuto"> 설정을 바꾸면 바로 변환</label>
     <label style="margin-left:10px" title="배선 복원과 형상 비교를 CPU 코어 여러 개에 나눠 계산합니다(객체가 많을 때만). 결과는 한 코어로 할 때와 같습니다. 문제가 있으면 끄세요."><input type="checkbox" id="oPar" checked> 여러 코어 사용<span id="coreN"></span></label>
-    <div id="applyMsg" class="muted" style="margin-top:6px;line-height:1.5">도면을 열고 레이어의 출력 대상과 옵션을 정한 뒤 "변환"을 누르세요.</div>
+    <div id="applyMsg" class="muted" style="margin-top:6px;line-height:1.5">도면을 열고 레이어의 출력·규칙과 옵션을 정한 뒤 "변환"을 누르세요.</div>
   </div>
   <div class="card">
     <h2>4. 출력 파일</h2>
@@ -126,18 +132,18 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
       <label for="oFormat" title="Gerber: 층마다 .gbr 파일. ODB++: 폴더 구조 한 묶음(블록 반복을 스텝으로 묶어 용량이 작음).">출력 형식</label>
       <select id="oFormat"><option value="gerber">Gerber (RS-274X)</option><option value="odb">ODB++</option></select>
     </div>
-    <table id="outTbl"><thead><tr><th>출력</th><th>파일 이름</th><th title="좌우 반전(아랫면을 뒤집어 볼 때)">좌우 반전</th><th></th></tr></thead><tbody><tr><td colspan="4" class="muted">도면을 열면 표시됩니다.</td></tr></tbody></table>
+    <table id="outTbl"><thead><tr><th>출력</th><th>파일 이름</th><th title="ODB++ 안의 층 이름(matrix와 layers 폴더 이름). 영문 소문자·숫자·_ + - . 만 쓸 수 있어 그 밖의 글자는 _로 바뀝니다. 같은 이름이 있으면 뒤에 번호가 붙습니다.">ODB++ 층 이름</th><th title="좌우 반전(아랫면을 뒤집어 볼 때)">좌우 반전</th><th></th></tr></thead><tbody><tr><td colspan="5" class="muted">도면을 열면 표시됩니다.</td></tr></tbody></table>
     <div id="gerberOut" style="margin-top:8px"><button id="btnZip" class="primary" disabled>전체 zip 내려받기</button> <span class="muted">층별 파일은 위 표의 "내려받기"</span></div>
     <div id="odbOut" style="display:none">
     <div class="opts" style="margin-top:8px">
       <label for="oOdbUnit" title="inch: 단위 표시 없이 inch·mil로 적는 옛 형식(7.0). 오래된 CAM도 읽습니다. mm: UNITS=MM을 적는 8.1 형식.">단위·형식</label>
-      <select id="oOdbUnit"><option value="inch">inch (7.0, 호환)</option><option value="mm">mm (8.1)</option></select>
+      <select id="oOdbUnit"><option value="mm" selected>mm (8.1)</option><option value="inch">inch (7.0, 옛 형식)</option></select>
       <label for="oOdbStep" title="내용이 똑같이 반복되는 부분을 스텝 하나로 묶고 패널에서 반복 배치합니다. 먼저 DXF 블록 삽입 기준으로 묶고, 동박이 블록에 들어 있지 않으면 패드 간격에서 반복 칸을 자동으로 찾아 묶습니다. 끄면 전부 패널 스텝에 풀어 적습니다.">반복되는 부분을 스텝으로 묶기</label><input type="checkbox" id="oOdbStep" checked>
       <label for="oOdbMin" title="같은 스텝이 한 배열로 이만큼 이상 반복될 때만 스텝으로 둡니다. 그보다 적게 반복되는 조각(가장자리 칸 등)은 스텝으로 두지 않고 패널에 풀어 적습니다. CAM에서는 반복 배치 줄 하나가 블록 패드 한 줄이 되므로, 값을 키우면 블록 패드 목록이 짧아집니다(파일은 조금 커짐).">스텝으로 둘 최소 반복 수</label><input type="number" id="oOdbMin" value="100" min="2" step="1">
       <label for="oOdbArc" title="영역(모서리 채움·대체 영역·회전 패드 심벌)의 호를 짧은 직선 여러 개로 바꿔 적습니다(차이 0.0002mm 이하). CoreCAM은 영역 안의 호를 0.001mm쯤의 선분 수백 개로 쪼개 읽어서(Import 보고서의 Sectorize Arc) 호가 많으면 불러오기가 끝나지 않으므로 켜 두는 것을 권합니다. 끄면 호(OC)로 적습니다.">영역의 호를 꺾은선으로 적기</label><input type="checkbox" id="oOdbArc" checked>
     </div>
     <div style="margin-top:8px"><button id="btnOdbTgz" class="primary" disabled>ODB++ 내려받기 (.tgz)</button> <button id="btnOdbZip" disabled>ODB++ (.zip)</button></div>
-    <div id="odbMsg" class="muted" style="margin-top:6px;line-height:1.5">변환 결과(선·플래시·영역)를 ODB++ 폴더 구조로 적습니다. 만든 뒤 다시 읽어 변환 결과와 요소 하나하나 대조합니다. 파일 이름·좌우 반전은 위 표를 따릅니다(이름은 작업 이름에만 쓰임).</div>
+    <div id="odbMsg" class="muted" style="margin-top:6px;line-height:1.5">변환 결과(선·플래시·영역)를 ODB++ 폴더 구조로 적습니다. 만든 뒤 다시 읽어 변환 결과와 요소 하나하나 대조합니다. 층 이름·좌우 반전은 위 표를 따릅니다. 작업 이름은 DXF 파일 이름에서 나옵니다.</div>
     </div>
   </div>
 </section>
@@ -147,12 +153,12 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
     <label><input type="checkbox" id="vOrig" checked> 원본 외곽선</label>
     <label><input type="checkbox" id="vRes" checked> 변환 결과</label>
     <label><input type="checkbox" id="vCenter" checked> 중심선</label>
-    <label title="솔더마스크를 속을 채우지 않고 테두리 선으로만 보입니다(화면 표시만, 출력 파일은 그대로 면)"><input type="checkbox" id="vMaskLine" checked> 마스크 선으로 보기</label>
+    <label title="면 규칙 층(솔더마스크 등)을 속을 채우지 않고 테두리 선으로만 보입니다(화면 표시만, 출력 파일은 그대로 면)"><input type="checkbox" id="vMaskLine" checked> 면 층을 선으로 보기</label>
     <label>색 <select id="vColor"><option value="kind">종류별</option><option value="layer">레이어별</option></select></label>
     <label title="켜면 왼쪽 버튼으로 끌어 여러 객체를 고릅니다(화면 이동은 가운데·오른쪽 버튼으로 끌기). 꺼져 있어도 Shift를 누르고 끌면 영역 선택입니다. 왼쪽→오른쪽: 상자 안에 다 들어온 것만, 오른쪽→왼쪽: 걸친 것도 포함."><input type="checkbox" id="vBox"> 영역 선택</label>
     <button id="btnFit">전체 보기</button>
   </div>
-  <div id="cvWrap"><canvas id="cv"></canvas><div id="hint">도면을 열면 변환 결과가 여기에 표시됩니다.<br>휠: 확대·축소 / 끌기: 이동 / 클릭: 객체 선택(패드↔배선 바꾸기)<br>Ctrl·Shift+클릭: 여러 개 선택 / Shift+끌기 또는 "영역 선택": 상자로 선택 / Esc: 선택 해제</div><div id="pop"></div><div id="dirtyBar" title="눌러서 변환">설정이 바뀌었습니다 — 눌러서 <b>변환</b></div></div>
+  <div id="cvWrap"><canvas id="cv"></canvas><div id="hint"><span id="hint1">도면을 열면 변환 결과가 여기에 표시됩니다.</span><br>휠: 확대·축소 / 끌기: 이동 / 클릭: 객체 선택(패드↔배선 바꾸기)<br>Ctrl·Shift+클릭: 여러 개 선택 / Shift+끌기 또는 "영역 선택": 상자로 선택 / Esc: 선택 해제</div><div id="pop"></div><div id="dirtyBar" title="눌러서 변환">설정이 바뀌었습니다 — 눌러서 <b>변환</b></div></div>
   <div id="legend"><span id="legendItems"></span><span id="coord"></span></div>
 </section>
 <section id="right">
@@ -166,7 +172,7 @@ summary{cursor:pointer;font-weight:700;padding:3px 0}
 <div id="busy"><div id="busyMsg">변환 중…</div></div>
 <script>
 'use strict';
-const BUILD = '1123-2330';
+const BUILD = '1127-0030';
 
 /* ================================================================
  * 1. 기하 기본
@@ -1142,7 +1148,7 @@ function shapeRelation(A, B) {
   return null;
 }
 function autoRole(s, target, ratio, touchPad) {
-  if (isMaskT(target)) return s.pad ? { role: 'pad' } : { role: 'region', why: '솔더마스크 개구부(패드 모양 아님)', quiet: true };
+  if (isMaskT(target)) return s.pad ? { role: 'pad' } : { role: 'region', why: '면 규칙 층(패드 모양 아님)', quiet: true };
   if (s.pad) {
     if (s.pad.type !== 'R') return { role: 'pad' };
     const lo = Math.min(s.pad.w, s.pad.h), hi = Math.max(s.pad.w, s.pad.h);
@@ -1726,7 +1732,7 @@ function buildGerber(L, cfg) {
       }
     }
   }
-  const head = ['G04 DXF_to_Gerber build ' + BUILD + '*', 'G04 ' + L.target.toUpperCase() + '*', '%FSLAX46Y46*%', '%MOMM*%'];
+  const head = ['G04 DXF_to_Gerber build ' + BUILD + '*', 'G04 ' + (isXT(L.target) ? 'LAYER ' + L.target.slice(3).replace(/[^\x20-\x7e]|[*%]/g, '_') : L.target.toUpperCase()) + '*', '%FSLAX46Y46*%', '%MOMM*%'];
   for (const mc of macros) head.push(mc);
   for (const a of aps) head.push('%ADD' + a.code + a.def + '*%');
   head.push('G01*', 'G75*');
@@ -1832,7 +1838,14 @@ function parseGerber(text) {
  * 8. 변환 전체 흐름
  * ================================================================ */
 const TARGETS = { cu1: { label: '동박 1', suffix: '_L1' }, cu2: { label: '동박 2', suffix: '_L2' }, mask: { label: '솔더마스크 1', suffix: '_SM1' }, mask2: { label: '솔더마스크 2', suffix: '_SM2' }, outline: { label: '외형', suffix: '_OUTLINE' } };
-const isMaskT = tg => tg === 'mask' || tg === 'mask2';
+// 따로 출력하는 레이어: 대상 값이 '규칙:DXF 레이어 이름' (xc = 동박 규칙, xm = 면 그대로(솔더마스크 규칙), xo = 선(외형 규칙)). 레이어 하나가 출력 하나가 된다.
+const XRULE = { xc: 'cu', xm: 'mask', xo: 'outline' }, FIXED_RULE = { cu1: 'cu', cu2: 'cu', mask: 'mask', mask2: 'mask', outline: 'outline' };
+const isXT = tg => typeof tg === 'string' && tg[2] === ':' && !!XRULE[tg.slice(0, 2)];
+const tgRule = tg => FIXED_RULE[tg] || (isXT(tg) ? XRULE[tg.slice(0, 2)] : null);
+const tgLabel = tg => TARGETS[tg] ? TARGETS[tg].label : isXT(tg) ? tg.slice(3) : String(tg);
+const isMaskT = tg => tgRule(tg) === 'mask', isOutT = tg => tgRule(tg) === 'outline';
+// 변환할 대상 목록 [대상, 번호 매김용 순번]: 고정 5개 + 따로 출력하는 레이어(DXF 레이어 순서, 순번은 레이어 자리로 정해 다른 레이어를 바꿔도 안 바뀐다)
+function targetList(layerCount, layers) { const o = Object.keys(TARGETS).map((t, i) => [t, i]); let i = 0; for (const nm of layerCount.keys()) { const t = layers[nm]; if (isXT(t) && t.slice(3) === nm) o.push([t, 5 + i]); i++; } return o; }
 function workShape(s, ox, oy, mir) {
   const pts = s.pts.map(p => ({ x: mir == null ? p.x - ox : mir - (p.x - ox), y: p.y - oy, b: mir == null ? p.b : -p.b }));
   const w = makeShape(pts, { id: s.id, layer: s.layer, src: s.src, handle: s.handle, hasW: s.hasW, arcFlat: s.arcFlat, glyph: s.glyph, gv: s.gv, cuts: s.cuts ? s.cuts.map(c => c.map(q => [mir == null ? q[0] - ox : mir - (q[0] - ox), q[1] - oy])) : undefined, inst: s.inst, part: s.part });
@@ -2158,23 +2171,23 @@ async function convertAll(base, cfg, prog, prev, pool) {
   let last = Date.now();
   const tick = async msg => { if (prog && Date.now() - last > 120) { await prog(msg); last = Date.now(); } };
   const gb = [Infinity, Infinity, -Infinity, -Infinity];
-  for (const s of base.shapes.concat((base.paths || []).filter(q => cfg.layers[q.layer] === 'outline'))) if (TARGETS[cfg.layers[s.layer]]) { gb[0] = Math.min(gb[0], s.bbox[0]); gb[1] = Math.min(gb[1], s.bbox[1]); gb[2] = Math.max(gb[2], s.bbox[2]); gb[3] = Math.max(gb[3], s.bbox[3]); }
+  for (const s of base.shapes.concat((base.paths || []).filter(q => isOutT(cfg.layers[q.layer])))) if (tgRule(cfg.layers[s.layer])) { gb[0] = Math.min(gb[0], s.bbox[0]); gb[1] = Math.min(gb[1], s.bbox[1]); gb[2] = Math.max(gb[2], s.bbox[2]); gb[3] = Math.max(gb[3], s.bbox[3]); }
   const ox = cfg.origin === 'll' && isFinite(gb[0]) ? gb[0] : 0, oy = cfg.origin === 'll' && isFinite(gb[1]) ? gb[1] : 0, out = [];
-  const nBase = base.shapes.length, tgs = Object.keys(TARGETS);
+  const nBase = base.shapes.length;
   // 층 종류마다 결과에 영향을 주는 옵션만 본다(외형 선폭을 바꿔도 동박은 다시 변환하지 않도록)
-  const optKeyOf = tg => tg === 'outline' ? JSON.stringify([cfg.thr, cfg.apTol, cfg.ellN, cfg.outW, cfg.textOn !== false]) : JSON.stringify([cfg.ratio, cfg.touchPad !== false, cfg.grid, cfg.thr, cfg.apTol, !!cfg.noMacro, cfg.ellN, !!cfg.allVoid, cfg.padCut !== false, cfg.textOn !== false, cfg.textPct, cfg.openOn !== false, cfg.openW, !!cfg.fillPoly]);
-  for (const tg of tgs) {
-    const idx = tgs.indexOf(tg); let nid = nBase + idx * ID_SPAN;
+  const optKeyOf = tg => isOutT(tg) ? JSON.stringify([cfg.thr, cfg.apTol, cfg.ellN, cfg.outW, cfg.textOn !== false]) : JSON.stringify([cfg.ratio, cfg.touchPad !== false, cfg.grid, cfg.thr, cfg.apTol, !!cfg.noMacro, cfg.ellN, !!cfg.allVoid, cfg.padCut !== false, cfg.textOn !== false, cfg.textPct, cfg.openOn !== false, cfg.openW, !!cfg.fillPoly]);
+  for (const [tg, idx] of targetList(base.layerCount, cfg.layers)) {
+    let nid = nBase + idx * ID_SPAN;
     const mine = id => id < nBase ? !!base.shapes[id] && cfg.layers[base.shapes[id].layer] === tg : Math.floor((id - nBase) / ID_SPAN) === idx;
     const pick = o => { const r = {}; for (const k of Object.keys(o || {}).filter(k => mine(+k)).sort()) r[k] = o[k]; return r; };
-    const src = base.shapes.filter(s => cfg.layers[s.layer] === tg && (!s.glyph || cfg.textOn !== false)), srcP = tg === 'outline' || cfg.openOn !== false ? (base.paths || []).filter(q => cfg.layers[q.layer] === tg) : [];
+    const src = base.shapes.filter(s => cfg.layers[s.layer] === tg && (!s.glyph || cfg.textOn !== false)), srcP = isOutT(tg) || cfg.openOn !== false ? (base.paths || []).filter(q => cfg.layers[q.layer] === tg) : [];
     const srcT = cfg.textOn !== false ? (base.texts || []).filter(q => cfg.layers[q.layer] === tg) : [];
     if (!src.length && !srcP.length && !srcT.length) continue;
     const mir = cfg.mirror[tg] ? gb[0] + gb[2] - 2 * ox : null;
     const baseKey = JSON.stringify([Object.keys(cfg.layers).filter(n => cfg.layers[n] === tg).sort(), ox, oy, mir, optKeyOf(tg)]), ovM = pick(cfg.overrides), vdM = pick(cfg.voids), key = baseKey + JSON.stringify([ovM, vdM]);
     const cand = prev && prev.base === base ? prev.layers.find(l => l.target === tg && l.baseKey === baseKey) : null;
     if (cand && cand.key === key) { cand.file = cfg.files[tg]; cand.reused = true; cand.partial = null; out.push(cand); continue; }
-    if (cand && tg !== 'outline' && cfg.partial !== false) { // 눌러서 바꾼 것만 다르다 → 바뀐 객체와 그 주변만 다시
+    if (cand && !isOutT(tg) && cfg.partial !== false) { // 눌러서 바꾼 것만 다르다 → 바뀐 객체와 그 주변만 다시
       const diffIds = (a, b) => { const o = new Set(); for (const k in a) if (a[k] !== b[k]) o.add(+k); for (const k in b) if (a[k] !== b[k]) o.add(+k); return o; };
       const chg = { roles: diffIds(cand.ovM || {}, ovM), voids: diffIds(cand.vdM || {}, vdM) };
       if (chg.roles.size + chg.voids.size <= Math.max(200, cand.shapes.length * 0.3)) {
@@ -2183,8 +2196,8 @@ async function convertAll(base, cfg, prog, prev, pool) {
         cand.key = key; cand.ovM = ovM; cand.vdM = vdM; out.push(cand); continue;
       }
     }
-    const L = { target: tg, label: TARGETS[tg].label, file: cfg.files[tg], mirror: !!cfg.mirror[tg], shapes: [], warnings: [], key, baseKey, ovM, vdM, reused: false };
-    if (tg === 'outline') {
+    const L = { target: tg, label: tgLabel(tg), rule: tgRule(tg), file: cfg.files[tg], mirror: !!cfg.mirror[tg], shapes: [], warnings: [], key, baseKey, ovM, vdM, reused: false };
+    if (isOutT(tg)) {
       for (const s of src) { const w = workShape(s, ox, oy, mir); if (w) L.shapes.push(w); }
       for (const t of srcT) for (const pl of t.strokes) srcP.push({ layer: t.layer, type: t.type, pts: pl });
       L.paths = srcP.map(q => { const pts = q.pts.map(p => ({ x: mir == null ? p.x - ox : mir - (p.x - ox), y: p.y - oy, b: mir == null ? p.b : -p.b })); return { layer: q.layer, type: q.type, pts, flat: flattenPath(pts, FLAT_TOL).slice(0, -0 || undefined) }; });
@@ -2196,7 +2209,7 @@ async function convertAll(base, cfg, prog, prev, pool) {
     for (const t of srcT) { const st = t.strokes.map(tf), w = snapW(t.h * (cfg.textPct > 0 ? cfg.textPct : 10) / 100); L.tpaths.push({ kind: 'text', w, strokes: st, bbox: tbb(st) }); L.warnings.push({ type: 'text', target: tg, id: null, msg: t.type + ' "' + t.str.replace(/\n/g, ' ').slice(0, 40) + '" → 내장 획 글꼴로 근사(높이 ' + fmtN(t.h) + ', 선폭 ' + fmtN(w) + 'mm)' + (t.unknown ? ', 글꼴에 없는 글자 ' + t.unknown + '개는 네모로' : ''), bbox: tbb(st) }); }
     if (cfg.textOn !== false) for (const t of (base.gtexts || [])) if (cfg.layers[t.layer] === tg) { const c = tf([{ x: t.bbox[0], y: t.bbox[1], b: 0 }, { x: t.bbox[2], y: t.bbox[3], b: 0 }]); L.warnings.push({ type: 'gtext', target: tg, id: null, msg: t.type + ' "' + t.str.replace(/\n/g, ' ').slice(0, 40) + '" → 글꼴 ' + (base.fontName || '') + '의 윤곽 ' + t.n + '개를 영역으로 냄(높이 ' + fmtN(t.h) + 'mm)' + (t.unknown ? ', 글꼴에 없는 글자 ' + t.unknown + '개' : ''), bbox: [Math.min(c[0].x, c[1].x), c[0].y, Math.max(c[0].x, c[1].x), c[1].y] }); }
     for (const q of srcP) { const st = [tf(q.pts)], w = snapW(cfg.openW > 0 ? cfg.openW : 0.1); L.tpaths.push({ kind: 'open', w, strokes: st, bbox: tbb(st) }); L.warnings.push({ type: 'open', target: tg, id: null, msg: q.type + ' 열린 선 → 선폭 ' + fmtN(w) + 'mm 선으로 냄', bbox: tbb(st) }); }
-    const cu = tg === 'cu1' || tg === 'cu2', Tp = Date.now(); let nDone = 0;
+    const cu = tgRule(tg) === 'cu', Tp = Date.now(); let nDone = 0;
     for (const s of src) {
       if (++nDone % 500 === 0) await tick(L.label + ': 패드 떼어내기·토막 내기 ' + nDone + '/' + src.length);
       const w = workShape(s, ox, oy, mir); if (!w) continue;
@@ -2267,6 +2280,10 @@ async function makeZipPacked(files) {
 const ODB_LAYER = { cu1: { name: 'l1', type: 'SIGNAL' }, cu2: { name: 'l2', type: 'SIGNAL' }, mask: { name: 'sm', type: 'SOLDER_MASK' }, mask2: { name: 'sm2', type: 'SOLDER_MASK' }, outline: { name: 'outline', type: 'DOCUMENT' } };
 const ODB_ORDER = ['mask', 'cu1', 'cu2', 'mask2', 'outline']; // 매트릭스 순서: 윗면 → 아랫면, 외형은 마지막
 const ODB_SEP = '\u0001';
+const odbOrd = tg => { const i = ODB_ORDER.indexOf(tg); return i >= 0 ? [0, 1, 2, 4, 5][i] : tgRule(tg) === 'cu' ? 3 : 6; }; // 따로 출력하는 동박 규칙 층은 동박 2 뒤, 나머지는 맨 뒤
+const odbDefName = tg => { if (ODB_LAYER[tg]) return ODB_LAYER[tg].name; const n = odbName(tgLabel(tg).replace(/[^A-Za-z0-9_+\-.]/g, '')); return n === 'x' ? 'layer' : n; }; // 한글뿐인 레이어 이름은 layer, layer_2…
+const MASK_NAME = /mask|solder|(^|[^a-z])sm([^a-z]|$)|마스크|레지스트/i, OUT_NAME = /outline|외형|board|border|edge|profile/i; // 레이어 이름으로 솔더마스크·외형을 알아본다
+const odbType = tg => ODB_LAYER[tg] ? ODB_LAYER[tg].type : tgRule(tg) === 'cu' ? 'SIGNAL' : tgRule(tg) === 'mask' && MASK_NAME.test(tgLabel(tg)) ? 'SOLDER_MASK' : 'DOCUMENT';
 function odbNum(v, dec) { let s = v.toFixed(dec); if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, ''); return (s === '-0' || s === '') ? '0' : s; }
 function odbName(t) { return (String(t).toLowerCase().replace(/[^a-z0-9_+\-.]/g, '_').replace(/^[^a-z0-9]+/, '') || 'x').slice(0, 40); }
 // 다각형([{x,y,b}], 닫힘)을 ODB++ 윤곽 줄로. 섬은 시계 방향이어야 하므로 반시계면 뒤집어 적는다.
@@ -2336,7 +2353,10 @@ function odbPitch(vals) {
   if (h < 0) return fail();
   // 멀리 떨어진 짝으로 피치를 다듬는다
   let a = 0; while (a < h && (W[a] * 2 < W[h] || has(X[a] + p) < 0)) a++;
-  for (let j = n - 1; j > a; j--) { if (W[j] * 2 < W[h]) continue; const m = Math.round((X[j] - X[a]) / p); if (m >= 1 && Math.abs(X[j] - X[a] - m * p) < 1e-3) { p = (X[j] - X[a]) / m; break; } }
+  // 같은 값 줄(X[a]에서 피치만큼씩 건너뛰며 이어지는 값)만 따라간다. 예전에는 가장 먼 "무거운 값"을 썼는데, 그것이 다른 종류의 패드(중심이 격자에서 1µm 이내로 어긋난 것)이면
+  // 피치가 그만큼 틀어져 칸 원점이 열마다 조금씩 밀리고, 같은 칸이 서로 다른 내용으로 갈려 스텝이 안 묶였다.
+  { let cur = a, cnt = 0; for (;;) { let lo = 0, hi = n - 1; const t = X[cur] + p; while (lo < hi) { const m = (lo + hi) >> 1; if (X[m] < t - 2e-5) lo = m + 1; else hi = m; } if (Math.abs(X[lo] - t) > 2e-5 || lo === cur) break; cur = lo; cnt++; if (cnt % 8 === 0) p = (X[cur] - X[a]) / cnt; }
+    if (cnt) { p = (X[cur] - X[a]) / cnt; const q = Math.round(p * 1e5) / 1e5; if (Math.abs(p - q) * cnt < 3e-5) p = q; } } // 0.00001mm 단위 값에 충분히 가까우면 그 값으로
   return { p, at: X[a], info };
 }
 function buildOdb1(R, base, opt) {
@@ -2371,17 +2391,21 @@ function buildOdb1(R, base, opt) {
   const arcPoly = opt.arcPoly !== false, AT = 2e-4, noArc = P => arcPoly ? odbPolyArcs(P, AT) : P; // 영역의 호를 꺾은선으로(기본)
   const fSurf = (P, pol, dx, dy) => ['S ' + pol + ' 0'].concat(odbContour(noArc(P), dx, dy, C), ['SE']).join('\n');
   const triP = d => { const P = []; for (let i = 0; i < d.length; i += 3) P.push({ x: d[i], y: d[i + 1], b: d[i + 2] }); return P; };
-  const layers = R.layers.slice().sort((a, b) => ODB_ORDER.indexOf(a.target) - ODB_ORDER.indexOf(b.target)).map(L => ({ L, name: ODB_LAYER[L.target].name, type: ODB_LAYER[L.target].type, flat: L.shapes.some(s => !s.dup && !s.sk && s.level > 0) }));
+  const lyUsed = new Set(), lyName = {};
+  const layers = R.layers.map((L, i) => [L, i]).sort((a, b) => odbOrd(a[0].target) - odbOrd(b[0].target) || a[1] - b[1]).map(q => q[0]).map(L => {
+    // 층 이름: 화면에서 고친 이름(opt.names) 또는 기본. ODB++에서 쓸 수 있는 글자로 바꾸고 겹치면 번호를 붙인다
+    const want = odbName((opt.names && opt.names[L.target]) || odbDefName(L.target)); let nm = want, k = 1; while (lyUsed.has(nm)) nm = want + '_' + (++k); lyUsed.add(nm); lyName[L.target] = nm;
+    return { L, name: nm, type: odbType(L.target), flat: L.shapes.some(s => !s.dup && !s.sk && s.level > 0) }; });
   for (const ly of layers) { ly.mixed = new Set(); if (ly.flat) for (const s of ly.L.shapes) { if (s.dup || s.sk || !s.parent) continue; let r = s; while (r.parent) r = r.parent; if (s.inst !== r.inst) ly.mixed.add(r); } } // 서로 다른 삽입에 걸친 묶음
   const ox = R.offset[0], oy = R.offset[1];
   const cellMode = !!opt.steps && opt.mode === 'cell';
-  let useSteps = !!opt.steps && (cellMode || (base.insts.length > 1 && !R.layers.some(L => L.mirror && L.target !== 'outline')));
+  let useSteps = !!opt.steps && (cellMode || (base.insts.length > 1 && !R.layers.some(L => L.mirror && !isOutT(L.target))));
   const instX = [], instY = [], instName = []; // 스텝 후보 자리(출력 좌표)
   if (useSteps && !cellMode) for (const q of base.insts) { instX.push(q.x - ox); instY.push(q.y - oy); instName.push(q.name); }
   // 요소를 하나씩 훑는다: cb(레이어 순번, 도형, 종류, 둘레 상자 x0 y0 x1 y1, (dx, dy) => 줄)
   const stat = { lines: 0, pads: 0, surfs: 0 };
   const each = cb => layers.forEach((ly, li) => {
-    if (ly.L.target === 'outline') return;
+    if (isOutT(ly.L.target)) return;
     const sh = ly.L.shapes.filter(s => !s.dup && !s.sk).sort((a, b) => a.level - b.level);
     for (const s of sh) {
       const pol = s.level % 2 ? 'N' : 'P', b = s.bbox;
@@ -2426,7 +2450,7 @@ function buildOdb1(R, base, opt) {
   const instLines = [];
   const panel = layers.map(() => []);
   layers.forEach((ly, li) => {
-    if (ly.L.target === 'outline') { // 외형: 다시 읽은 선 그대로(호는 잘게 편 선분) 패널 스텝에
+    if (isOutT(ly.L.target)) { // 외형: 다시 읽은 선 그대로(호는 잘게 편 선분) 패널 스텝에
       for (const p of ly.L.prims) if (p.kind === 'stroke') { const d = p.d; panel[li].push(fLine(d[0], d[1], d[2], d[3], 2 * d[4], p.pol ? 'N' : 'P', 0, 0)); stat.lines++; }
     }
   });
@@ -2449,7 +2473,7 @@ function buildOdb1(R, base, opt) {
     if (ly.flat) (il.lv[li] || (il.lv[li] = [])).push(s.level);
   });
   // 글자(내장 글꼴)·열린 선: 다시 읽은 선 그대로 패널 스텝에
-  layers.forEach((ly, li) => { if (ly.L.target !== 'outline') for (const p of ly.L.prims) if (p.kind === 'stroke' && p.sub === 'text') { const d = p.d; panel[li].push(fLine(d[0], d[1], d[2], d[3], 2 * d[4], p.pol ? 'N' : 'P', 0, 0)); stat.lines++; } });
+  layers.forEach((ly, li) => { if (!isOutT(ly.L.target)) for (const p of ly.L.prims) if (p.kind === 'stroke' && p.sub === 'text') { const d = p.d; panel[li].push(fLine(d[0], d[1], d[2], d[3], 2 * d[4], p.pol ? 'N' : 'P', 0, 0)); stat.lines++; } });
   const nIn = instX.length;
   // 내용이 똑같은 삽입끼리 스텝 하나로
   const groups = new Map();
@@ -2521,7 +2545,7 @@ function buildOdb1(R, base, opt) {
   for (const g of steps) { const a = g.rec; sr.push('', 'STEP-REPEAT {', '    NAME=' + up(g.name), '    X=' + C(a.x), '    Y=' + C(a.y), '    DX=' + C(a.dx), '    DY=' + C(a.dy), '    NX=' + a.nx, '    NY=' + a.ny, '    ANGLE=0', '    MIRROR=NO', '}'); nSr++; }
   const pb = R.bbox || [0, 0, 1, 1];
   // 패널 외형(profile): 외형 층에 닫힌 외곽선이 있으면 가장 큰 것, 없으면 전체 둘레 상자
-  const OLy = R.layers.find(L => L.target === 'outline'), big = OLy ? OLy.shapes.slice().sort((a, b) => Math.abs(b.area) - Math.abs(a.area))[0] : null;
+  const outLs = R.layers.filter(L => isOutT(L.target)), OLy = outLs.find(L => L.target === 'outline') || outLs.find(L => OUT_NAME.test(L.label)) || outLs[0], big = OLy ? OLy.shapes.slice().sort((a, b) => Math.abs(b.area) - Math.abs(a.area))[0] : null;
   put('steps/panel/stephdr', hdr(sr)); put('steps/panel/profile', big ? head.concat(['#', '#Layer features', '#', 'S P 0'], odbContour(big.ell ? ellipsePts(big.ell, opt.ellN || 48) : big.pts, 0, 0, C), ['SE']) : rectProfile(pb));
   layers.forEach((ly, li) => put('steps/panel/layers/' + ly.name + '/features', featFile(panel[li])));
   for (const g of steps) {
@@ -2534,7 +2558,7 @@ function buildOdb1(R, base, opt) {
   }
   for (const u of usr.values()) put('symbols/' + u.name + '/features', head.concat(['#', '#Layer features', '#', 'S P 0'], odbContour(arcPoly ? odbPolyArcs(u.pts, 2e-5) : u.pts, 0, 0, C), ['SE'])); // 심벌은 한 번만 적으므로 더 곱게 편다(패드 크기가 달라 보이지 않게)
   let bytes = 0; for (const t of files.values()) bytes += t.length;
-  return { job, files, bytes, units: inch ? 'inch' : 'mm', steps: steps.map(g => { const q = { name: g.name, count: g.count, nx: g.rec.nx, ny: g.rec.ny, L: 0, P: 0, S: 0 }; for (const a of g.lines) for (const l of a) q[l[0]]++; return q; }), nSr, nInst: steps.reduce((a, g) => a + g.count, 0), nKinds, nFlatCell, minRep, stat, layers: layers.map(l => l.name), mode: cellMode ? 'cell' : 'block', cell, pitchInfo, diag: { stat: base.instStat, cand: base.insts.length, filled: nFilled, single: nSingle, featIn: nFeatIn, featOut: nFeatOut, featStep }, noStepWhy: useSteps ? '' : cellMode ? '패드 간격에서 반복 피치를 찾지 못함' : (!opt.steps ? '스텝 묶기 꺼짐' : base.insts.length < 2 ? '블록 삽입이 없음' : '좌우 반전을 쓴 층이 있음') };
+  return { job, files, bytes, units: inch ? 'inch' : 'mm', steps: steps.map(g => { const q = { name: g.name, count: g.count, nx: g.rec.nx, ny: g.rec.ny, L: 0, P: 0, S: 0 }; for (const a of g.lines) for (const l of a) q[l[0]]++; return q; }), nSr, nInst: steps.reduce((a, g) => a + g.count, 0), nKinds, nFlatCell, minRep, stat, layers: layers.map(l => l.name), lyName, mode: cellMode ? 'cell' : 'block', cell, pitchInfo, diag: { stat: base.instStat, cand: base.insts.length, filled: nFilled, single: nSingle, featIn: nFeatIn, featOut: nFeatOut, featStep }, noStepWhy: useSteps ? '' : cellMode ? '패드 간격에서 반복 피치를 찾지 못함' : (!opt.steps ? '스텝 묶기 꺼짐' : base.insts.length < 2 ? '블록 삽입이 없음' : '좌우 반전을 쓴 층이 있음') };
 }
 // 스텝 좌표로 적은 줄을 패널 좌표로 옮긴다(한 번만 나오는 삽입을 패널에 풀어 넣을 때)
 function odbShift(t, dx, dy, inch) {
@@ -2599,7 +2623,7 @@ function checkOdb(odb, R) {
   for (const L of R.layers) {
     const g = new Grid(2), items = [];
     for (const p of L.prims) { const it = { bbox: p.bbox, kind: p.kind, pol: p.pol, used: false, p }; items.push(it); g.add(p.bbox, it); }
-    byName[ODB_LAYER[L.target].name] = { g, items };
+    byName[odb.lyName[L.target]] = { g, items };
   }
   const rd = readOdb(odb.files, (ly, kind, pol, b, area, rr) => {
     res.total++; const t = byName[ly]; if (!t) { res.extra++; return; }
@@ -2762,15 +2786,24 @@ if (typeof document !== 'undefined') (function () {
   const SRC = document.currentScript ? document.currentScript.textContent : '', CORES = Math.min(4, Math.max(1, navigator.hardwareConcurrency || 1), navigator.deviceMemory ? Math.max(2, Math.floor(navigator.deviceMemory / 2)) : 4); // 워커마다 메모리를 쓰므로 PC 메모리에 맞춰 제한
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   $('build').textContent = '빌드 ' + BUILD;
-  const S = { dxf: null, base: null, fileName: '', layerTarget: {}, files: {}, filesEdited: {}, mirror: {}, overrides: {}, voids: {}, result: null, busy: false, pending: false };
+  const S = { dxf: null, base: null, fileName: '', layerTarget: {}, files: {}, odbNames: {}, filesEdited: {}, mirror: {}, overrides: {}, voids: {}, result: null, busy: false, pending: false };
   const V = { scale: 20, cx: 0, cy: 0, show: { cu1: true, cu2: true, mask: true, mask2: true, outline: true }, sels: [], box: null, flash: null, dpr: 1 };
   window.__app = { S, V };
   const KIND_COL = { stroke: '#34d17a', flash: '#ffb224', area: '#ff5aa8', fill: '#3fc1ff', text: '#f7e463' };
   // 종류별 색에서도 층을 구분한다: 동박 1 = 밝은 색, 동박 2 = 같은 색의 어두운 톤, 솔더마스크 = 옅은 톤
   const shade = (hex, k, w) => '#' + [1, 3, 5].map(i => { const v = parseInt(hex.substr(i, 2), 16); return Math.round(v * k + 255 * w).toString(16).padStart(2, '0'); }).join('');
-  const KC = {}, kindCol = (tg, kind) => KC[tg + kind] || (KC[tg + kind] = tg === 'outline' ? '#e8e8e8' : tg === 'cu2' ? shade(KIND_COL[kind], 0.5, 0) : tg === 'mask' ? shade(KIND_COL[kind], 0.4, 0.6) : tg === 'mask2' ? shade(KIND_COL[kind], 0.25, 0.3) : KIND_COL[kind]);
+  // 종류별 색에서도 층을 구분한다: 같은 규칙의 첫 층·둘째 층·그 밖(동박: 밝음·어두움, 면: 옅음·탁함, 선: 흰색·레이어 색)
+  const toneOf = tg => { const r = tgRule(tg); return Math.max(0, outTargets().filter(t => tgRule(t) === r).indexOf(tg)); };
+  let KC = {}; const kindCol = (tg, kind) => KC[tg + kind] || (KC[tg + kind] = (() => { const r = tgRule(tg), k = tg === 'cu2' || tg === 'mask2' ? 1 : toneOf(tg), c = KIND_COL[kind]; return r === 'outline' ? (k ? layerCol(tg) : '#e8e8e8') : r === 'mask' ? (k === 0 ? shade(c, 0.4, 0.6) : k === 1 ? shade(c, 0.25, 0.3) : shade(c, 0.5, 0.4)) : k === 0 ? c : k === 1 ? shade(c, 0.5, 0) : shade(c, 0.72, 0.08); })());
   const MASK_LINE_COL = '#c77dff', MASK2_LINE_COL = '#4dd0e1'; // '마스크 선으로 보기'의 테두리 색(솔더마스크 1, 2)
   const LAYER_COL = { cu1: '#ff5a5a', cu2: '#4f8dff', mask: '#3ccf6e', mask2: '#ffd23f', outline: '#e8e8e8' };
+  // 따로 출력하는 레이어의 색: DXF 레이어 순서대로 돌려 쓴다
+  const X_COL = ['#ff9f43', '#b388ff', '#26c6da', '#ec407a', '#9ccc65', '#bcaaa4', '#5c6bc0', '#d4e157'];
+  const FIRST_COL = { cu: ['#ff5a5a', '#4f8dff'], mask: ['#3ccf6e', '#ffd23f'], outline: ['#e8e8e8'] };
+  const layerCol = tg => LAYER_COL[tg] || FIRST_COL[tgRule(tg)][toneOf(tg)] || X_COL[Math.max(0, S.base ? [...S.base.layerCount.keys()].indexOf(tg.slice(3)) : 0) % X_COL.length];
+  const outTargets = () => S.base ? targetList(S.base.layerCount, S.layerTarget).map(q => q[0]).filter(isXT) : []; // 화면에서는 레이어 하나 = 출력 하나
+  const fileSafe = t => String(t).replace(/[\\\/:*?"<>|\s]+/g, '_');
+  const viewRank = tg => ({ cu2: 0, cu1: 1, mask2: 3, mask: 4, outline: 6 })[tg] ?? ({ cu: 2, mask: 5, outline: 7 })[tgRule(tg)];
   const WT = { padcut: ['배선과 합쳐진 패드를 떼어 냄', 'i'], text: ['TEXT·MTEXT를 내장 글꼴로 근사', 'i'], gtext: ['TEXT·MTEXT를 불러온 글꼴 윤곽으로 냄', 'i'], open: ['열린 선을 선으로 냄', 'i'], fallback: ['영역으로 출력(대체)', 'w'], narrow: ['좁은 패드 → 직각 마감', 'w'], overlap: ['같은 층 겹침', 'e'], nested: ['다른 객체 안의 폴리선', 'w'], diff: ['형상 차이 기준 초과', 'e'], dup: ['중복 객체', 'w'], same: ['같은 자리 같은 요소(하나만 출력)', 'w'], width: ['폭 있는 폴리선', 'w'], arcflat: ['블록 배율로 호를 꺾은선으로 바꿈', 'w'], ellipse: ['타원 근사 오차', 'w'] };
 
   /* ---------- 파일 ---------- */
@@ -2778,7 +2811,7 @@ if (typeof document !== 'undefined') (function () {
   function loadText(text, name) {
     let dxf;
     try { dxf = parseDxf(text); } catch (e) { setMsg('DXF를 읽지 못했습니다: ' + esc(e.message), true); return; }
-    S.dxf = dxf; S.fileName = name; S.overrides = {}; S.voids = {}; S.layerTarget = {}; S.filesEdited = {}; S.mirror = {}; S.result = null; V.sels = []; closePop();
+    S.dxf = dxf; S.fileName = name; S.overrides = {}; S.voids = {}; S.layerTarget = {}; S.layerPick = {}; S.odbNames = {}; S.filesEdited = {}; S.mirror = {}; S.result = null; V.sels = []; closePop();
     rebuildBase(true);
   }
   function loadBuffer(buf, name) {
@@ -2793,18 +2826,15 @@ if (typeof document !== 'undefined') (function () {
     const b = S.base, stem = S.fileName.replace(/\.[^.]*$/, '') || 'output';
     if (fresh) {
       // 이름으로 추정: 마스크 → 솔더마스크, 동박처럼 보이는 이름 우선, 외형·치수·부품 같은 이름은 출력 안 함
-      const isMask = nm => /mask|solder|(^|[^a-z])sm([^a-z]|$)|마스크|레지스트/i.test(nm), isCu = nm => /copper|동박|배선|패턴|(^|[^a-z])(cu|top|bot|bottom|l[1-9])([^a-z]|$)/i.test(nm), isAux = nm => /outline|zone|limit|body|text|info|dim|border|frame|외형|치수|부품/i.test(nm) || nm === '0';
+      const isMask = nm => MASK_NAME.test(nm), isCu = nm => /copper|동박|배선|패턴|(^|[^a-z])(cu|top|bot|bottom|l[1-9])([^a-z]|$)/i.test(nm), isAux = nm => /outline|zone|limit|body|text|info|dim|border|frame|외형|치수|부품/i.test(nm) || nm === '0';
       const named = [...b.layerCount].filter(([nm, n]) => n > 0 && !isMask(nm) && isCu(nm) && !/pad|outline|외형/i.test(nm)).map(q => q[0]), cuNames = named.length ? named : [...b.layerCount].filter(([nm, n]) => n > 0 && !isMask(nm) && !isAux(nm)).map(q => q[0]);
       const isOut = nm => /outline|외형|board|border|edge|profile/i.test(nm) && !/zone|limit|trace/i.test(nm);
-      const masks = [...b.layerCount].filter(([nm, n]) => n > 0 && isMask(nm)).map(q => q[0]), botM = masks.find(nm => /bot|bottom|하면|뒷면|(^|[^0-9])2$/i.test(nm));
-      const maskOrder = botM && masks.length > 1 ? masks.filter(nm => nm !== botM).concat([botM]) : masks;
       const outName = ([...b.layerCount].find(([nm, n]) => n > 0 && !isMask(nm) && isOut(nm)) || [])[0];
       for (const [name, n] of b.layerCount) {
         let t = 'none';
-        if (n > 0) { if (isMask(name)) { const ix = maskOrder.indexOf(name); if (ix >= 0 && ix < 2) t = ['mask', 'mask2'][ix]; } else if (name === outName) t = 'outline'; else { const ix = cuNames.indexOf(name); if (ix >= 0 && ix < 2) t = ['cu1', 'cu2'][ix]; } }
+        if (n > 0) { if (isMask(name)) t = 'xm:' + name; else if (name === outName) t = 'xo:' + name; else if (cuNames.indexOf(name) >= 0) t = 'xc:' + name; }
         S.layerTarget[name] = t;
       }
-      for (const tg in TARGETS) S.files[tg] = stem + TARGETS[tg].suffix + '.gbr';
     }
     $('fileInfo').textContent = S.fileName + ' · ' + (b.ver || '버전 표시 없음') + ' · 단위 ' + b.unitText + ' · 닫힌 도형 ' + b.shapes.length + '개';
     let msg = '읽기 완료: 닫힌 도형 ' + b.shapes.length + '개, 열린 선 ' + (b.paths || []).length + '개, 글자 ' + (b.texts || []).length + '개, 무시한 객체 ' + b.ignored.length + '개.';
@@ -2815,26 +2845,39 @@ if (typeof document !== 'undefined') (function () {
     renderLayerTable(); renderOutTable(); renderIgnored();
     clearResult(); S.dirty = true; S.dirtyFit = true; updateApply(); if ($('oAuto').checked) convert();
   }
+  // 레이어 표: 체크칸(출력 여부) + 규칙별로 묶은 출력 대상(동박 / 면 / 선). 체크를 끄면 고른 대상은 기억해 두었다가 다시 켤 때 되살린다
+  const RULES = [['xc', '동박', '패드는 플래시, 배선은 선으로 복원'], ['xm', '면', '그린 모양 그대로(패드 모양은 플래시, 나머지는 영역) — 솔더마스크 등'], ['xo', '선', '외곽선을 선으로 따라 그림 — 외형 등']];
   function renderLayerTable() {
-    const tb = $('layerTbl').tBodies[0]; tb.innerHTML = '';
+    const tb = $('layerTbl').tBodies[0]; tb.innerHTML = ''; S.layerPick = S.layerPick || {};
     for (const [name, n] of S.base.layerCount) {
-      const tr = tb.insertRow();
+      const tr = tb.insertRow(), cur = S.layerTarget[name] || 'none', on = cur !== 'none';
+      const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = on; ck.dataset.layer = name; ck.title = '이 레이어를 출력';
+      const c0 = tr.insertCell(); c0.style.textAlign = 'center'; c0.appendChild(ck);
       tr.insertCell().textContent = name;
       const c = tr.insertCell(); c.className = 'num'; c.textContent = n;
       const sel = document.createElement('select');
-      for (const [v, t] of [['cu1', '동박 1'], ['cu2', '동박 2'], ['mask', '솔더마스크 1'], ['mask2', '솔더마스크 2'], ['outline', '외형'], ['none', '출력 안 함']]) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); }
-      sel.value = S.layerTarget[name] || 'none'; sel.dataset.layer = name;
-      sel.onchange = () => { S.layerTarget[name] = sel.value; renderIgnored(); markDirty(true); };
+      for (const [v, t, tip] of RULES) { const o = document.createElement('option'); o.value = v; o.textContent = t; o.title = tip; sel.appendChild(o); }
+      const pk = on ? cur : (S.layerPick[name] || 'xc:' + name); sel.value = isXT(pk) ? pk.slice(0, 2) : 'xc'; sel.dataset.layer = name; sel.disabled = !on;
+      sel.title = '동박: 패드는 플래시, 배선은 선으로 복원 / 면: 그린 모양 그대로(솔더마스크 등) / 선: 외곽선을 선으로 따라 그림(외형 등). 체크한 레이어 하나가 출력 하나가 됩니다.';
+      const apply = () => { const v = sel.value + ':' + name; S.layerPick[name] = v; S.layerTarget[name] = ck.checked ? v : 'none'; sel.disabled = !ck.checked; tr.classList.toggle('off', !ck.checked); renderOutTable(); renderIgnored(); markDirty(true); };
+      ck.onchange = apply; sel.onchange = apply; tr.classList.toggle('off', !on);
       tr.insertCell().appendChild(sel);
     }
   }
   function renderOutTable() {
     const tb = $('outTbl').tBodies[0]; tb.innerHTML = '';
-    for (const tg in TARGETS) {
-      const tr = tb.insertRow(); tr.insertCell().textContent = TARGETS[tg].label;
+    const stem = S.fileName.replace(/\.[^.]*$/, '') || 'output';
+    for (const tg of outTargets()) {
+      if (!S.files[tg]) S.files[tg] = stem + '_' + fileSafe(tgLabel(tg)) + '.gbr';
+      if (!S.odbNames[tg]) S.odbNames[tg] = odbDefName(tg);
+      const tr = tb.insertRow(), c0 = tr.insertCell(); c0.textContent = tgLabel(tg); c0.title = tgLabel(tg);
+      c0.title = tgLabel(tg) + ' — 규칙: ' + ({ cu: '동박', mask: '면', outline: '선' })[tgRule(tg)];
       const inp = document.createElement('input'); inp.type = 'text'; inp.value = S.files[tg]; inp.id = 'file_' + tg;
       inp.onchange = () => { S.files[tg] = inp.value.trim() || S.files[tg]; inp.value = S.files[tg]; };
       tr.insertCell().appendChild(inp);
+      const on = document.createElement('input'); on.type = 'text'; on.value = S.odbNames[tg]; on.id = 'odbn_' + tg;
+      on.onchange = () => { const v = on.value.trim(); S.odbNames[tg] = v ? odbName(v) : odbDefName(tg); on.value = S.odbNames[tg]; };
+      tr.insertCell().appendChild(on);
       const ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = !!S.mirror[tg]; ck.id = 'mir_' + tg;
       ck.onchange = () => { S.mirror[tg] = ck.checked; markDirty(false); };
       const c = tr.insertCell(); c.style.textAlign = 'center'; c.appendChild(ck);
@@ -2856,9 +2899,10 @@ if (typeof document !== 'undefined') (function () {
     const has = !!S.base, dirty = has && S.dirty, ok = !!(S.result && S.result.layers.length) && !dirty;
     $('btnConvert').disabled = !has || S.busy; $('btnConvert').classList.toggle('need', !!dirty);
     $('dirtyBar').style.display = dirty && !S.busy ? 'block' : 'none';
-    $('dirtyBar').innerHTML = S.result ? '설정이 바뀌었습니다 — 눌러서 <b>변환</b>' : '출력 대상을 확인하고 눌러서 <b>변환</b>';
-    $('applyMsg').innerHTML = !has ? '도면을 열고 레이어의 출력 대상과 옵션을 정한 뒤 "변환"을 누르세요.' : dirty ? (S.result ? '<span class="bad">설정이 바뀌었습니다.</span> "변환"을 눌러야 결과와 내려받기에 반영됩니다(지금 보이는 것은 이전 설정의 결과).' : '레이어의 출력 대상과 옵션을 확인한 뒤 "변환"을 누르세요.') : (info || '변환 결과가 현재 설정과 같습니다.');
-    for (const tg in TARGETS) { const b = $('dl_' + tg); if (b) b.disabled = !ok || !layerOf(tg); }
+    $('dirtyBar').innerHTML = S.result ? '설정이 바뀌었습니다 — 눌러서 <b>변환</b>' : '레이어의 출력·규칙을 확인하고 눌러서 <b>변환</b>';
+    $('hint1').textContent = has ? '레이어의 출력·규칙을 확인하고 "변환"을 누르면 결과가 여기에 표시됩니다.' : '도면을 열면 변환 결과가 여기에 표시됩니다.';
+    $('applyMsg').innerHTML = !has ? '도면을 열고 레이어의 출력·규칙과 옵션을 정한 뒤 "변환"을 누르세요.' : dirty ? (S.result ? '<span class="bad">설정이 바뀌었습니다.</span> "변환"을 눌러야 결과와 내려받기에 반영됩니다(지금 보이는 것은 이전 설정의 결과).' : '레이어의 출력·규칙과 옵션을 확인한 뒤 "변환"을 누르세요.') : (info || '변환 결과가 현재 설정과 같습니다.');
+    for (const tg of outTargets()) { const b = $('dl_' + tg); if (b) b.disabled = !ok || !layerOf(tg); }
     $('btnZip').disabled = $('btnOdbTgz').disabled = $('btnOdbZip').disabled = !ok;
   }
   function markDirty(refit) { if (!S.base) return; S.dirty = true; S.dirtyFit = S.dirtyFit || !!refit; updateApply(); if ($('oAuto').checked) convert(); }
@@ -2883,7 +2927,7 @@ if (typeof document !== 'undefined') (function () {
       const tm = { prep: 0, contact: 0, trace: 0, write: 0, compare: 0 }; let cores = 1; for (const l of S.result.layers) if (!l.reused && l.times) { for (const k in tm) tm[k] += l.times[k] || 0; cores = Math.max(cores, l.times.cores || 1); }
       const sec = v => (v / 1000).toFixed(1) + '초';
       S.result.stage = '<br><small>단계별: 패드 떼기·토막 ' + sec(tm.prep) + ' · 맞닿음·겹침 ' + sec(tm.contact) + ' · 배선 복원 ' + sec(tm.trace) + ' · Gerber 쓰기·읽기 ' + sec(tm.write) + ' · 형상 비교 ' + sec(tm.compare) + ' · 코어 ' + cores + '개 사용</small>';
-      info = '변환 완료(' + (S.result.ms / 1000).toFixed(1) + '초)' + (re.length ? ' · 변환한 층: ' + re.join(', ') : '') + (keep.length ? ' · 그대로 쓴 층: ' + keep.join(', ') : '') + (S.result.layers.length ? '' : ' · 출력 대상 레이어가 없습니다') + (re.length ? S.result.stage : '');
+      info = '변환 완료(' + (S.result.ms / 1000).toFixed(1) + '초)' + (re.length ? ' · 변환한 층: ' + re.join(', ') : '') + (keep.length ? ' · 그대로 쓴 층: ' + keep.join(', ') : '') + (S.result.layers.length ? '' : ' · 출력할 레이어가 없습니다') + (re.length ? S.result.stage : '');
     } catch (e) { console.error(e); S.result = null; setMsg('변환 중 오류: ' + esc(e.message), true); }
     S.busy = false; $('busy').style.display = 'none';
     $('hint').style.display = S.result && S.result.layers.length ? 'none' : '';
@@ -2907,12 +2951,12 @@ if (typeof document !== 'undefined') (function () {
   const ROLE_T = { outline: '외형(선)', pad: '패드(플래시)', trace: '배선(선)', region: '영역', dup: '중복(출력 안 함)' };
   function renderSummary() {
     const R = S.result;
-    if (!R || !R.layers.length) { $('sumBox').innerHTML = '<span class="muted">' + (R ? '출력 대상 레이어가 없습니다. 레이어 표에서 출력 대상을 고르세요.' : '아직 변환하지 않았습니다. 레이어의 출력 대상과 옵션을 정하고 "변환"을 누르세요.') + '</span>'; $('warnBox').textContent = '없음'; $('apBox').textContent = '없음'; renderOverrides(); return; }
+    if (!R || !R.layers.length) { $('sumBox').innerHTML = '<span class="muted">' + (R ? '출력할 레이어가 없습니다. 레이어 표에서 출력할 레이어를 체크하세요.' : '아직 변환하지 않았습니다. 레이어의 출력·규칙과 옵션을 정하고 "변환"을 누르세요.') + '</span>'; $('warnBox').textContent = '없음'; $('apBox').textContent = '없음'; renderOverrides(); return; }
     let h = '<table><thead><tr><th>출력</th><th class="num">패드<br>(플래시)</th><th class="num">배선<br>(객체/선분)</th><th class="num">영역<br>(대체)</th><th class="num">모서리<br>채움</th><th class="num">최대 차이<br>(mm)</th></tr></thead><tbody>';
     let allOk = true;
     for (const L of R.layers) {
       const st = L.stats, ok = L.verify.nBad === 0; if (!ok) allOk = false;
-      h += '<tr><td>' + L.label + (L.mirror ? ' <small>(반전)</small>' : '') + '</td><td class="num">' + (st.pads - st.padAreas) + (st.padAreas ? ' <small>+영역 ' + st.padAreas + '</small>' : '') + '</td><td class="num">' + (L.target === 'outline' ? '<small>외형 선</small> ' + (st.outlines + st.paths) + ' / ' + st.segs : st.traces + ' / ' + st.segs + (st.texts || st.opens ? '<br><small>+글자 ' + st.texts + ', 열린 선 ' + st.opens + '</small>' : '')) + '</td><td class="num">' + st.areas + '</td><td class="num">' + st.fills + '</td><td class="num ' + (ok ? 'ok' : 'bad') + '">' + L.verify.worst.toFixed(4) + '</td></tr>';
+      h += '<tr><td>' + esc(L.label) + (L.mirror ? ' <small>(반전)</small>' : '') + '</td><td class="num">' + (st.pads - st.padAreas) + (st.padAreas ? ' <small>+영역 ' + st.padAreas + '</small>' : '') + '</td><td class="num">' + (isOutT(L.target) ? '<small>외형 선</small> ' + (st.outlines + st.paths) + ' / ' + st.segs : st.traces + ' / ' + st.segs + (st.texts || st.opens ? '<br><small>+글자 ' + st.texts + ', 열린 선 ' + st.opens + '</small>' : '')) + '</td><td class="num">' + st.areas + '</td><td class="num">' + st.fills + '</td><td class="num ' + (ok ? 'ok' : 'bad') + '">' + L.verify.worst.toFixed(4) + '</td></tr>';
     }
     h += '</tbody></table><div style="margin-top:6px;line-height:1.6">';
     h += '형상 비교: ' + (allOk ? '<span class="ok">모든 객체가 기준 이내</span>' : '<span class="bad">기준 초과 객체 있음 — 경고 목록 확인</span>') + '<br>';
@@ -2932,7 +2976,7 @@ if (typeof document !== 'undefined') (function () {
       const list = document.createElement('div'); list.className = 'list';
       groups[k].slice(0, 400).forEach(w => {
         const it = document.createElement('div'); it.className = 'item'; it.dataset.wtype = k;
-        it.innerHTML = '<small>' + TARGETS[w.target].label + (w.id != null ? ' #' + w.id : '') + (w.bbox ? ' (' + ((w.bbox[0] + w.bbox[2]) / 2).toFixed(3) + ', ' + ((w.bbox[1] + w.bbox[3]) / 2).toFixed(3) + ')' : '') + '</small><br>' + esc(w.msg);
+        it.innerHTML = '<small>' + esc(tgLabel(w.target)) + (w.id != null && w.id < S.base.shapes.length ? ' #' + w.id : '') + (w.bbox ? ' (' + ((w.bbox[0] + w.bbox[2]) / 2).toFixed(3) + ', ' + ((w.bbox[1] + w.bbox[3]) / 2).toFixed(3) + ')' : '') + '</small><br>' + esc(w.msg);
         if (w.bbox) it.onclick = () => { V.show[w.target] = true; renderToolbarLayers(); zoomTo(w.bbox); const s = w.id != null ? findShape(w.target, w.id) : null; if (s) { V.sels = [{ target: w.target, id: s.id }]; refreshPop(null); } };
         list.appendChild(it);
       });
@@ -2969,7 +3013,7 @@ if (typeof document !== 'undefined') (function () {
     box.appendChild(list);
   }
   function renderIgnored() {
-    const tgOf = l => S.layerTarget[l] || 'none', openUsed = q => tgOf(q.layer) === 'outline' || (tgOf(q.layer) !== 'none' && $('oOpenOn').checked), textUsed = q => tgOf(q.layer) !== 'none' && $('oTextOn').checked;
+    const tgOf = l => S.layerTarget[l] || 'none', openUsed = q => isOutT(tgOf(q.layer)) || (tgOf(q.layer) !== 'none' && $('oOpenOn').checked), textUsed = q => tgOf(q.layer) !== 'none' && $('oTextOn').checked;
     const box = $('ignBox'), ig = S.base.ignored.concat((S.base.paths || []).filter(q => !openUsed(q)).map(q => ({ type: q.type + ' (열린 선)', layer: q.layer, x: q.pts[0].x, y: q.pts[0].y })), (S.base.texts || []).filter(q => !textUsed(q)).map(q => ({ type: q.type, layer: q.layer, x: q.x, y: q.y }))); box.className = '';
     if (!ig.length) { box.innerHTML = '<span class="muted">없음</span>'; return; }
     const cnt = {}; for (const g of ig) cnt[g.type] = (cnt[g.type] || 0) + 1;
@@ -3018,15 +3062,15 @@ if (typeof document !== 'undefined') (function () {
   function render() {
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.fillStyle = '#10151b'; ctx.fillRect(0, 0, cv.width, cv.height);
     const R = S.result; if (!R) return;
-    const vb = viewBox(), byLayer = $('vColor').value === 'layer', order = ['cu2', 'cu1', 'mask2', 'mask', 'outline'];
+    const vb = viewBox(), byLayer = $('vColor').value === 'layer', order = R.layers.map(L => L.target).sort((a, b) => viewRank(a) - viewRank(b));
     if ($('vRes').checked) for (const tg of order) {
-      const L = layerOf(tg); if (!L || !V.show[tg]) continue;
+      const L = layerOf(tg); if (!L || V.show[tg] === false) continue;
       const o = off.getContext('2d'); o.setTransform(1, 0, 0, 1, 0, 0); o.globalCompositeOperation = 'source-over'; o.clearRect(0, 0, off.width, off.height); world(o);
       const px0 = V.dpr / V.scale, tiny = 1.5 * px0; let lastCol = null, lastPol = -1;
       for (const p of L.prims) {
         const b = p.bbox; if (b[0] > vb[2] || b[2] < vb[0] || b[1] > vb[3] || b[3] < vb[1]) continue;
         if (p.pol !== lastPol) { o.globalCompositeOperation = p.pol ? 'destination-out' : 'source-over'; lastPol = p.pol; }
-        const col = byLayer ? LAYER_COL[tg] : kindCol(tg, p.sub === 'text' ? 'text' : p.kind === 'region' ? p.sub : p.kind);
+        const col = byLayer ? layerCol(tg) : kindCol(tg, p.sub === 'text' ? 'text' : p.kind === 'region' ? p.sub : p.kind);
         if (col !== lastCol) { o.fillStyle = o.strokeStyle = col; lastCol = col; }
         const w = b[2] - b[0], h = b[3] - b[1];
         if (w < tiny && h < tiny) { o.fillRect(b[0] - VX, b[1] - VY, Math.max(w, px0), Math.max(h, px0)); continue; } // 화면에서 점만 한 것은 점으로
@@ -3038,7 +3082,7 @@ if (typeof document !== 'undefined') (function () {
         e.globalCompositeOperation = 'destination-in';
         for (const d of [[k, 0], [-k, 0], [0, k], [0, -k], [k, k], [k, -k], [-k, k], [-k, -k]]) e.drawImage(off, d[0], d[1]);
         o.setTransform(1, 0, 0, 1, 0, 0); o.globalCompositeOperation = 'destination-out'; o.drawImage(off2, 0, 0);
-        if (!byLayer) { o.globalCompositeOperation = 'source-in'; o.fillStyle = tg === 'mask2' ? MASK2_LINE_COL : MASK_LINE_COL; o.fillRect(0, 0, off.width, off.height); }
+        if (!byLayer) { o.globalCompositeOperation = 'source-in'; o.fillStyle = tg === 'mask2' || toneOf(tg) > 0 ? MASK2_LINE_COL : MASK_LINE_COL; o.fillRect(0, 0, off.width, off.height); }
         ctx.globalAlpha = 1; ctx.drawImage(off, 0, 0); continue;
       }
       ctx.globalAlpha = 0.85; ctx.drawImage(off, 0, 0); ctx.globalAlpha = 1;
@@ -3046,8 +3090,8 @@ if (typeof document !== 'undefined') (function () {
     world(ctx);
     const px = V.dpr / V.scale;
     if ($('vRes').checked && $('vCenter').checked) for (const tg of order) {
-      const L = layerOf(tg); if (!L || !V.show[tg]) continue;
-      if (tg === 'outline') continue;
+      const L = layerOf(tg); if (!L || V.show[tg] === false) continue;
+      if (isOutT(tg)) continue;
       ctx.lineWidth = 1 * px; ctx.strokeStyle = ctx.fillStyle = '#06301a';
       for (const p of L.prims) {
         if (p.kind !== 'stroke' || p.sub === 'text' || !bbHit(p.bbox, vb)) continue;
@@ -3058,8 +3102,8 @@ if (typeof document !== 'undefined') (function () {
       }
     }
     if ($('vOrig').checked) for (const tg of order) {
-      const L = layerOf(tg); if (!L || !V.show[tg]) continue;
-      ctx.lineWidth = 1.1 * px; ctx.strokeStyle = byLayer ? '#ffffff' : (isMaskT(tg) ? '#b9f5c8' : tg === 'cu2' ? '#b8ccff' : '#ffffff');
+      const L = layerOf(tg); if (!L || V.show[tg] === false) continue;
+      ctx.lineWidth = 1.1 * px; ctx.strokeStyle = byLayer ? '#ffffff' : (isMaskT(tg) ? '#b9f5c8' : tg === 'cu2' || toneOf(tg) === 1 ? '#b8ccff' : '#ffffff');
       for (const q of (L.tpaths || [])) for (const P of q.strokes) { ctx.beginPath(); ctx.moveTo(P[0].x - VX, P[0].y - VY); for (let i = 1; i < P.length; i++) ctx.lineTo(P[i].x - VX, P[i].y - VY); ctx.stroke(); }
       if (L.paths) for (const q of L.paths) { const f = q.flat; ctx.beginPath(); ctx.moveTo(f[0][0] - VX, f[0][1] - VY); for (let i = 1; i < f.length; i++) ctx.lineTo(f[i][0] - VX, f[i][1] - VY); ctx.stroke(); }
       for (const s of L.shapes) { if (!bbHit(s.bbox, vb) || (s.bbox[2] - s.bbox[0] < 3 * px && s.bbox[3] - s.bbox[1] < 3 * px)) continue; ctx.setLineDash(s.isVoid || s.dup ? [4 * px, 3 * px] : []); pathOf(ctx, V.scale < 300 ? s.coarse : s.flat); ctx.stroke(); }
@@ -3071,18 +3115,19 @@ if (typeof document !== 'undefined') (function () {
   }
   function renderToolbarLayers() {
     const box = $('tbLayers'); box.innerHTML = '';
+    KC = {};
     if (!S.result) return;
     for (const L of S.result.layers) {
-      const lb = document.createElement('label'), ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = V.show[L.target]; ck.id = 'show_' + L.target;
+      const lb = document.createElement('label'), ck = document.createElement('input'); ck.type = 'checkbox'; ck.checked = V.show[L.target] !== false; ck.id = 'show_' + L.target;
       ck.onchange = () => { V.show[L.target] = ck.checked; draw(); };
       lb.appendChild(ck); lb.appendChild(document.createTextNode(' ' + L.label + ' ')); lb.style.marginRight = '10px'; box.appendChild(lb);
     }
   }
   function renderLegend() {
     const byLayer = $('vColor').value === 'layer';
-    const it = byLayer ? [[LAYER_COL.cu1, '동박 1'], [LAYER_COL.cu2, '동박 2'], [LAYER_COL.mask, '솔더마스크 1'], [LAYER_COL.mask2, '솔더마스크 2'], [LAYER_COL.outline, '외형']] : [[KIND_COL.stroke, '선(배선, D01)'], [KIND_COL.flash, '플래시(패드, D03)'], [KIND_COL.area, '영역(외곽선 그대로)'], [KIND_COL.fill, '모서리·끝 채움(영역)'], [KIND_COL.text, '글자·열린 선(D01)']];
+    const it = byLayer ? (S.result ? S.result.layers.map(L => [layerCol(L.target), esc(L.label)]) : []) : [[KIND_COL.stroke, '선(배선, D01)'], [KIND_COL.flash, '플래시(패드, D03)'], [KIND_COL.area, '영역(외곽선 그대로)'], [KIND_COL.fill, '모서리·끝 채움(영역)'], [KIND_COL.text, '글자·열린 선(D01)']];
     const sw = c => byLayer ? '<i style="background:' + c + '"></i>' : ['cu1', 'cu2', 'mask', 'mask2'].map(t => '<i style="margin-right:1px;background:' + (t === 'cu1' ? c : t === 'cu2' ? shade(c, 0.5, 0) : t === 'mask' ? shade(c, 0.4, 0.6) : shade(c, 0.25, 0.3)) + '"></i>').join('');
-    $('legendItems').innerHTML = (byLayer ? '' : '<span style="margin-right:14px">색 톤: 밝음 = 동박 1 / 어두움 = 동박 2 / 옅음 = 솔더마스크 1 / 탁함 = 솔더마스크 2 · 흰 선 = 외형</span>') + it.map(v => '<span style="margin-right:14px;white-space:nowrap">' + sw(v[0]) + ' ' + v[1] + '</span>').join('') + (!byLayer && $('vMaskLine').checked ? '<span style="margin-right:14px;white-space:nowrap"><i style="background:none;border:2px solid ' + MASK_LINE_COL + '"></i>솔더마스크 1 테두리</span><span style="margin-right:14px;white-space:nowrap"><i style="background:none;border:2px solid ' + MASK2_LINE_COL + '"></i>솔더마스크 2 테두리</span>' : '') + '<span style="margin-right:14px"><i style="background:none;border:1px solid #fff"></i>원본 외곽선</span><span><i style="background:#06301a;height:3px;border:1px solid #6b7785"></i>중심선</span>';
+    $('legendItems').innerHTML = (byLayer ? '' : '<span style="margin-right:14px">색 톤: 밝음·어두움 = 동박 규칙의 첫째·둘째 층 / 옅음·탁함 = 면 규칙의 첫째·둘째 층 · 흰 선 = 선 규칙 층</span>') + it.map(v => '<span style="margin-right:14px;white-space:nowrap">' + sw(v[0]) + ' ' + v[1] + '</span>').join('') + (!byLayer && $('vMaskLine').checked ? '<span style="margin-right:14px;white-space:nowrap"><i style="background:none;border:2px solid ' + MASK_LINE_COL + '"></i>면 층 테두리(첫째)</span><span style="margin-right:14px;white-space:nowrap"><i style="background:none;border:2px solid ' + MASK2_LINE_COL + '"></i>면 층 테두리(그 밖)</span>' : '') + '<span style="margin-right:14px"><i style="background:none;border:1px solid #fff"></i>원본 외곽선</span><span><i style="background:#06301a;height:3px;border:1px solid #6b7785"></i>중심선</span>';
   }
   const toWorld = ev => { const r = cv.getBoundingClientRect(); return [((ev.clientX - r.left) * V.dpr - cv.width / 2) / V.scale + V.cx, (cv.height / 2 - (ev.clientY - r.top) * V.dpr) / V.scale + V.cy]; };
   cv.addEventListener('wheel', ev => { ev.preventDefault(); const p = toWorld(ev), f = Math.pow(1.0015, -ev.deltaY); V.scale *= f; V.cx = p[0] - (p[0] - V.cx) / f; V.cy = p[1] - (p[1] - V.cy) / f; draw(); }, { passive: false });
@@ -3106,13 +3151,13 @@ if (typeof document !== 'undefined') (function () {
     if (d.box && d.moved && V.box) { // 상자 선택
       const b = V.box, cross = b.x1 < b.x0, x0 = Math.min(b.x0, b.x1), x1 = Math.max(b.x0, b.x1), y0 = Math.min(b.y0, b.y1), y1 = Math.max(b.y0, b.y1); V.box = null;
       if (!d.add) V.sels = [];
-      for (const L of S.result.layers) { if (!V.show[L.target]) continue; for (const s of L.shapes) { if (!selectable(s)) continue; const q = s.bbox, inside = q[0] >= x0 && q[2] <= x1 && q[1] >= y0 && q[3] <= y1, touch = q[0] <= x1 && q[2] >= x0 && q[1] <= y1 && q[3] >= y0; if ((cross ? touch : inside) && has(L.target, s.id) < 0) V.sels.push({ target: L.target, id: s.id }); } }
+      for (const L of S.result.layers) { if (V.show[L.target] === false) continue; for (const s of L.shapes) { if (!selectable(s)) continue; const q = s.bbox, inside = q[0] >= x0 && q[2] <= x1 && q[1] >= y0 && q[3] <= y1, touch = q[0] <= x1 && q[2] >= x0 && q[1] <= y1 && q[3] >= y0; if ((cross ? touch : inside) && has(L.target, s.id) < 0) V.sels.push({ target: L.target, id: s.id }); } }
       refreshPop(ev); draw(); return;
     }
     V.box = null;
     if (d.moved || ev.target !== cv || ev.button !== 0) { draw(); return; }
     const p = toWorld(ev); let best = null, bt = null;
-    for (const L of S.result.layers) { if (!V.show[L.target]) continue; for (const s of L.shapes) if (!s.dup && p[0] >= s.bbox[0] && p[0] <= s.bbox[2] && p[1] >= s.bbox[1] && p[1] <= s.bbox[3] && pip(s.flat, p[0], p[1]) && (!best || s.area < best.area)) { best = s; bt = L.target; } }
+    for (const L of S.result.layers) { if (V.show[L.target] === false) continue; for (const s of L.shapes) if (!s.dup && p[0] >= s.bbox[0] && p[0] <= s.bbox[2] && p[1] >= s.bbox[1] && p[1] <= s.bbox[3] && pip(s.flat, p[0], p[1]) && (!best || s.area < best.area)) { best = s; bt = L.target; } }
     if (d.add) { if (best && selectable(best)) { const k = has(bt, best.id); if (k >= 0) V.sels.splice(k, 1); else V.sels.push({ target: bt, id: best.id }); } }
     else V.sels = best ? [{ target: bt, id: best.id }] : [];
     refreshPop(ev); draw();
@@ -3125,7 +3170,7 @@ if (typeof document !== 'undefined') (function () {
     if (V.sels.length === 1) { showPop(findShape(V.sels[0].target, V.sels[0].id), V.sels[0].target, ev); return; }
     const pop = $('pop'), items = V.sels.map(q => ({ tg: q.target, s: findShape(q.target, q.id) })), cnt = {}, byL = {};
     for (const it of items) { cnt[it.s.role] = (cnt[it.s.role] || 0) + 1; byL[it.tg] = (byL[it.tg] || 0) + 1; }
-    let h = '<b>객체 ' + items.length + '개 선택</b>' + Object.keys(byL).map(t => TARGETS[t].label + ' ' + byL[t]).join(', ') + '<br>현재: ' + Object.keys(cnt).map(r => ROLE_T[r] + ' ' + cnt[r]).join(', ');
+    let h = '<b>객체 ' + items.length + '개 선택</b>' + Object.keys(byL).map(t => esc(tgLabel(t)) + ' ' + byL[t]).join(', ') + '<br>현재: ' + Object.keys(cnt).map(r => ROLE_T[r] + ' ' + cnt[r]).join(', ');
     h += '<div style="margin-top:4px">한꺼번에 바꾸기 <small class="muted">(괄호 = 바꿀 수 있는 개수)</small></div><div class="row" id="popRoles"></div><div class="row" id="popVoid"></div><div class="row"><button id="popClose">선택 해제</button></div>';
     pop.innerHTML = h;
     const can = { auto: it => true, pad: it => !!it.s.pad, trace: it => it.s.canTrace && !it.s.isVoid, region: it => true };
@@ -3236,13 +3281,14 @@ if (typeof document !== 'undefined') (function () {
     bs.forEach(b => b.disabled = true); msg.className = 'muted'; msg.textContent = 'ODB++ 만드는 중…';
     await new Promise(r => setTimeout(r, 30));
     try {
-      const t0 = performance.now(), odb = buildOdb(S.result, S.base, { job: stem, units: $('oOdbUnit').value, steps: $('oOdbStep').checked, minRep: +$('oOdbMin').value || 100, arcPoly: $('oOdbArc').checked, apTol: cfgNow().apTol, ellN: cfgNow().ellN });
+      const t0 = performance.now(), odb = buildOdb(S.result, S.base, { job: stem, units: $('oOdbUnit').value, steps: $('oOdbStep').checked, minRep: +$('oOdbMin').value || 100, arcPoly: $('oOdbArc').checked, names: S.odbNames, apTol: cfgNow().apTol, ellN: cfgNow().ellN });
       msg.textContent = 'ODB++ 다시 읽어 대조하는 중…'; await new Promise(r => setTimeout(r, 30));
       const c = checkOdb(odb, S.result);
-      let h = '작업 이름 <b>' + esc(odb.job) + '</b> · ' + odb.units + ' · 파일 ' + odb.files.size + '개 · ' + (odb.bytes / 1e6).toFixed(2) + 'MB(압축 전)<br>';
-      if (odb.mode === 'cell' && odb.cell) h += '스텝 기준: <b>반복 칸 자동</b>(동박이 블록 안에 없어 패드 간격으로 찾음) — 칸 ' + odb.cell.px.toFixed(4) + ' × ' + odb.cell.py.toFixed(4) + 'mm, 내용이 있는 칸 ' + odb.cell.n + '개, 요소의 ' + (100 * odb.diag.featStep / Math.max(1, odb.diag.featIn + odb.diag.featOut)).toFixed(1) + '%가 스텝 안<br>';
+      let h = '작업 이름 <b>' + esc(odb.job) + '</b> · 층 ' + esc(odb.layers.join(', ')) + ' · ' + odb.units + ' · 파일 ' + odb.files.size + '개 · ' + (odb.bytes / 1e6).toFixed(2) + 'MB(압축 전)<br>';
+      if (odb.mode === 'cell' && odb.cell) h += '스텝 기준: <b>반복 칸 자동</b>(동박이 블록 안에 없어 패드 간격으로 찾음) — 칸 ' + odb.cell.px.toFixed(7) + ' × ' + odb.cell.py.toFixed(7) + 'mm, 내용이 있는 칸 ' + odb.cell.n + '개, 요소의 ' + (100 * odb.diag.featStep / Math.max(1, odb.diag.featIn + odb.diag.featOut)).toFixed(1) + '%가 스텝 안<br>';
       else if (odb.steps.length) h += '스텝 기준: <b>DXF 블록 삽입</b><br>';
       h += odb.steps.length ? '스텝 <b>' + odb.steps.length + '개</b>(내용 ' + odb.nKinds + '종, 스텝 하나 = 배열 하나 = CAM 블록 패드 한 줄)를 ' + odb.nInst + '곳에 반복: ' + esc(odb.steps.slice(0, 6).map(q => q.name + ' ' + q.nx + '×' + q.ny).join(', ')) + (odb.steps.length > 6 ? ' …' : '') + (odb.nFlatCell ? '<br>반복이 ' + odb.minRep + '번 미만인 조각 ' + odb.nFlatCell + '칸은 스텝으로 두지 않고 패널에 풀어 적음' : '') : '스텝 묶음 없음' + (odb.noStepWhy ? ' (' + odb.noStepWhy + ')' : odb.nFlatCell ? ' (한 배열로 ' + odb.minRep + '번 이상 반복되는 것이 없음 — "스텝으로 둘 최소 반복 수"를 낮추면 묶입니다)' : ' (똑같이 반복되는 부분이 없음)') + ' — 전부 panel 스텝에 적음';
+      if (odb.steps.length) { const m = /STEP-REPEAT \{\s+NAME=(\S+)\s+X=(\S+)\s+Y=(\S+)\s+DX=(\S+)\s+DY=(\S+)\s+NX=(\d+)\s+NY=(\d+)/.exec(odb.files.get('steps/panel/stephdr')); if (m) h += '<br><span class="muted">첫 반복 배치: ' + esc(m[1].toLowerCase()) + ' X=' + m[2] + ' Y=' + m[3] + ' DX=' + m[4] + ' DY=' + m[5] + ' NX=' + m[6] + ' NY=' + m[7] + '</span>'; }
       if (odb.steps.length) { const q = odb.steps[0]; h += '<br><span class="muted">가장 많이 반복되는 스텝 <b>' + esc(q.name) + '</b>의 내용: 선 ' + q.L + '개, 패드 ' + q.P + '개, 영역(모서리 채움 등) ' + q.S + '개</span>'; }
       { let ns = 0, nf = 0, nl = 0, na = 0; for (const L of S.result.layers) if (L.stats && L.stats.same) { ns += L.stats.same; nf += L.stats.sameFlash; nl += L.stats.sameLine; na += L.stats.sameArea; }
         h += '<br><span class="muted">같은 자리 같은 요소(완전히 겹친 것): ' + (ns ? '<b>' + ns + '개를 빼고 하나만 냄</b> (패드 ' + nf + ', 선 ' + nl + ', 영역 ' + na + ')' : '없음') + '</span>'; }

@@ -37,14 +37,15 @@ async function shots(browser) {
   const box = async (sel, pad) => { const b = await page.locator(sel).first().boundingBox(); const p = pad == null ? 8 : pad; return { x: Math.max(0, b.x - p), y: Math.max(0, b.y - p), width: b.width + 2 * p, height: b.height + 2 * p }; };
   const union = async (sels, pad) => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const s of sels) { const b = await page.locator(s).first().boundingBox(); x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.width); y1 = Math.max(y1, b.y + b.height); } const p = pad == null ? 8 : pad; return { x: Math.max(0, x0 - p), y: Math.max(0, y0 - p), width: x1 - x0 + 2 * p, height: y1 - y0 + 2 * p }; };
   const snap = async (name, clip) => { await wait(250); await page.screenshot({ path: path.join(img, name + '.png'), clip: clip || undefined }); console.log('  ' + name + '.png'); };
-  const toScreen = (x, y) => page.evaluate(([x, y]) => { const V = window.__app.V, c = document.getElementById('cv'), r = c.getBoundingClientRect(); return [r.left + (c.width / 2 + (x - V.cx) * V.scale) / V.dpr, r.top + (c.height / 2 - (y - V.cy) * V.scale) / V.dpr]; }, [x, y]);
-  const zoom = async bb => { await page.evaluate(bb => { const V = window.__app.V, c = document.getElementById('cv'); V.cx = (bb[0] + bb[2]) / 2; V.cy = (bb[1] + bb[3]) / 2; V.scale = Math.min(c.width / (bb[2] - bb[0]), c.height / (bb[3] - bb[1])) * 0.9; document.getElementById('vOrig').dispatchEvent(new Event('change')); }, bb); await wait(350); };
+  // 좌표는 DXF 기준으로 적혀 있다 → 원점 옮김(기본: 전체 좌측 하단 = 0,0)을 빼서 화면 좌표로
+  const toScreen = (x, y) => page.evaluate(([x, y]) => { const R = window.__app.S.result, o = R ? R.offset : [0, 0]; x -= o[0]; y -= o[1]; const V = window.__app.V, c = document.getElementById('cv'), r = c.getBoundingClientRect(); return [r.left + (c.width / 2 + (x - V.cx) * V.scale) / V.dpr, r.top + (c.height / 2 - (y - V.cy) * V.scale) / V.dpr]; }, [x, y]);
+  const zoom = async bb => { await page.evaluate(bb => { const R = window.__app.S.result, o = R ? R.offset : [0, 0]; bb = [bb[0] - o[0], bb[1] - o[1], bb[2] - o[0], bb[3] - o[1]]; const V = window.__app.V, c = document.getElementById('cv'); V.cx = (bb[0] + bb[2]) / 2; V.cy = (bb[1] + bb[3]) / 2; V.scale = Math.min(c.width / (bb[2] - bb[0]), c.height / (bb[3] - bb[1])) * 0.9; document.getElementById('vOrig').dispatchEvent(new Event('change')); }, bb); await wait(350); };
   const wrect = async (bb, n, at) => { const a = await toScreen(bb[0], bb[3]), b = await toScreen(bb[2], bb[1]); return { rect: [a[0], a[1], b[0] - a[0], b[1] - a[1]], n, at, pad: 0 }; };
   // 세계 좌표 범위에 맞춰 확대하고 그 범위(+ 창 pop)만 잘라 찍는다
   const wclip = async (bb, withPop) => { const a = await toScreen(bb[0], bb[3]), b = await toScreen(bb[2], bb[1]), c = await page.locator('#cvWrap').boundingBox(); let x0 = a[0], y0 = a[1], x1 = b[0], y1 = b[1]; if (withPop) { const q = await page.locator('#pop').boundingBox(); if (q) { x0 = Math.min(x0, q.x - 16); y0 = Math.min(y0, q.y - 16); x1 = Math.max(x1, q.x + q.width + 16); y1 = Math.max(y1, q.y + q.height + 16); } } x0 = Math.max(c.x, x0); y0 = Math.max(c.y, y0); x1 = Math.min(c.x + c.width, x1); y1 = Math.min(c.y + c.height, y1); return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }; };
   const snapW = async (name, bb, withPop) => snap(name, await wclip(bb, withPop));
-  const showOnly = async on => { for (const t of ['cu1', 'cu2', 'mask', 'mask2', 'outline']) { const id = '#show_' + t; if (await page.$(id)) { if (on.includes(t)) await page.check(id); else await page.uncheck(id); } } await wait(150); };
-  const ALL = ['cu1', 'cu2', 'mask', 'mask2', 'outline'];
+  const showOnly = async on => { for (const t of ['xc:L1_TOP', 'xc:L2_BOT', 'xm:SM_TOP', 'xm:SM_BOT', 'xo:OUTLINE']) { const id = '[id="show_' + t + '"]'; if (await page.$(id)) { if (on.includes(t)) await page.check(id); else await page.uncheck(id); } } await wait(150); };
+  const ALL = ['xc:L1_TOP', 'xc:L2_BOT', 'xm:SM_TOP', 'xm:SM_BOT', 'xo:OUTLINE'];
   const scrollTo = sel => page.evaluate(sel => document.querySelector(sel).scrollIntoView({ block: 'center' }), sel);
   const CARD = n => '#left .card:nth-of-type(' + n + ')';
   const RCARD = n => '#right .card:nth-of-type(' + n + ')';
@@ -74,7 +75,7 @@ async function shots(browser) {
   await scrollTo('#applyCard');
   await snap('08_apply_done', await box('#applyCard'));
   await page.evaluate(() => document.getElementById('left').scrollTop = 1e5);
-  await mark([{ sel: '#oFormat', n: 1, at: 'l' }, { sel: '#file_cu1', n: 2, at: 'tl' }, { sel: '#mir_cu1', n: 3, at: 'tl', pad: 6 }, { sel: '#dl_cu1', n: 4, at: 'tr' }, { sel: '#btnZip', n: 5, at: 'bl' }]);
+  await mark([{ sel: '#oFormat', n: 1, at: 'l' }, { sel: '[id="file_xc:L1_TOP"]', n: 2, at: 'tl' }, { sel: '[id="mir_xc:L1_TOP"]', n: 3, at: 'tl', pad: 6 }, { sel: '[id="dl_xc:L1_TOP"]', n: 4, at: 'tr' }, { sel: '#btnZip', n: 5, at: 'bl' }]);
   await snap('09_output_gerber', await box(CARD(5))); await unmark();
   await snap('10_toolbar', await box('#toolbar', 0));
   await snap('11_legend', await box('#legend', 0));
@@ -85,7 +86,7 @@ async function shots(browser) {
 
   // 4. 미리보기 확대
   const cvClip = () => box('#cvWrap', 0);
-  await showOnly(['cu1', 'outline']);
+  await showOnly(['xc:L1_TOP', 'xo:OUTLINE']);
   let bb = [1, 4.8, 23, 18.6];
   await zoom(bb);
   await mark([await wrect([1.3, 5.3, 8.8, 11.2], 1), await wrect([13.3, 5.3, 22.7, 8.7], 2), await wrect([1.3, 13.2, 12.7, 18.2], 3), await wrect([13.3, 13.3, 20.4, 14.7], 4, 'bl'), await wrect([13.3, 16.3, 21.7, 17.7], 5)]);
@@ -103,14 +104,14 @@ async function shots(browser) {
     else {
       await page.setInputFiles('#fontFile', fp); await wait(600);
       await page.click('#btnConvert'); await done(); await wait(300);
-      await showOnly(['cu1', 'outline']); await zoom(bb); await snapW('20b_text_font', bb);
+      await showOnly(['xc:L1_TOP', 'xo:OUTLINE']); await zoom(bb); await snapW('20b_text_font', bb);
       await page.evaluate(() => { document.getElementById('fontMsg').parentElement.id = 'fontGrp'; document.getElementById('fontGrp').scrollIntoView({ block: 'center' }); }); await wait(200);
       await mark([{ sel: '#btnFont', n: 1, at: 'tl' }, { sel: '#fontMsg', n: 2, at: 'tr' }, { sel: '#btnFontClr', n: 3, at: 'br' }]);
       await snap('04b_font', await union(['label[for=oTextOn]', '#fontGrp', 'label[for=oOpenOn]'], 10)); await unmark();
       await page.click('#btnFontClr'); await wait(600);
       await page.click('#btnConvert'); await done(); await wait(300);
       await page.evaluate(() => document.getElementById('left').scrollTop = 0);
-      await showOnly(['cu1', 'outline']);
+      await showOnly(['xc:L1_TOP', 'xo:OUTLINE']);
     } }
   bb = [7, 30.3, 12.5, 31.7]; await zoom(bb); await snapW('21_narrow', bb);
   bb = [1.2, 30.2, 4.2, 31.8]; await zoom(bb); await snapW('21_stub', bb);

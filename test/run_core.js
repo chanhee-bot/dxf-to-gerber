@@ -321,6 +321,24 @@ function check(name, cond, info) { if (!cond) fails++; console.log((cond ? '  ok
       check('폭 ' + w + ' → ' + W + ', ' + ang + '°, R ' + R + ': 선이 모두 한 덩어리로 겹침', LD.shapes[0].role === 'trace' && st.length >= 2 && groups === 1 && LD.verify.nBad === 0, '선 ' + st.length + ' 덩어리 ' + groups + ' 최대 ' + LD.verify.worst.toFixed(4));
     }
   }
+  {
+    console.log('\n== 레이어를 따로 출력(동박 규칙 / 면 / 선)');
+    // 같은 레이어를 고정 대상 대신 "따로 출력"으로 지정해도 같은 규칙이면 Gerber 글이 같아야 한다
+    const X = await convertAll(base, cfgOf({ layers: { L1_TOP: 'cu1', L2_BOT: 'xc:L2_BOT', SM_TOP: 'xm:SM_TOP', SM_BOT: 'mask2', OUTLINE: 'xo:OUTLINE', '치수': 'none', '0': 'none' } }));
+    const tx = (RR, t) => { const L = RR.layers.find(l => l.target === t); return L ? L.text.split('\n').filter((l, i) => i !== 1).join('\n') : null; }; // 둘째 줄(층 이름 주석)은 빼고 비교
+    check('출력 5개(고정 2 + 따로 3개), 이름 = DXF 레이어 이름', X.layers.map(l => l.label).join() === '동박 1,솔더마스크 2,L2_BOT,SM_TOP,OUTLINE', X.layers.map(l => l.label + ':' + l.rule).join(' '));
+    check('동박 규칙: 동박 2로 낸 것과 같음', tx(X, 'xc:L2_BOT') === tx(R, 'cu2'));
+    check('면 규칙: 솔더마스크 1로 낸 것과 같음', tx(X, 'xm:SM_TOP') === tx(R, 'mask'));
+    check('선 규칙: 외형으로 낸 것과 같음', tx(X, 'xo:OUTLINE') === tx(R, 'outline'));
+    check('동박 1은 그대로', tx(X, 'cu1') === tx(R, 'cu1'));
+    check('모두 기준 이내', X.layers.every(l => l.verify.nBad === 0));
+    // 동박 레이어를 면 규칙으로: 배선 복원 없이 패드 모양은 플래시, 나머지는 영역
+    const Y = await convertAll(base, cfgOf({ layers: { L1_TOP: 'xm:L1_TOP' } })), LY = Y.layers[0];
+    check('동박 레이어를 면 규칙으로: 배선 선 없음, 기준 이내', Y.layers.length === 1 && LY.stats.traces === 0 && LY.stats.areas > 0 && LY.verify.nBad === 0, JSON.stringify(LY.stats));
+    // 다른 레이어의 지정을 바꿔도 따로 출력 층은 그대로 쓴다
+    const Z = await convertAll(base, cfgOf({ layers: { L1_TOP: 'cu1', L2_BOT: 'xc:L2_BOT', SM_TOP: 'xm:SM_TOP', SM_BOT: 'none', OUTLINE: 'xo:OUTLINE' } }), null, X);
+    check('다른 레이어를 바꿔도 따로 출력 층은 재사용', Z.layers.length === 4 && Z.layers.every(l => l.reused), Z.layers.map(l => l.label + (l.reused ? '(재사용)' : '')).join(' '));
+  }
   console.log(fails ? '\n실패 ' + fails + '건' : '\n모두 통과');
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });
