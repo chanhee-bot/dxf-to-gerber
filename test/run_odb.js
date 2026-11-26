@@ -85,6 +85,11 @@ async function one(label, dxfText, layers, extra, expectSteps) {
       const worst = o => { let m = 0; const h = o.files.get('steps/panel/stephdr'); for (const b of h.split('STEP-REPEAT {').slice(1)) { const g = k => +new RegExp('\\b' + k + '=(\\S+)').exec(b)[1], rd = v => Math.round(v / 25.4 * 1e6) / 1e6 * 25.4; m = Math.max(m, Math.abs((rd(g('DX')) - g('DX')) * (g('NX') - 1)), Math.abs((rd(g('DY')) - g('DY')) * (g('NY') - 1))); } return m; };
       const o0 = buildOdb(R5, base5, { job: 'test', units: 'mm', steps: true, minRep: 100, apTol: 0.0001, ellN: 48 });
       check('  피치를 inch 6자리로 읽는 CAM을 가정하면 누적 오차가 줄어듦', worst(oM) < worst(o0) * 0.5, (worst(o0) * 1000).toFixed(4) + 'µm → ' + (worst(oM) * 1000).toFixed(4) + 'µm'); }
+    // 스텝 위치 보정: CAM이 스텝 배치 좌표를 0.03937(= 1/25.4를 줄인 값)로 바꿔 읽는다고 보면 2.0003ppm 모자란다 → 그만큼 늘려 적으면 위치가 맞는다
+    { const oP = buildOdb(R5, base5, { job: 'test', units: 'mm', steps: true, minRep: 100, srPpm: 2, apTol: 0.0001, ellN: 48 }), cP = checkOdb(oP, R5), h = oP.files.get('steps/panel/stephdr');
+      const g = k => +new RegExp('\\b' + k + '=(\\S+)').exec(h)[1], cam = v => v * 0.03937 * 25.4, far = 590 / 4.2;
+      check('  스텝 위치 보정 2ppm: DX 4.2 → 4.200008, 다시 읽기 대조 일치(되돌려 읽음)', cP.ok && Math.abs(g('DX') - 4.2000084) < 6e-7 && Math.abs(g('DY') - 3.9000078) < 6e-7, 'DX ' + g('DX') + ' DY ' + g('DY'));
+      check('  0.03937로 읽는 CAM을 가정: 590mm 지점 오차 1.18µm → 0.1µm 미만', Math.abs(cam(4.2) * far - 590) > 1.1e-3 && Math.abs(cam(g('DX')) * far - 590) < 1e-4, (Math.abs(cam(4.2) * far - 590) * 1000).toFixed(3) + 'µm → ' + (Math.abs(cam(g('DX')) * far - 590) * 1000).toFixed(3) + 'µm'); }
     { const o7 = buildOdb(R5, base5, { job: 'test', units: 'mm', steps: true, apTol: 0.0001, ellN: 48, pitchAll: true }), c7 = checkOdb(o7, R5);
       check('  패드 없이 선·영역 중심만으로도 같은 피치', c7.ok && o7.pitchInfo.all && Math.abs(o7.cell.px - 4.2) < 1e-9 && Math.abs(o7.cell.py - 3.9) < 1e-9 && o7.steps[0].count === 108, JSON.stringify(o7.pitchInfo)); }
     // 빈 곳(음각)이 있는 층: 칸마다 큰 사각 안에 빈 곳, 그 안에 섬. "번갈아" 옵션을 켜도 스텝으로 묶이고 그리는 순서(동박 → 빈 곳 → 섬)가 지켜져야 한다
